@@ -58,7 +58,7 @@ def _error(error_type: str, message: str, **extra: Any) -> dict[str, Any]:
 
 
 class RetrievalJobValidator(Component):
-    display_name = "07 데이터 조회 작업 검증기"
+    display_name = "06 데이터 조회 작업 검증기"
     description = "의도 계획의 데이터 조회 작업 구조를 검증하고 실행 가능한 작업만 남깁니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
     outputs = [Output(name="payload_out", display_name="페이로드 출력", method="build_payload")]

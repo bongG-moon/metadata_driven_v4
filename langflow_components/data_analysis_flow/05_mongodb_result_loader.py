@@ -13,13 +13,13 @@ DEFAULT_DATABASE = "datagov"
 DEFAULT_COLLECTION = "agent_v4_result_store"
 
 
-def load_previous_result(payload_value: Any, data_ref: str = "", mongo_uri: str = "", mongo_database: str = "", collection_name: str = "") -> dict[str, Any]:
+def load_previous_result(payload_value: Any, mongo_uri: str = "", mongo_database: str = "", collection_name: str = "") -> dict[str, Any]:
     payload = _payload(payload_value)
-    ref = data_ref or _find_data_ref(payload)
+    ref = _find_data_ref(payload)
     mongo_uri, mongo_database, collection_name = _resolve_config(mongo_uri, mongo_database, collection_name)
     next_payload = deepcopy(payload)
     if not ref:
-        return _mark_skipped(next_payload, mongo_database, collection_name, "missing_data_ref", "data_ref가 없어 이전 결과를 불러오지 않았습니다.")
+        return _mark_skipped(next_payload, mongo_database, collection_name, "missing_data_ref", "data_ref가 없어 이전 결과를 불러오지 않았습니다.", add_warning=False)
     if not mongo_uri:
         return _mark_skipped(next_payload, mongo_database, collection_name, "missing_mongo_uri", "MONGODB_URI가 없어 이전 결과를 불러오지 않았습니다.", ref)
 
@@ -73,8 +73,10 @@ def _mark_skipped(
     error_type: str,
     message: str,
     data_ref: str = "",
+    add_warning: bool = True,
 ) -> dict[str, Any]:
-    payload.setdefault("trace", {}).setdefault("warnings", []).append({"type": error_type, "message": message})
+    if add_warning:
+        payload.setdefault("trace", {}).setdefault("warnings", []).append({"type": error_type, "message": message})
     payload.setdefault("trace", {}).setdefault("inspection", {})["result_loader"] = {
         "stage": "05_mongodb_result_loader",
         "status": "skipped",
@@ -106,10 +108,9 @@ def _payload(value: Any) -> dict[str, Any]:
 
 class MongoDBResultLoader(Component):
     display_name = "05 MongoDB 이전 결과 로더"
-    description = "MongoDB result store에서 data_ref 기준 이전 분석 결과를 복원합니다."
+    description = "payload/state 안의 data_ref를 자동으로 찾아 MongoDB result store의 이전 분석 결과를 복원합니다."
     inputs = [
         DataInput(name="payload", display_name="페이로드", required=True),
-        MessageTextInput(name="data_ref", display_name="데이터 참조 ID", required=False),
         MessageTextInput(name="mongo_uri", display_name="MongoDB 연결 URI", required=False, advanced=True),
         MessageTextInput(name="mongo_database", display_name="MongoDB 데이터베이스", required=False, advanced=True),
         MessageTextInput(name="collection_name", display_name="결과 컬렉션", required=False, advanced=True),
@@ -120,7 +121,6 @@ class MongoDBResultLoader(Component):
         return Data(
             data=load_previous_result(
                 getattr(self, "payload", None),
-                getattr(self, "data_ref", ""),
                 getattr(self, "mongo_uri", ""),
                 getattr(self, "mongo_database", ""),
                 getattr(self, "collection_name", ""),

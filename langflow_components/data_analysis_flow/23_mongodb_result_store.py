@@ -48,7 +48,7 @@ def store_result(payload_value: Any, mongo_uri: str = "", mongo_database: str = 
         collection.replace_one({"_id": data_ref}, doc, upsert=True)
         next_payload.setdefault("data", {})["data_ref"] = data_ref
         next_payload.setdefault("trace", {}).setdefault("inspection", {})["result_store"] = {
-            "stage": "24_mongodb_result_store",
+            "stage": "23_mongodb_result_store",
             "status": "ok",
             "database": mongo_database,
             "collection_name": collection_name,
@@ -82,7 +82,7 @@ def _build_data_ref(payload: dict[str, Any]) -> str:
 def _mark_skipped(payload: dict[str, Any], database: str, collection_name: str, message: str) -> dict[str, Any]:
     payload.setdefault("trace", {}).setdefault("warnings", []).append({"type": "missing_mongo_uri", "message": message})
     payload.setdefault("trace", {}).setdefault("inspection", {})["result_store"] = {
-        "stage": "24_mongodb_result_store",
+        "stage": "23_mongodb_result_store",
         "status": "skipped",
         "database": database,
         "collection_name": collection_name,
@@ -95,7 +95,7 @@ def _mark_skipped(payload: dict[str, Any], database: str, collection_name: str, 
 def _mark_error(payload: dict[str, Any], database: str, collection_name: str, data_ref: str, errors: list[dict[str, Any]]) -> dict[str, Any]:
     payload.setdefault("trace", {}).setdefault("errors", []).extend(errors)
     payload.setdefault("trace", {}).setdefault("inspection", {})["result_store"] = {
-        "stage": "24_mongodb_result_store",
+        "stage": "23_mongodb_result_store",
         "status": "error",
         "database": database,
         "collection_name": collection_name,
@@ -111,7 +111,7 @@ def _payload(value: Any) -> dict[str, Any]:
 
 
 class MongoDBResultStore(Component):
-    display_name = "24 MongoDB 결과 저장소"
+    display_name = "23 MongoDB 결과 저장소"
     description = "pandas 분석 결과와 런타임 조회 결과를 MongoDB result store에 저장하고 data_ref를 페이로드에 남깁니다."
     inputs = [
         DataInput(name="payload", display_name="페이로드", required=True),

@@ -54,15 +54,15 @@ Implemented:
 
 - `reference_runtime/dummy_data.py`
 - `reference_runtime/retrieval.py`
-- `langflow_components/data_analysis_flow/07_retrieval_job_validator.py`
-- `langflow_components/data_analysis_flow/08_retrieval_job_router.py`
-- `langflow_components/data_analysis_flow/09_dummy_data_retriever.py`
-- `langflow_components/data_analysis_flow/10_oracle_query_retriever.py`
-- `langflow_components/data_analysis_flow/11_h_api_retriever.py`
-- `langflow_components/data_analysis_flow/12_datalake_retriever.py`
-- `langflow_components/data_analysis_flow/13_goodocs_retriever.py`
-- `langflow_components/data_analysis_flow/14_source_retrieval_merger.py`
-- `langflow_components/data_analysis_flow/15_retrieval_payload_adapter.py`
+- `langflow_components/data_analysis_flow/06_retrieval_job_validator.py`
+- `langflow_components/data_analysis_flow/07_retrieval_job_router.py`
+- `langflow_components/data_analysis_flow/08_dummy_data_retriever.py`
+- `langflow_components/data_analysis_flow/09_oracle_query_retriever.py`
+- `langflow_components/data_analysis_flow/10_h_api_retriever.py`
+- `langflow_components/data_analysis_flow/11_datalake_retriever.py`
+- `langflow_components/data_analysis_flow/12_goodocs_retriever.py`
+- `langflow_components/data_analysis_flow/13_source_retrieval_merger.py`
+- `langflow_components/data_analysis_flow/14_retrieval_payload_adapter.py`
 
 Instruction check:
 
@@ -70,7 +70,7 @@ Instruction check:
 - 입력은 `intent_plan.retrieval_jobs`와 table catalog 계약: pass
 - source credential 저장 없음: pass
 - dummy mode에서도 source type 경계와 `used_dummy_data` trace 보존: pass
-- final/session 전 `runtime_sources` 제거 helper 제공: pass
+- final/API 응답 전 `22 API Response Builder`에서 `runtime_sources` 제거: pass
 - DA/WB/HBM/POP 등 업무 단어 기반 adapter 분기 없음: pass
 
 Verification:
@@ -117,26 +117,26 @@ Verification:
 Implemented:
 
 - `langflow_components/data_analysis_flow/00_analysis_request_loader.py`
-- `langflow_components/data_analysis_flow/01_intent_prompt_template_ko.md`
+- `langflow_components/data_analysis_flow/03_intent_prompt_template_ko.md`
 - `langflow_components/data_analysis_flow/02_intent_variables_builder.py`
-- `langflow_components/data_analysis_flow/03_intent_plan_normalizer.py`
-- `langflow_components/data_analysis_flow/07_retrieval_job_validator.py`
-- `langflow_components/data_analysis_flow/08_retrieval_job_router.py`
-- `langflow_components/data_analysis_flow/09_dummy_data_retriever.py`
-- `langflow_components/data_analysis_flow/10_oracle_query_retriever.py`
-- `langflow_components/data_analysis_flow/11_h_api_retriever.py`
-- `langflow_components/data_analysis_flow/12_datalake_retriever.py`
-- `langflow_components/data_analysis_flow/13_goodocs_retriever.py`
-- `langflow_components/data_analysis_flow/14_source_retrieval_merger.py`
-- `langflow_components/data_analysis_flow/15_retrieval_payload_adapter.py`
-- `langflow_components/data_analysis_flow/16_pandas_variables_builder.py`
-- `langflow_components/data_analysis_flow/17_pandas_prompt_template_ko.md`
-- `langflow_components/data_analysis_flow/18_pandas_code_executor.py`
-- `langflow_components/data_analysis_flow/19_answer_variables_builder.py`
-- `langflow_components/data_analysis_flow/20_answer_prompt_template_ko.md`
-- `langflow_components/data_analysis_flow/21_answer_response_builder.py`
-- `langflow_components/data_analysis_flow/22_answer_message_adapter.py`
-- `langflow_components/data_analysis_flow/23_api_response_builder.py`
+- `langflow_components/data_analysis_flow/04_intent_plan_normalizer.py`
+- `langflow_components/data_analysis_flow/06_retrieval_job_validator.py`
+- `langflow_components/data_analysis_flow/07_retrieval_job_router.py`
+- `langflow_components/data_analysis_flow/08_dummy_data_retriever.py`
+- `langflow_components/data_analysis_flow/09_oracle_query_retriever.py`
+- `langflow_components/data_analysis_flow/10_h_api_retriever.py`
+- `langflow_components/data_analysis_flow/11_datalake_retriever.py`
+- `langflow_components/data_analysis_flow/12_goodocs_retriever.py`
+- `langflow_components/data_analysis_flow/13_source_retrieval_merger.py`
+- `langflow_components/data_analysis_flow/14_retrieval_payload_adapter.py`
+- `langflow_components/data_analysis_flow/15_pandas_variables_builder.py`
+- `langflow_components/data_analysis_flow/16_pandas_prompt_template_ko.md`
+- `langflow_components/data_analysis_flow/17_pandas_code_executor.py`
+- `langflow_components/data_analysis_flow/18_answer_variables_builder.py`
+- `langflow_components/data_analysis_flow/19_answer_prompt_template_ko.md`
+- `langflow_components/data_analysis_flow/20_answer_response_builder.py`
+- `langflow_components/data_analysis_flow/21_answer_message_adapter.py`
+- `langflow_components/data_analysis_flow/22_api_response_builder.py`
 - `langflow_components/data_analysis_flow/CONNECTION_GUIDE.md`
 
 Instruction check:

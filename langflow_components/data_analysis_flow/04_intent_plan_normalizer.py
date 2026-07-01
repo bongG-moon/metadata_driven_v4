@@ -19,7 +19,7 @@ def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, An
     next_payload["intent_plan"] = {**plan, "retrieval_jobs": retrieval_jobs, "pandas_execution_plan": pandas_plan}
     next_payload["metadata_refs"] = parsed.get("metadata_refs", plan.get("metadata_refs", [])) if isinstance(parsed.get("metadata_refs", plan.get("metadata_refs", [])), list) else []
     next_payload.setdefault("trace", {}).setdefault("inspection", {})["intent"] = {
-        "stage": "03_intent_plan_normalizer",
+        "stage": "04_intent_plan_normalizer",
         "status": "ok" if retrieval_jobs else "warning",
         "analysis_kind": next_payload["intent_plan"].get("analysis_kind", ""),
         "retrieval_job_count": len(retrieval_jobs),
@@ -39,10 +39,12 @@ def _payload(value: Any) -> dict[str, Any]:
 def _json(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return deepcopy(value)
-    text = str(value or "")
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    text = _text_value(value)
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
     if match:
-        text = match.group(1)
+        text = match.group(1).strip()
+    elif "{" in text and "}" in text:
+        text = text[text.find("{") : text.rfind("}") + 1]
     try:
         parsed = json.loads(text)
     except Exception:
@@ -50,8 +52,21 @@ def _json(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _text_value(value: Any) -> str:
+    for attr in ("text", "content", "message"):
+        text = getattr(value, attr, None)
+        if isinstance(text, str):
+            return text
+    data = getattr(value, "data", None)
+    if isinstance(data, dict):
+        for key in ("text", "content", "message", "output"):
+            if isinstance(data.get(key), str):
+                return data[key]
+    return str(value or "")
+
+
 class IntentPlanNormalizer(Component):
-    display_name = "03 의도 계획 정규화기"
+    display_name = "04 의도 계획 정규화기"
     description = "Langflow 에이전트/LLM의 의도 JSON을 표준 의도 계획으로 정규화합니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True), MessageTextInput(name="llm_response", display_name="의도 LLM 응답", required=True)]
     outputs = [Output(name="payload_out", display_name="페이로드 출력", method="build_payload")]

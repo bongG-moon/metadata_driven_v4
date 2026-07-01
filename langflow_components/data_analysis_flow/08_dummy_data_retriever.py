@@ -73,7 +73,6 @@ def retrieve_dummy_data(payload_value: Any) -> dict[str, Any]:
             continue
         rows = _rows_for_dataset(str(job.get("dataset_key") or ""))
         rows = _apply_params(rows, job.get("required_params"))
-        rows = _apply_filters(rows, job.get("filters"))
         results.append(
             {
                 "source_alias": job.get("source_alias") or job.get("dataset_key"),
@@ -85,14 +84,14 @@ def retrieve_dummy_data(payload_value: Any) -> dict[str, Any]:
                 "preview_rows": rows[:20],
                 "rows": rows,
                 "applied_params": job.get("required_params", {}),
-                "applied_filters": job.get("filters", {}),
+                "pandas_filters": job.get("filters", {}),
                 "data_ref": "",
                 "source_execution": {
                     "used_dummy_data": True,
                     "adapter": "dummy",
                     "declared_source_type": job.get("source_type"),
                     "params_applied_in_retriever": True,
-                    "filters_applied_in_retriever": True,
+                    "filters_applied_in_retriever": False,
                 },
                 "warnings": [],
                 "errors": [],
@@ -456,7 +455,7 @@ def _payload(value: Any) -> dict[str, Any]:
 
 
 class DummyDataRetriever(Component):
-    display_name = "09 더미 데이터 조회기"
+    display_name = "08 더미 데이터 조회기"
     description = "실제 소스 조회가 꺼져 있을 때 데이터 조회 작업을 data_catalog 구조와 같은 더미 행으로 실행합니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
     outputs = [Output(name="retrieval_payload", display_name="조회 페이로드", method="build_payload")]

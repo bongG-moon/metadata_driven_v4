@@ -19,10 +19,10 @@ retriever는 기존 구현에서 사용하던 4개 방식과 dummy 방식을 모
 
 Python reference runtime은 `reference_runtime/retrieval.py`에서 source별 분기를 수행합니다.
 
-- 기본값: `RUN_LIVE_SOURCE_RETRIEVAL=false`
-- 기본값에서는 실제 Oracle/API/Datalake/Goodocs를 호출하지 않고 `reference_runtime/dummy_data.py`의 deterministic dummy rows를 사용합니다.
+- Langflow 기본값: `07 데이터 조회 작업 라우터`의 `조회 모드=dummy`
+- 더미 모드에서는 실제 Oracle/API/Datalake/Goodocs를 호출하지 않고 deterministic dummy rows를 사용합니다.
 - 이때도 `source_type`, `source_config`, `source_execution`, `used_dummy_data`를 남기므로 Langflow wiring과 pandas 분석 scope를 실제 구조처럼 검증할 수 있습니다.
-- 운영 연결을 시험하려면 `.env`에서 `RUN_LIVE_SOURCE_RETRIEVAL=true`로 바꾸고 source별 credential/config를 채웁니다.
+- 운영 연결을 시험하려면 `07 데이터 조회 작업 라우터`의 `조회 모드`를 `live`로 바꾸고 source별 credential/config를 채웁니다.
 
 ## Environment Keys
 
@@ -41,7 +41,7 @@ GOODOCS_MODULE_NAME=
 SOURCE_FETCH_LIMIT=5000
 ```
 
-`ORACLE_CONFIG_JSON`은 예를 들어 아래 형태를 기대합니다.
+`ORACLE_CONFIG_JSON` 또는 `09 Oracle 쿼리 조회기`의 `Oracle 설정/TNS` 입력은 예를 들어 아래 JSON 형태를 기대합니다.
 
 ```json
 {
@@ -53,21 +53,30 @@ SOURCE_FETCH_LIMIT=5000
 }
 ```
 
+TNS block을 직접 붙여 넣을 때는 db_key를 앞에 붙인 named block 형태도 사용할 수 있습니다.
+
+```text
+PNT_RPT:
+(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=...)(PORT=...))(CONNECT_DATA=(SERVICE_NAME=...)))
+```
+
+여러 Oracle DB를 쓰는 경우 `PNT_RPT`, `GMS_DB`처럼 table catalog의 `source_config.db_key`와 같은 이름으로 나누어 입력합니다.
+
 Datalake Langflow component는 LakeHouse 방식으로 실행합니다. 입력으로 받은 `LAKEHOUSE_USER_ID`, `LAKEHOUSE_TOKEN`, `LAKEHOUSE_S3_ACCESS_KEY`, `LAKEHOUSE_S3_SECRET_KEY`를 환경변수에 세팅한 뒤 `lakes.LakeHouse(real_user_id=...)`, `ensure_running(cluster_type="starrocks")`, `auto_run_sync_paragraph(code=sql)`, `get_rst()` 순서로 결과를 읽습니다.
 
 ## Langflow Components
 
 `langflow_components/data_analysis_flow/`에는 data analysis flow에서 바로 연결하는 source retriever custom component가 들어 있습니다.
 
-- `07_retrieval_job_validator.py`: `intent_plan.retrieval_jobs` 구조 검증
-- `08_retrieval_job_router.py`: source type별 조회 branch 분기
-- `09_dummy_data_retriever.py`: live source가 꺼져 있을 때 deterministic dummy data 조회
-- `10_oracle_query_retriever.py`: Oracle source job 처리
-- `11_h_api_retriever.py`: H-API source job 처리
-- `12_datalake_retriever.py`: Datalake source job 처리
-- `13_goodocs_retriever.py`: Goodocs source job 처리
-- `14_source_retrieval_merger.py`: 여러 source 결과를 하나의 retrieval payload로 병합
-- `15_retrieval_payload_adapter.py`: pandas 분석용 `runtime_sources` 구성과 final-safe payload 분리
+- `06_retrieval_job_validator.py`: `intent_plan.retrieval_jobs` 구조 검증
+- `07_retrieval_job_router.py`: source type별 조회 branch 분기
+- `08_dummy_data_retriever.py`: live source가 꺼져 있을 때 deterministic dummy data 조회
+- `09_oracle_query_retriever.py`: Oracle source job 처리
+- `10_h_api_retriever.py`: H-API source job 처리
+- `11_datalake_retriever.py`: Datalake source job 처리
+- `12_goodocs_retriever.py`: Goodocs source job 처리
+- `13_source_retrieval_merger.py`: 여러 source 결과를 하나의 retrieval payload로 병합
+- `14_retrieval_payload_adapter.py`: pandas 분석용 `runtime_sources` 구성
 
 각 파일은 Langflow custom component에 하나씩 붙여 넣어도 동작하도록 sibling import 없이 작성했습니다.
 불필요한 port를 늘리지 않기 위해 입력은 payload와 source별 credential/config 정도만 둡니다.

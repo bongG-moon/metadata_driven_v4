@@ -56,7 +56,7 @@ main router는 어떤 flow를 실행할지 선택하고, 선택된 flow의 API �
 -> 01 Metadata Context Loader
 -> 02 Intent Prompt Builder
 -> Intent LLM
--> 03 Intent Plan Normalizer
+-> 04 Intent Plan Normalizer
 -> 04 Previous Result Restore Router
 -> 05 MongoDB Data Loader, only when full restore is required
 -> 06 Previous Result Restore Merger
@@ -105,7 +105,7 @@ API/session state 저장 경로:
 | Purpose | Connection |
 | --- | --- |
 | Route classification | `03A Route Prompt Context Builder -> Langflow Prompt Template -> Route Classifier LLM -> 04 Route Classifier Normalizer` |
-| Intent planning | `02 Intent Prompt Builder -> Intent LLM -> 03 Intent Plan Normalizer` |
+| Intent planning | `02 Intent Prompt Builder -> Intent LLM -> 04 Intent Plan Normalizer` |
 | Pandas code generation | `14 Pandas Prompt Builder -> Pandas Code LLM -> 15 Pandas Code Executor` |
 | Pandas repair | `16B Pandas Repair Prompt Builder -> Pandas Repair LLM -> second 15 Pandas Code Executor` |
 | Final answer writing | `18 Answer Prompt Builder -> Answer LLM -> 19 Answer Response Builder` |
@@ -125,7 +125,7 @@ LLM 출력은 그대로 신뢰하지 않습니다. route, intent JSON, pandas co
 
 | Field | Meaning |
 | --- | --- |
-| `request` | session id, question, timezone/date |
+| `request` | session id, question, reference date |
 | `state` | chat history, context, current_data |
 | `metadata` | domain, table catalog, main flow filters |
 | `metadata_route` | router가 정규화한 route 결정 |

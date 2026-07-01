@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
 import sys
 import types
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -175,6 +177,20 @@ def test_langflow_components_load_as_standalone_files():
         load_module(path)
 
 
+def test_langflow_components_do_not_overlap_input_and_output_names():
+    for path in COMPONENT_FILES:
+        module = load_module(path)
+        component_classes = [
+            value
+            for value in vars(module).values()
+            if isinstance(value, type) and value.__module__ == module.__name__ and hasattr(value, "inputs") and hasattr(value, "outputs")
+        ]
+        for component_class in component_classes:
+            input_names = {item.kwargs.get("name") for item in getattr(component_class, "inputs", []) if hasattr(item, "kwargs")}
+            output_names = {item.kwargs.get("name") for item in getattr(component_class, "outputs", []) if hasattr(item, "kwargs")}
+            assert not (input_names & output_names), f"{path.name} has overlapping input/output names: {input_names & output_names}"
+
+
 def test_langflow_component_visible_labels_are_korean_first():
     def has_korean(text: str) -> bool:
         return any("\uac00" <= char <= "\ud7a3" for char in text)
@@ -202,11 +218,11 @@ def test_langflow_component_visible_labels_are_korean_first():
 
 
 def test_data_retriever_langflow_pipeline_dummy_path():
-    validator = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_validator.py")
-    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_retrieval_job_router.py")
-    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_dummy_data_retriever.py")
-    merger = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "14_source_retrieval_merger.py")
-    adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_retrieval_payload_adapter.py")
+    validator = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "06_retrieval_job_validator.py")
+    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_router.py")
+    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
+    merger = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "13_source_retrieval_merger.py")
+    adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "14_retrieval_payload_adapter.py")
     payload = {
         "intent_plan": {
             "retrieval_jobs": [
@@ -226,15 +242,90 @@ def test_data_retriever_langflow_pipeline_dummy_path():
     dummy_result = dummy.retrieve_dummy_data(dummy_bundle)
     merged = merger.merge_source_retrieval_payloads(validated, dummy_result)
     adapted = adapter.build_retrieval_payload(merged)
-    final_safe = adapter.strip_runtime_sources(adapted)
+    output_names = {item.kwargs.get("name") for item in adapter.RetrievalPayloadAdapter.outputs}
 
-    assert adapted["runtime_sources"]["wip_data"][0]["OPER_NAME"] == "D/A1"
+    assert {row["OPER_NAME"] for row in adapted["runtime_sources"]["wip_data"]} == {"D/A1", "D/A2", "W/B1", "W/B2"}
     assert adapted["source_results"][0]["source_execution"]["used_dummy_data"] is True
-    assert "runtime_sources" not in final_safe
+    assert adapted["source_results"][0]["source_execution"]["filters_applied_in_retriever"] is False
+    assert adapted["source_results"][0]["pandas_filters"] == {"OPER_NAME": {"operator": "in", "values": ["D/A1"]}}
+    assert output_names == {"payload_out"}
+    assert "final_safe_payload" not in output_names
+
+
+def test_retrieval_router_sends_jobs_only_to_dummy_when_live_disabled(monkeypatch):
+    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_router.py")
+    monkeypatch.setenv("RUN_LIVE_SOURCE_RETRIEVAL", "true")
+    payload = {
+        "intent_plan": {
+            "retrieval_jobs": [
+                {"dataset_key": "wip_today", "source_alias": "wip_data", "source_type": "oracle"},
+                {"dataset_key": "target", "source_alias": "target_data", "source_type": "goodocs"},
+            ]
+        }
+    }
+    input_names = {item.kwargs.get("name") for item in router.RetrievalJobRouter.inputs}
+
+    dummy = router.route_retrieval_jobs(payload, "dummy", "dummy")
+    oracle = router.route_retrieval_jobs(payload, "oracle", "dummy")
+    goodocs = router.route_retrieval_jobs(payload, "goodocs", "dummy")
+
+    assert "retrieval_mode" in input_names
+    assert len(dummy["retrieval_job_bundle"]["jobs"]) == 2
+    assert oracle["retrieval_job_bundle"]["jobs"] == []
+    assert goodocs["retrieval_job_bundle"]["jobs"] == []
+
+
+def test_retrieval_router_live_mode_routes_by_source_type(monkeypatch):
+    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_router.py")
+    monkeypatch.setenv("RUN_LIVE_SOURCE_RETRIEVAL", "false")
+    payload = {
+        "intent_plan": {
+            "retrieval_jobs": [
+                {"dataset_key": "wip_today", "source_alias": "wip_data", "source_type": "oracle"},
+                {"dataset_key": "target", "source_alias": "target_data", "source_type": "goodocs"},
+            ]
+        }
+    }
+
+    dummy = router.route_retrieval_jobs(payload, "dummy", "live")
+    oracle = router.route_retrieval_jobs(payload, "oracle", "live")
+    goodocs = router.route_retrieval_jobs(payload, "goodocs", "live")
+
+    assert dummy["retrieval_job_bundle"]["jobs"] == []
+    assert [job["dataset_key"] for job in oracle["retrieval_job_bundle"]["jobs"]] == ["wip_today"]
+    assert [job["dataset_key"] for job in goodocs["retrieval_job_bundle"]["jobs"]] == ["target"]
+
+
+def test_analysis_request_loader_defaults_reference_date_to_korea_today():
+    request_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "00_analysis_request_loader.py")
+    expected_today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
+
+    payload = request_loader.build_request("오늘 재공 알려줘")
+    inherited = request_loader.build_request("오늘 재공 알려줘", {"session_id": "s-from-state"})
+    input_names = {item.kwargs.get("name") for item in request_loader.AnalysisRequestLoader.inputs}
+
+    assert payload["request"]["reference_date"] == expected_today
+    assert payload["request"]["session_id"] == "demo-session"
+    assert inherited["request"]["session_id"] == "s-from-state"
+    assert "timezone" not in payload["request"]
+    assert "reference_date_source" not in payload["request"]
+    assert "reference_date" not in input_names
+    assert "timezone" not in input_names
+    assert "session_id" not in input_names
+
+
+def test_intent_variables_builder_hides_date_context_ports():
+    intent_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "02_intent_variables_builder.py")
+
+    output_names = {item.kwargs.get("name") for item in intent_variables.IntentVariablesBuilder.outputs}
+
+    assert output_names == {"question", "state_summary", "metadata_candidates", "output_schema"}
+    assert "reference_date" not in output_names
+    assert "timezone" not in output_names
 
 
 def test_langflow_dummy_data_covers_data_catalog_shapes():
-    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_dummy_data_retriever.py")
+    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
     expected_columns = {
         "production_today": {
             "WORK_DATE", "SHIFT", "FACTORY", "FAB", "FAMILY", "MODE", "DENSITY", "TECH", "ORG", "PKG1",
@@ -307,8 +398,8 @@ def _dummy_shape_params(dataset_key):
     return {"DATE": "20260701"}
 
 
-def test_langflow_dummy_data_applies_required_params_and_alias_filters():
-    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_dummy_data_retriever.py")
+def test_langflow_dummy_data_applies_required_params_and_preserves_pandas_filters():
+    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
     payload = dummy.retrieve_dummy_data(
         {
             "retrieval_job_bundle": {
@@ -335,28 +426,38 @@ def test_langflow_dummy_data_applies_required_params_and_alias_filters():
     production, hold = payload["source_results"]
 
     assert {row["WORK_DATE"] for row in production["rows"]} == {"20260701"}
-    assert {row["PKG1"] for row in production["rows"]} == {"LFBGA"}
+    assert {row["PKG1"] for row in production["rows"]} == {"LFBGA", "HBM", "UFBGA"}
+    assert production["pandas_filters"] == {"PKG_TYPE1": {"operator": "eq", "value": "LFBGA"}}
+    assert production["source_execution"]["filters_applied_in_retriever"] is False
     assert {row["LOT_ID"] for row in hold["rows"]} == {"T1234567GEN1"}
 
 
 def test_data_analysis_langflow_dummy_path_reaches_api_response():
     request_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "00_analysis_request_loader.py")
     intent_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "02_intent_variables_builder.py")
-    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "03_intent_plan_normalizer.py")
-    validator = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_validator.py")
-    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_retrieval_job_router.py")
-    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_dummy_data_retriever.py")
-    merger = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "14_source_retrieval_merger.py")
-    adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_retrieval_payload_adapter.py")
-    pandas_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "16_pandas_variables_builder.py")
-    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "18_pandas_code_executor.py")
-    answer_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "19_answer_variables_builder.py")
-    answer_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_response_builder.py")
-    api_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "23_api_response_builder.py")
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    validator = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "06_retrieval_job_validator.py")
+    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_router.py")
+    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
+    merger = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "13_source_retrieval_merger.py")
+    adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "14_retrieval_payload_adapter.py")
+    pandas_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_pandas_variables_builder.py")
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    answer_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "18_answer_variables_builder.py")
+    answer_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "20_answer_response_builder.py")
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    api_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "22_api_response_builder.py")
 
-    payload = request_loader.build_request("오늘 D/A1 공정 WIP 합계 알려줘", reference_date="20260701")
+    expected_today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
+    payload = request_loader.build_request("오늘 D/A1 공정 WIP 합계 알려줘")
     intent_prompt_vars = intent_variables.build_variables(payload, {"datasets": ["wip_today"]})
     assert "wip_today" in intent_prompt_vars["metadata_candidates"]
+    state_summary = json.loads(intent_prompt_vars["state_summary"])
+    assert state_summary["request_context"]["reference_date"] == expected_today
+    assert "timezone" not in state_summary["request_context"]
+    assert "reference_date_source" not in state_summary["request_context"]
+    assert "reference_date" not in intent_prompt_vars
+    assert "timezone" not in intent_prompt_vars
     intent_llm_response = {
         "intent_plan": {
             "analysis_kind": "wip_sum_by_oper",
@@ -382,6 +483,8 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     dummy_result = dummy.retrieve_dummy_data(dummy_bundle)
     merged = merger.merge_source_retrieval_payloads(validated, dummy_result)
     payload = adapter.build_retrieval_payload(merged)
+    assert payload["source_results"][0]["row_count"] == 4
+    assert payload["source_results"][0]["pandas_filters"] == {"OPER_NAME": {"operator": "eq", "value": "D/A1"}}
 
     pandas_prompt_vars = pandas_variables.build_variables(payload)
     assert "wip_data" in pandas_prompt_vars["source_schema_json"]
@@ -395,19 +498,126 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
 
     assert payload["analysis"]["status"] == "ok"
     assert payload["data"]["rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 120}]
+    generated_code = payload["trace"]["inspection"]["pandas_execution"]["generated_code"]
+    assert "OPER_NAME" in generated_code
+    assert "_filter_values_1_1 = ['D/A1']" in generated_code
+    assert ".isin(_filter_values_1_1)" in generated_code
+    assert "df = sources['wip_data']" in generated_code
+    assert payload["trace"]["inspection"]["pandas_execution"]["pandas_filter_plan"][0]["conditions"][0]["field"] == "OPER_NAME"
 
     answer_prompt_vars = answer_variables.build_variables(payload)
     assert "wip_sum" in answer_prompt_vars["result_summary_json"]
     payload = answer_builder.build_answer_response(payload, "D/A1 공정의 WIP 합계는 120입니다.")
+    playground_message = message_adapter.build_message(payload)
     response = api_builder.build_api_response(payload)
 
     assert response["status"] == "ok"
     assert response["message"] == "D/A1 공정의 WIP 합계는 120입니다."
     assert response["data"]["row_count"] == 1
     assert "runtime_sources" not in response
+    assert "### 의도 분석" in playground_message
+    assert "wip_sum_by_oper" in playground_message
+    assert "### 데이터 조회" in playground_message
+    assert "wip_data" in playground_message
+    assert "pandas 필터" in playground_message
+    assert "### pandas 코드/실행" in playground_message
+    assert "df = sources['wip_data']" in playground_message
+    assert "| OPER_NAME | wip_sum |" in playground_message
 
 
-def test_data_analysis_mongodb_metadata_loader_uses_v4_env_defaults(monkeypatch):
+def test_intent_normalizer_parses_langflow_message_text_with_nested_json():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    payload = {"request": {"question": "오늘 da공정 생산량 상위 3개 제품 알려줘"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    llm_response = types.SimpleNamespace(
+        text="""```json
+{
+  "intent_plan": {
+    "analysis_kind": "top_product_production",
+    "retrieval_jobs": [
+      {
+        "dataset_key": "production_today",
+        "source_alias": "production_data",
+        "source_type": "oracle",
+        "source_config": {"source_type": "oracle", "db_key": "PNT_RPT", "query_template": "SELECT * FROM PROD_TABLE WHERE WORK_DATE = {DATE}"},
+        "required_params": {"DATE": "20260701"},
+        "filters": {"OPER_NAME": {"operator": "contains", "value": "D/A"}}
+      }
+    ],
+    "pandas_execution_plan": [{"step": "top_n", "source_alias": "production_data"}],
+    "output_contract": {"top_n": 3}
+  },
+  "metadata_refs": [{"type": "table_catalog", "key": "production_today"}],
+  "trace": {"decision_reason": ["production_today를 선택"]}
+}
+```"""
+    )
+
+    normalized = intent_normalizer.normalize_intent_plan(payload, llm_response)
+
+    assert normalized["intent_plan"]["retrieval_jobs"][0]["dataset_key"] == "production_today"
+    assert normalized["intent_plan"]["retrieval_jobs"][0]["required_params"] == {"DATE": "20260701"}
+    assert normalized["metadata_refs"] == [{"type": "table_catalog", "key": "production_today"}]
+    assert normalized["trace"]["inspection"]["intent"]["retrieval_job_count"] == 1
+    assert not any(warning.get("type") == "missing_retrieval_jobs" for warning in normalized["trace"]["warnings"])
+
+
+def test_pandas_executor_parses_langflow_message_text_json():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {"runtime_sources": {"production_data": [{"MODE": "LPDDR5", "PRODUCTION": 1000}]}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    llm_response = types.SimpleNamespace(text='```json\n{"code": "df = sources[\'production_data\']\\nresult = df"}\n```')
+
+    result = pandas_executor.execute_pandas_code(payload, llm_response)
+
+    assert result["analysis"]["status"] == "ok"
+    assert result["data"]["rows"] == [{"MODE": "LPDDR5", "PRODUCTION": 1000}]
+
+
+def test_pandas_executor_prepends_non_required_filters_before_aggregation():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "intent_plan": {
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "production_today",
+                    "source_alias": "production_data",
+                    "source_type": "oracle",
+                    "required_params": {"DATE": "20260701"},
+                    "filters": {"OPER_NAME": {"operator": "in", "value": ["D/A1", "D/A2", "D/A3", "D/A4", "D/A5", "D/A6"]}},
+                }
+            ],
+            "pandas_execution_plan": [{"step": "top_3_products"}],
+        },
+        "runtime_sources": {
+            "production_data": [
+                {"WORK_DATE": "20260701", "OPER_NAME": "D/A1", "TECH": "1Z", "DEN": "16G", "MODE": "LPDDR5", "PKG_TYPE1": "LFBGA", "PKG_TYPE2": "POP", "LEAD": "200", "MCP_NO": "MCP001", "DEVICE": "DEV001", "PRODUCTION": 1000},
+                {"WORK_DATE": "20260701", "OPER_NAME": "D/A2", "TECH": "1A", "DEN": "24G", "MODE": "HBM3E", "PKG_TYPE1": "HBM", "PKG_TYPE2": "TSV", "LEAD": "300", "MCP_NO": "MCPHBM", "DEVICE": "DEV-HBM", "PRODUCTION": 700},
+                {"WORK_DATE": "20260701", "OPER_NAME": "W/B1", "TECH": "1B", "DEN": "32G", "MODE": "LPDDR5X", "PKG_TYPE1": "UFBGA", "PKG_TYPE2": "MOBILE", "LEAD": "180", "MCP_NO": "MCP002", "DEVICE": "DEV002", "PRODUCTION": 650},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    llm_response = {
+        "code": (
+            "grouped_data = sources[\"production_data\"].groupby([\"TECH\", \"DEN\", \"MODE\", \"PKG_TYPE1\", \"PKG_TYPE2\", \"LEAD\", \"MCP_NO\", \"DEVICE\"])[\"PRODUCTION\"].sum().reset_index()\n"
+            "grouped_data = grouped_data.rename(columns={\"PRODUCTION\": \"TOTAL_PRODUCTION\"})\n"
+            "sorted_data = grouped_data.sort_values(by=\"TOTAL_PRODUCTION\", ascending=False)\n"
+            "result = sorted_data.head(3)"
+        )
+    }
+
+    result = pandas_executor.execute_pandas_code(payload, llm_response)
+    generated_code = result["trace"]["inspection"]["pandas_execution"]["generated_code"]
+
+    assert result["analysis"]["status"] == "ok"
+    assert [row["DEVICE"] for row in result["data"]["rows"]] == ["DEV001", "DEV-HBM"]
+    assert "W/B1" not in json.dumps(result["data"]["rows"], ensure_ascii=False)
+    assert "OPER_NAME" in generated_code
+    assert "_filter_values_1_1 = ['D/A1', 'D/A2', 'D/A3', 'D/A4', 'D/A5', 'D/A6']" in generated_code
+    assert ".isin(_filter_values_1_1)" in generated_code
+    assert "grouped_data = sources[\"production_data\"].groupby" in generated_code
+
+
+def test_data_analysis_split_mongodb_metadata_loaders_use_v4_env_defaults(monkeypatch):
     store = install_fake_pymongo(monkeypatch)
     set_v4_mongo_env(monkeypatch)
     store["datagov"] = {
@@ -421,15 +631,23 @@ def test_data_analysis_mongodb_metadata_loader_uses_v4_env_defaults(monkeypatch)
             "main_flow_filter:DATE": {"_id": "main_flow_filter:DATE", "filter_key": "DATE", "status": "active", "payload": {"operator": "eq"}},
         },
     }
-    loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_mongodb_metadata_loader.py")
+    domain_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01a_mongodb_domain_metadata_loader.py")
+    table_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01b_mongodb_table_catalog_loader.py")
+    main_variable_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01c_mongodb_main_variable_loader.py")
+    candidates_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01d_metadata_candidates_builder.py")
 
-    result = loader.load_metadata_candidates(limit="50")
+    domain_result = domain_loader.load_domain_metadata(limit="50")
+    table_result = table_loader.load_table_catalog_metadata(limit="50")
+    main_variable_result = main_variable_loader.load_main_variable_metadata(limit="50")
+    result = candidates_builder.build_metadata_candidates(domain_result, table_result, main_variable_result)
 
     assert result["metadata_load"]["status"] == "ok"
-    assert result["metadata_load"]["database"] == "datagov"
-    assert result["metadata_load"]["collections"]["domain_items"] == "agent_v4_domain_items"
-    assert result["metadata_load"]["status_filter"] == "active"
     assert result["metadata_load"]["counts"] == {"domain_items": 1, "table_catalog_items": 1, "main_flow_filters": 1}
+    assert result["metadata_load"]["loads"]["domain_items"]["database"] == "datagov"
+    assert result["metadata_load"]["loads"]["domain_items"]["collection_name"] == "agent_v4_domain_items"
+    assert result["metadata_load"]["loads"]["table_catalog_items"]["collection_name"] == "agent_v4_table_catalog_items"
+    assert result["metadata_load"]["loads"]["main_flow_filters"]["collection_name"] == "agent_v4_main_flow_filters"
+    assert result["metadata_load"]["loads"]["domain_items"]["status_filter"] == "active"
     assert result["metadata_candidates"]["table_catalog_items"][0]["dataset_key"] == "wip_today"
     assert "_id" not in result["metadata_candidates"]["domain_items"][0]
 
@@ -437,7 +655,7 @@ def test_data_analysis_mongodb_metadata_loader_uses_v4_env_defaults(monkeypatch)
 def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
     install_fake_pymongo(monkeypatch)
     set_v4_mongo_env(monkeypatch)
-    result_store = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "24_mongodb_result_store.py")
+    result_store = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "23_mongodb_result_store.py")
     result_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "05_mongodb_result_loader.py")
     payload = {
         "request": {"session_id": "s1", "question": "재공 합계"},
@@ -467,9 +685,23 @@ def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
     assert restored["data"]["data_ref"] == data_ref
 
 
+def test_mongodb_previous_result_loader_uses_payload_data_ref_only():
+    result_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "05_mongodb_result_loader.py")
+
+    input_names = {item.kwargs.get("name") for item in result_loader.MongoDBResultLoader.inputs}
+    payload = {"trace": {"warnings": [], "errors": [], "inspection": {}}}
+    skipped = result_loader.load_previous_result(payload)
+
+    assert "payload" in input_names
+    assert "data_ref" not in input_names
+    assert skipped["trace"]["warnings"] == []
+    assert skipped["trace"]["inspection"]["result_loader"]["status"] == "skipped"
+    assert skipped["trace"]["inspection"]["result_loader"]["errors"][0]["type"] == "missing_data_ref"
+
+
 def test_restored_runtime_sources_survive_empty_retrieval_merge():
-    merger = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "14_source_retrieval_merger.py")
-    adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_retrieval_payload_adapter.py")
+    merger = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "13_source_retrieval_merger.py")
+    adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "14_retrieval_payload_adapter.py")
     payload = {
         "source_results": [{"source_alias": "wip_data", "row_count": 1}],
         "runtime_sources": {"wip_data": [{"OPER_NAME": "D/A1", "WIP": 120}]},
@@ -483,11 +715,93 @@ def test_restored_runtime_sources_survive_empty_retrieval_merge():
     assert adapted["trace"]["inspection"]["data_retrieval"]["preserved_existing_runtime_sources"] is True
 
 
+def test_oracle_retriever_executes_sql_with_configured_tns():
+    oracle = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_oracle_query_retriever.py")
+
+    class FakeCursor:
+        description = [("WORK_DATE",), ("PRODUCTION",)]
+
+        def __init__(self):
+            self.executed_sql = ""
+
+        def execute(self, sql):
+            self.executed_sql = sql
+
+        def fetchmany(self, limit):
+            assert limit == 100
+            return [("20260701", 1234)]
+
+        def close(self):
+            pass
+
+    class FakeConnection:
+        def __init__(self):
+            self.cursor_obj = FakeCursor()
+
+        def cursor(self):
+            return self.cursor_obj
+
+        def close(self):
+            pass
+
+    class FakeOracleModule:
+        def __init__(self):
+            self.connection = FakeConnection()
+            self.connect_kwargs = {}
+
+        def connect(self, **kwargs):
+            self.connect_kwargs = kwargs
+            return self.connection
+
+    fake_oracle = FakeOracleModule()
+    oracle.OracleQueryRetriever.oracledb = fake_oracle
+    payload = {
+        "retrieval_job_bundle": {
+            "source_type": "oracle",
+            "jobs": [
+                {
+                    "job_id": "job_1",
+                    "dataset_key": "production_today",
+                    "source_alias": "prod_data",
+                    "source_type": "oracle",
+                    "source_config": {
+                        "source_type": "oracle",
+                        "db_key": "PNT_RPT",
+                        "query_template": "SELECT WORK_DATE, PRODUCTION FROM PROD_TABLE WHERE WORK_DATE = {DATE}",
+                    },
+                    "required_params": {"DATE": "20260701"},
+                    "filters": {"OPER_NAME": {"operator": "eq", "value": "D/A1"}},
+                }
+            ],
+        }
+    }
+
+    result = oracle.retrieve_oracle_data(payload, json.dumps({"PNT_RPT": {"user": "u", "password": "p", "tns": "tns-value"}}), "100")
+    source_result = result["source_results"][0]
+
+    assert result["status"] == "ok"
+    assert fake_oracle.connect_kwargs == {"user": "u", "password": "p", "dsn": "tns-value"}
+    assert source_result["rows"] == [{"WORK_DATE": "20260701", "PRODUCTION": 1234}]
+    assert source_result["source_execution"]["executed_query"] == "SELECT WORK_DATE, PRODUCTION FROM PROD_TABLE WHERE WORK_DATE = '20260701'"
+    assert source_result["source_execution"]["filters_applied_in_retriever"] is False
+    assert source_result["pandas_filters"] == {"OPER_NAME": {"operator": "eq", "value": "D/A1"}}
+    assert "applied_filters" not in source_result
+
+
+def test_oracle_retriever_parses_named_tns_block():
+    oracle = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_oracle_query_retriever.py")
+
+    config, errors = oracle._oracle_config_from_value("PNT_RPT:\n(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP))(CONNECT_DATA=(SERVICE_NAME=PNT)))")
+
+    assert errors == []
+    assert config == {"PNT_RPT": {"tns": "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP))(CONNECT_DATA=(SERVICE_NAME=PNT)))"}}
+
+
 def test_langflow_prompt_templates_are_external_files_for_agent_nodes():
     prompt_files = [
-        ROOT / "langflow_components" / "data_analysis_flow" / "01_intent_prompt_template_ko.md",
-        ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_prompt_template_ko.md",
-        ROOT / "langflow_components" / "data_analysis_flow" / "20_answer_prompt_template_ko.md",
+        ROOT / "langflow_components" / "data_analysis_flow" / "03_intent_prompt_template_ko.md",
+        ROOT / "langflow_components" / "data_analysis_flow" / "16_pandas_prompt_template_ko.md",
+        ROOT / "langflow_components" / "data_analysis_flow" / "19_answer_prompt_template_ko.md",
         ROOT / "langflow_components" / "domain_authoring_flow" / "01_text_refinement_prompt_template_ko.md",
         ROOT / "langflow_components" / "domain_authoring_flow" / "03_authoring_prompt_template_ko.md",
         ROOT / "langflow_components" / "domain_authoring_flow" / "06_review_prompt_template_ko.md",
@@ -829,6 +1143,59 @@ def test_authoring_existing_item_loaders_use_v4_mongo_env_defaults(monkeypatch):
     assert domain_result["existing_items"][0]["key"] == "DA"
     assert table_result["existing_items"][0]["dataset_key"] == "wip_today"
     assert filter_result["existing_items"][0]["filter_key"] == "DATE"
+
+
+def test_mongodb_metadata_export_upload_round_trip(monkeypatch, tmp_path):
+    store = install_fake_pymongo(monkeypatch)
+    set_v4_mongo_env(monkeypatch)
+    store["datagov"] = {
+        "agent_v4_domain_items": {
+            "domain:process_groups:DA": {"_id": "domain:process_groups:DA", "section": "process_groups", "key": "DA", "status": "active", "payload": {"processes": ["D/A1"]}},
+        },
+        "agent_v4_table_catalog_items": {
+            "table_catalog:wip_today": {"_id": "table_catalog:wip_today", "dataset_key": "wip_today", "status": "active", "payload": {"source_type": "oracle"}},
+        },
+        "agent_v4_main_flow_filters": {
+            "main_flow_filter:DATE": {"_id": "main_flow_filter:DATE", "filter_key": "DATE", "status": "active", "payload": {"aliases": ["오늘"]}},
+        },
+    }
+    export_tool = load_module(ROOT / "tools" / "export_mongodb_metadata_to_json.py")
+    upload_tool = load_module(ROOT / "tools" / "upload_json_to_mongodb.py")
+    output_path = tmp_path / "metadata_bundle.json"
+
+    export_summary = export_tool.export_metadata_bundle(
+        export_tool.MongoExportConfig(
+            mongo_uri="mongodb://fake",
+            database="datagov",
+            collections={
+                "domain": "agent_v4_domain_items",
+                "table-catalog": "agent_v4_table_catalog_items",
+                "main-flow-filter": "agent_v4_main_flow_filters",
+            },
+        ),
+        ["domain", "table-catalog", "main-flow-filter"],
+        output_path,
+    )
+    upload_summary = upload_tool.upload_bundle(
+        output_path,
+        upload_tool.MongoUploadConfig(
+            mongo_uri="mongodb://fake",
+            database="portable_datagov",
+            collections={
+                "domain": "agent_v4_domain_items",
+                "table-catalog": "agent_v4_table_catalog_items",
+                "main-flow-filter": "agent_v4_main_flow_filters",
+            },
+        ),
+        [],
+        mode="upsert",
+    )
+
+    assert export_summary["collections"]["domain"]["document_count"] == 1
+    assert upload_summary["collections"]["main-flow-filter"]["written_count"] == 1
+    assert store["portable_datagov"]["agent_v4_domain_items"]["domain:process_groups:DA"]["payload"]["processes"] == ["D/A1"]
+    assert store["portable_datagov"]["agent_v4_table_catalog_items"]["table_catalog:wip_today"]["payload"]["source_type"] == "oracle"
+    assert store["portable_datagov"]["agent_v4_main_flow_filters"]["main_flow_filter:DATE"]["payload"]["aliases"] == ["오늘"]
 
 
 def test_langflow_writer_non_dry_run_requires_explicit_mongo_config(monkeypatch):

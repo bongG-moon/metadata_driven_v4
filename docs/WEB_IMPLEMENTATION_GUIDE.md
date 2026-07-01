@@ -1,4 +1,4 @@
-﻿# Web Implementation Guide
+# Web Implementation Guide
 
 이 문서는 `metadata_driven_v3`의 현재 Langflow 구성 기준으로 backend orchestrator, split query flows, metadata authoring flow를 web에서 안전하게 사용하기 위한 구현 가이드다.
 
@@ -112,7 +112,7 @@ Web/API backend는 router flow 하나만 호출한다. Router flow 안에서 `05
 -> 01 Metadata Context Loader
 -> 02 Intent Prompt Builder
 -> Intent LLM
--> 03 Intent Plan Normalizer
+-> 04 Intent Plan Normalizer
 -> 04 Previous Result Restore Router
 -> 05 MongoDB Data Loader, only when full restore is required
 -> 06 Previous Result Restore Merger
@@ -139,7 +139,7 @@ parallel:
 
 Web에서 중요한 차이:
 
-- `24 MongoDB Result Store`가 pandas 직후 `runtime_sources` 원본 rows와 `analysis.rows` 결과 rows를 `MONGODB_RESULT_COLLECTION`에 저장하고 preview row와 `data_ref`로 축약한다.
+- `23 MongoDB Result Store`가 pandas 직후 `runtime_sources` 원본 rows와 `analysis.rows` 결과 rows를 `MONGODB_RESULT_COLLECTION`에 저장하고 preview row와 `data_ref`로 축약한다.
 - metadata QA flow가 `direct_response_ready=true`를 만든 질문은 데이터 retrieval/pandas 저장 대상이 아니다.
 - `metadata_route.target_dataset`은 dataset 설명/쿼리/활용 예시 같은 metadata QA에서만 쓰는 대상 포인터다. 일반 분석 질문에서 조회할 dataset 목록은 intent plan이 별도로 결정한다.
 - 사용자는 dataset key를 몰라도 된다. `생산량 데이터 조회 쿼리 알려줘` 같은 표현은 `domain_items.quantity_terms`의 alias와 dataset mapping을 통해 대표 dataset으로 해석한다.
@@ -174,7 +174,7 @@ Report/diagnosis route를 검증할 때는 후속형 문장보다 E2E 업무 요
   "request": {
     "session_id": "user-session-id",
     "question": "오늘 DA, WB공정에서 각각 재공 상위 3개 제품을 뽑아줘",
-    "timezone": "Asia/Seoul"
+    "reference_date": "2026-07-01"
   },
   "state": {
     "chat_history": [],
@@ -502,7 +502,7 @@ WEB_PENDING_AUTHORING_COLLECTION=agent_v4_pending_authoring
 
 개별 subflow가 구조화 `api_response` Data output 대신 Chat/Message Output만 반환하는 경우도 지원한다. 이때 web app은 nested message text를 `answer_message`로 표시하고 `message_only=true`로 다룬다. 다만 결과 row, state, data_ref, intent, pandas code 같은 구조화 영역은 Message 안에 JSON으로 포함되어 있거나 별도 Data/API response output으로 반환될 때만 화면의 표/상세 탭에 안정적으로 표시된다.
 
-`MONGODB_RESULT_COLLECTION`은 metadata가 아니라 query result row 저장소다. `24 MongoDB Result Store`는 pandas 직후 source rows와 result rows를 저장한다. 다음 turn에서는 compact state를 그대로 넘기는 것이 기본이며, optional first `05 MongoDB Previous Result Loader`는 이전 state에 `data_ref`만 있고 preview/summary가 없을 때 사용한다. 이전 결과 전체 rows가 필요한 후속 분석은 data analysis flow의 “이전 결과 복원” 브랜치에서 MongoDB loader를 실행한다.
+`MONGODB_RESULT_COLLECTION`은 metadata가 아니라 query result row 저장소다. `23 MongoDB Result Store`는 pandas 직후 source rows와 result rows를 저장한다. 다음 turn에서는 compact state를 그대로 넘기는 것이 기본이며, optional first `05 MongoDB Previous Result Loader`는 이전 state에 `data_ref`만 있고 preview/summary가 없을 때 사용한다. 이전 결과 전체 rows가 필요한 후속 분석은 data analysis flow의 “이전 결과 복원” 브랜치에서 MongoDB loader를 실행한다.
 
 ## 7. 화면 구성
 

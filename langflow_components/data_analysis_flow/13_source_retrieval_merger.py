@@ -32,7 +32,7 @@ def merge_source_retrieval_payloads(main_payload_value: Any, *retrieval_values: 
     trace.setdefault("errors", []).extend(errors)
     trace.setdefault("warnings", []).extend(warnings)
     trace.setdefault("inspection", {})["data_retrieval"] = {
-        "stage": "14_source_retrieval_merger",
+        "stage": "13_source_retrieval_merger",
         "status": "error" if errors else "ok",
         "executed_source_count": len(compact_results),
         "sources": compact_results or deepcopy(payload.get("source_results", [])),
@@ -50,7 +50,7 @@ def _payload(value: Any) -> dict[str, Any]:
 
 
 class SourceRetrievalMerger(Component):
-    display_name = "14 소스 조회 결과 병합기"
+    display_name = "13 소스 조회 결과 병합기"
     description = "소스별 조회 페이로드를 병합하고 데이터 조회 추적 정보를 작성합니다."
     inputs = [
         DataInput(name="main_payload", display_name="메인 페이로드", required=True),

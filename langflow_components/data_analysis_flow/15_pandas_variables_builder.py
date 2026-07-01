@@ -26,7 +26,7 @@ def _payload(value: Any) -> dict[str, Any]:
 
 
 class PandasVariablesBuilder(Component):
-    display_name = "16 pandas 변수 생성기"
+    display_name = "15 pandas 변수 생성기"
     description = "Langflow 프롬프트 템플릿과 에이전트/LLM에 연결할 pandas 코드 생성 변수를 제공합니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
     outputs = [

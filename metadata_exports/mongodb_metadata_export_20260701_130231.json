@@ -1,0 +1,3842 @@
+{
+  "_export_format": "metadata_driven_v4.mongodb_metadata_bundle.v1",
+  "exported_at": "2026-07-01T13:02:32.336913+00:00",
+  "source_database": "datagov",
+  "collections": {
+    "domain": {
+      "metadata_kind": "domain",
+      "display_name": "domain metadata",
+      "collection_name": "agent_v4_domain_items",
+      "document_count": 63,
+      "documents": [
+        {
+          "_id": "domain:analysis_recipes:filter_by_oper_sequence_range",
+          "section": "analysis_recipes",
+          "key": "filter_by_oper_sequence_range",
+          "payload": {
+            "display_name": "공정 구간 OPER_SEQ 범위 필터",
+            "description": "사용자가 'D/A1~W/B6', 'D/A1-W/B6', 'D/A1W/B6'처럼 시작 공정과 끝 공정을 이어서 말하면, 해당 시작 공정의 OPER_SEQ부터 끝 공정의 OPER_SEQ 사이에 있는 모든 공정을 포함하여 데이터를 필터링합니다. 이때 OPER_SEQ는 숫자로 변환하여 비교해야 합니다. 최종 필터는 시작 공정 및 끝 공정의 OPER_NAME에만 국한되지 않고, 해당 OPER_SEQ 구간 내의 모든 공정을 대상으로 합니다. 이 규칙은 생산량, 재공 등 OPER_NAME과 OPER_SEQ 필드를 포함하는 데이터에 공정 구간을 질의할 때 적용됩니다.",
+            "apply_conditions": {
+              "intent": "filter_by_process_sequence_range",
+              "required_data_fields": [
+                "OPER_NAME",
+                "OPER_SEQ"
+              ]
+            },
+            "io_contract": {
+              "inputs": {
+                "dataframe": {
+                  "type": "dataframe",
+                  "description": "OPER_NAME과 OPER_SEQ를 포함하는 원본 데이터프레임"
+                },
+                "start_process_name": {
+                  "type": "string",
+                  "description": "사용자 질의에서 추출된 시작 공정명 (예: 'D/A1')"
+                },
+                "end_process_name": {
+                  "type": "string",
+                  "description": "사용자 질의에서 추출된 끝 공정명 (예: 'W/B6')"
+                }
+              },
+              "outputs": {
+                "filtered_dataframe": {
+                  "type": "dataframe",
+                  "description": "시작 공정의 OPER_SEQ부터 끝 공정의 OPER_SEQ까지의 구간으로 필터링된 데이터프레임"
+                }
+              }
+            },
+            "pseudocode": "def filter_data_by_oper_sequence_range(dataframe, start_process_name, end_process_name):\n    # 1. 시작 공정명과 끝 공정명에 해당하는 OPER_SEQ 값 조회\n    start_oper_seq_row = dataframe[dataframe['OPER_NAME'] == start_process_name].iloc[0]\n    end_oper_seq_row = dataframe[dataframe['OPER_NAME'] == end_process_name].iloc[0]\n\n    # 2. OPER_SEQ 값을 숫자로 변환\n    start_seq_numeric = int(start_oper_seq_row['OPER_SEQ'])\n    end_seq_numeric = int(end_oper_seq_row['OPER_SEQ'])\n\n    # 3. 데이터프레임을 OPER_SEQ 숫자 범위로 필터링\n    filtered_df = dataframe[\n        (dataframe['OPER_SEQ'].astype(int) >= start_seq_numeric) &\n        (dataframe['OPER_SEQ'].astype(int) <= end_seq_numeric)\n    ]\n    return filtered_df\n"
+          },
+          "status": "active",
+          "updated_at": "2026-07-01T12:28:15.795857+00:00",
+          "registration_trace": {
+            "raw_text": "공정 구간 조회 규칙을 등록해줘.\n이름은 공정 구간 OPER_SEQ 범위 필터 정도로 해줘.\n사용자가 D/A1~W/B6, D/A1-W/B6, D/A1W/B6처럼 시작 공정과 끝 공정을 이어서 말하면 공정 그룹을 펼치는 뜻이 아니라 공정 순서 구간을 말하는 거야.\n이때 D/A1과 W/B6 두 공정만 보는 게 아니라, D/A1의 OPER_SEQ부터 W/B6의 OPER_SEQ 사이에 있는 모든 공정을 봐야 해.\nOPER_SEQ는 문자로 비교하지 말고 숫자로 바꿔서 비교해.\n조회할 때는 OPER_NAME과 OPER_SEQ가 필요해.\n최종 필터를 OPER_NAME이 D/A1 또는 W/B6인 행으로 만들면 안 되고, 시작 공정과 끝 공정의 OPER_SEQ를 찾은 다음 그 사이 구간으로 필터링해야 해.\n이 규칙은 생산량이나 재공처럼 OPER_NAME과 OPER_SEQ가 있는 데이터에서 공정 구간을 물어볼 때 사용해."
+          }
+        },
+        {
+          "_id": "domain:analysis_recipes:group_by_oper_name_for_detailed_process",
+          "section": "analysis_recipes",
+          "key": "group_by_oper_name_for_detailed_process",
+          "status": "active",
+          "payload": {
+            "display_name": "세부 공정별 결과 표시",
+            "description": "사용자가 '세부 공정' 또는 '상세 공정'이라고 언급하면, OPER_NAME 컬럼을 기준으로 결과를 나누어 표시하는 규칙",
+            "apply_conditions": [
+              {
+                "condition_type": "contains_keyword",
+                "keywords": [
+                  "세부 공정",
+                  "상세 공정"
+                ]
+              }
+            ],
+            "io_contract": {
+              "input_parameters": [],
+              "output_parameters": [
+                {
+                  "name": "grouping_column",
+                  "type": "column_name",
+                  "value": "OPER_NAME",
+                  "description": "결과를 나눌 기준 컬럼"
+                }
+              ]
+            },
+            "pseudocode": "그룹화 기준 컬럼을 OPER_NAME으로 설정하여 결과를 나눕니다."
+          },
+          "updated_at": "2026-07-01T12:27:01.143343+00:00",
+          "registration_trace": {
+            "raw_text": "세부 공정별 결과 표시 규칙을 등록해줘.\n세부 공정, 상세 공정은 OPER_NAME 기준으로 결과를 나누어 보여달라는 뜻이야.\n이 항목은 analysis_recipes로 저장해줘."
+          }
+        },
+        {
+          "_id": "domain:analysis_recipes:group_by_oper_name_for_process_sequence",
+          "section": "analysis_recipes",
+          "key": "group_by_oper_name_for_process_sequence",
+          "status": "active",
+          "payload": {
+            "display_name": "공정 차수별 결과 표시 규칙",
+            "description": "사용자가 '차수별', '공정 차수별'과 같이 특정 차수를 지정하지 않고 공정 차수별 결과 표시를 요청할 때, 공정 그룹 내의 세부 공정명(OPER_NAME)을 기준으로 결과를 나누어 보여줍니다. 공정명과 함께 1차, 2차처럼 특정 차수를 말하는 경우는 단일 OPER_NAME으로 필터링하는 조건으로 해석됩니다.",
+            "apply_conditions": {
+              "user_query_contains_any": [
+                "차수별",
+                "공정 차수별"
+              ]
+            },
+            "io_contract": {
+              "input_columns": [],
+              "output_columns": [
+                {
+                  "column": "OPER_NAME",
+                  "description": "공정 그룹 내 세부 공정명으로 그룹핑"
+                }
+              ]
+            },
+            "pseudocode": "GROUP BY OPER_NAME"
+          },
+          "updated_at": "2026-07-01T12:27:41.784365+00:00",
+          "registration_trace": {
+            "raw_text": "공정 차수별 결과 표시 규칙을 등록해줘.\n공정명과 함께 1차, 2차처럼 특정 차수를 말하면 해당 숫자가 붙은 단일 OPER_NAME으로 필터링해.\n특정 차수를 지정하지 않고 차수별, 공정 차수별로 보여달라고 하면 공정 그룹에 포함된 세부 OPER_NAME 기준으로 결과를 나누어 보여줘.\n"
+          }
+        },
+        {
+          "_id": "domain:analysis_recipes:production_achievement_rate_analysis",
+          "section": "analysis_recipes",
+          "key": "production_achievement_rate_analysis",
+          "status": "active",
+          "payload": {
+            "display_name": "생산 달성율 분석 recipe",
+            "description": "생산 달성율을 계산하기 위한 레시피. 실적 수량과 계획 수량을 먼저 집계한 뒤 비율을 계산합니다.",
+            "steps": [
+              {
+                "step_name": "실적 및 계획 수량 집계",
+                "description": "사용자가 요청한 기준으로 실적 수량(production.PRODUCTION)과 계획 수량(target 데이터)을 집계합니다.",
+                "action": "aggregate_data",
+                "inputs": [
+                  "Actual Quantity",
+                  "Planned Quantity"
+                ]
+              },
+              {
+                "step_name": "달성률 계산",
+                "description": "집계된 실적 수량을 집계된 계획 수량으로 나누어 달성률을 계산합니다.",
+                "action": "calculate_ratio",
+                "formula": "Aggregated Actual Quantity / Aggregated Planned Quantity"
+              }
+            ],
+            "required_metrics": [
+              "production_quantity",
+              "target_data"
+            ]
+          },
+          "updated_at": "2026-07-01T12:30:24.906007+00:00",
+          "registration_trace": {
+            "raw_text": "계산 로직을 등록해줘.\nWafer기준 실적, Wafer기반 실적, Wafer Out 수량은 production 계열 데이터에서 PRODUCTION / NETDIE_300_CNT로 계산해.\nNETDIE_300_CNT 값이 0보다 큰 경우에만 WAFER_OUT_QTY를 계산하고, NETDIE_300_CNT가 0 또는 NULL이라 나눌 수 없는 경우에는 해당 PRODUCTION 값을 FAIL_UNIT_QTY 컬럼으로 옆에 보여줘.\nWafer기준 실적은 먼저 row 단위로 WAFER_OUT_QTY와 FAIL_UNIT_QTY를 만든 뒤, 사용자가 요청한 grain 또는 전체 기준으로 합산해.\n생산달성률, 생산달성율, 달성률, 달성율은 단순 metric formula가 아니라 생산 달성율 분석 recipe를 우선 사용해.\n달성률을 평균내지 말고, recipe에서 정한 기준으로 실적수량과 계획수량을 먼저 집계한 뒤 비율을 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:analysis_recipes:select_device_column_for_device_code_query",
+          "section": "analysis_recipes",
+          "key": "select_device_column_for_device_code_query",
+          "payload": {
+            "display_name": "DEVICE 첨자 출력 컬럼 선택",
+            "description": "사용자가 'DEVICE 첨자', 'Device 첨자', '첨자', 'DEVICE CODE', 'Device Code'를 문의할 때 'DEVICE' 컬럼을 결과에 포함하고, 'DEVICE_DESC' 또는 '제품 설명'은 제외하는 규칙",
+            "apply_conditions": {
+              "query_contains_any_of": [
+                "DEVICE 첨자",
+                "Device 첨자",
+                "첨자",
+                "DEVICE CODE",
+                "Device Code"
+              ],
+              "query_does_not_contain_any_of": [
+                "DEVICE_DESC",
+                "제품 설명"
+              ]
+            },
+            "io_contract": {
+              "output_columns": [
+                "DEVICE"
+              ]
+            },
+            "pseudocode": "IF user query contains 'DEVICE 첨자' or its synonyms AND does not contain 'DEVICE_DESC' or '제품 설명', THEN include 'DEVICE' column in the output."
+          },
+          "status": "active",
+          "updated_at": "2026-07-01T12:26:48.878090+00:00",
+          "registration_trace": {
+            "raw_text": "DEVICE 첨자 용어를 등록해줘.\nDEVICE 첨자, Device 첨자, 첨자, DEVICE CODE, Device Code는 DEVICE 컬럼을 말해.\nDEVICE_DESC는 제품 설명 컬럼이고 DEVICE CODE와는 구분해.\n사용자가 DEVICE 첨자를 알려달라고 하면 결과 컬럼에 DEVICE를 포함해.\n이건 제품 키 정의가 아니라 질문에 따라 출력 컬럼을 선택하는 analysis_recipes 규칙으로 저장해줘."
+          }
+        },
+        {
+          "_id": "domain:metric_terms:production_achievement_rate",
+          "section": "metric_terms",
+          "key": "production_achievement_rate",
+          "status": "active",
+          "payload": {
+            "display_name": "생산달성률",
+            "aliases": [
+              "생산달성율",
+              "달성률",
+              "달성율"
+            ],
+            "calculation_method": "analysis_recipe",
+            "analysis_recipe_key": "analysis_recipes:production_achievement_rate_analysis",
+            "description": "생산 달성율 분석 recipe를 사용하여 계산되며, 실적 수량과 계획 수량을 먼저 집계한 뒤 비율을 계산합니다. 달성률은 평균내지 않습니다."
+          },
+          "updated_at": "2026-07-01T12:30:24.906007+00:00",
+          "registration_trace": {
+            "raw_text": "계산 로직을 등록해줘.\nWafer기준 실적, Wafer기반 실적, Wafer Out 수량은 production 계열 데이터에서 PRODUCTION / NETDIE_300_CNT로 계산해.\nNETDIE_300_CNT 값이 0보다 큰 경우에만 WAFER_OUT_QTY를 계산하고, NETDIE_300_CNT가 0 또는 NULL이라 나눌 수 없는 경우에는 해당 PRODUCTION 값을 FAIL_UNIT_QTY 컬럼으로 옆에 보여줘.\nWafer기준 실적은 먼저 row 단위로 WAFER_OUT_QTY와 FAIL_UNIT_QTY를 만든 뒤, 사용자가 요청한 grain 또는 전체 기준으로 합산해.\n생산달성률, 생산달성율, 달성률, 달성율은 단순 metric formula가 아니라 생산 달성율 분석 recipe를 우선 사용해.\n달성률을 평균내지 말고, recipe에서 정한 기준으로 실적수량과 계획수량을 먼저 집계한 뒤 비율을 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:metric_terms:wafer_out_quantity",
+          "section": "metric_terms",
+          "key": "wafer_out_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "Wafer기준 실적",
+            "aliases": [
+              "Wafer기반 실적",
+              "Wafer Out 수량"
+            ],
+            "data_source": "production",
+            "calculation_method": "custom_function",
+            "custom_function_name": "calculate_wafer_out_quantity",
+            "aggregation_method": "sum",
+            "description": "production 계열 데이터에서 NETDIE_300_CNT 값이 0보다 큰 경우 PRODUCTION을 NETDIE_300_CNT로 나누어 WAFER_OUT_QTY를 계산하고, 그렇지 않은 경우 PRODUCTION 값을 FAIL_UNIT_QTY로 표시합니다. 최종적으로 요청된 기준으로 합산됩니다."
+          },
+          "updated_at": "2026-07-01T12:30:24.906007+00:00",
+          "registration_trace": {
+            "raw_text": "계산 로직을 등록해줘.\nWafer기준 실적, Wafer기반 실적, Wafer Out 수량은 production 계열 데이터에서 PRODUCTION / NETDIE_300_CNT로 계산해.\nNETDIE_300_CNT 값이 0보다 큰 경우에만 WAFER_OUT_QTY를 계산하고, NETDIE_300_CNT가 0 또는 NULL이라 나눌 수 없는 경우에는 해당 PRODUCTION 값을 FAIL_UNIT_QTY 컬럼으로 옆에 보여줘.\nWafer기준 실적은 먼저 row 단위로 WAFER_OUT_QTY와 FAIL_UNIT_QTY를 만든 뒤, 사용자가 요청한 grain 또는 전체 기준으로 합산해.\n생산달성률, 생산달성율, 달성률, 달성율은 단순 metric formula가 아니라 생산 달성율 분석 recipe를 우선 사용해.\n달성률을 평균내지 말고, recipe에서 정한 기준으로 실적수량과 계획수량을 먼저 집계한 뒤 비율을 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:apply_shift_performance_filter_rule",
+          "section": "pandas_function_cases",
+          "key": "apply_shift_performance_filter_rule",
+          "status": "active",
+          "payload": {
+            "display_name": "Shift/조별 실적 조회 시 필터 적용 규칙",
+            "description": "사용자가 '조별 실적', 'Shift별 실적', 'A조 실적' 등 Shift 또는 조에 대한 실적을 질의할 경우, 이전에 해석된 Shift 조건을 데이터 필터로 적용하는 규칙입니다.",
+            "apply_conditions": {
+              "query_contains_any": [
+                "실적"
+              ],
+              "has_interpreted_condition_for_field": "SHIFT"
+            },
+            "input_requirements": [
+              {
+                "name": "query_text",
+                "type": "string",
+                "description": "사용자의 질의 텍스트"
+              },
+              {
+                "name": "interpreted_shift_value",
+                "type": "integer",
+                "description": "이전에 해석된 SHIFT 필드의 값 (예: 1, 2, 3)"
+              }
+            ],
+            "output_format": {
+              "action": "apply_filter",
+              "filter_field": "SHIFT",
+              "filter_value_source": "interpreted_shift_value"
+            },
+            "pseudocode": "IF query_text contains \"실적\" AND interpreted_shift_value is available:\n    APPLY FILTER to data frame where SHIFT column == interpreted_shift_value",
+            "io_contract": {
+              "inputs": [
+                {
+                  "name": "query_text",
+                  "type": "string",
+                  "description": "사용자의 질의 텍스트"
+                },
+                {
+                  "name": "interpreted_shift_value",
+                  "type": "integer",
+                  "description": "이전에 해석된 SHIFT 값"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "filter_operation",
+                  "type": "dict",
+                  "description": "데이터 필터링을 위한 정보 (예: {'action': 'apply_filter', 'field': 'SHIFT', 'value': 1})"
+                }
+              ]
+            }
+          },
+          "updated_at": "2026-07-01T12:21:23.889966+00:00",
+          "registration_trace": {
+            "raw_text": "Shift와 조 조건을 등록해줘.\nShift A조, A조, 1조는 같은 의미이고 SHIFT 값이 1인 데이터를 뜻해.\n07:00~15:00, 07:00 ~ 15:00, 07:00-15:00, 07시부터 15시까지, 7시부터 15시까지라고 말하면 A조 조건으로 해석해.\nShift B조, B조, 2조는 같은 의미이고 SHIFT 값이 2인 데이터를 뜻해.\n15:00~23:00, 15:00 ~ 23:00, 15:00-23:00, 15시부터 23시까지라고 말하면 B조 조건으로 해석해.\nShift C조, C조, 3조는 같은 의미이고 SHIFT 값이 3인 데이터를 뜻해.\n23:00~07:00, 23:00 ~ 07:00, 23:00-07:00, 23시부터 다음날 7시까지라고 말하면 C조 조건으로 해석해.\n조별 실적, Shift별 실적, A조 실적처럼 물으면 해당 SHIFT 조건을 필터로 사용해."
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_equipment_count",
+          "section": "pandas_function_cases",
+          "key": "calculate_equipment_count",
+          "status": "active",
+          "payload": {
+            "applies_when": "질의에 '장비 대수', '설비 대수', '장비 수', '설비 수', '몇 대' 중 하나가 포함될 때",
+            "required_inputs": {
+              "data_frame": "equipment 계열 데이터"
+            },
+            "output_format": "int",
+            "pseudocode": "pd.concat([data_frame['EQP_ID'], data_frame['EQPID']]).nunique()",
+            "io_contract": {
+              "input": {
+                "data_frame": "pandas.DataFrame (columns=['EQP_ID', 'EQPID'])"
+              },
+              "output": "int"
+            }
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_input_production",
+          "section": "pandas_function_cases",
+          "key": "calculate_input_production",
+          "status": "active",
+          "payload": {
+            "applies_when": "질의에 '투입량', 'INPUT', 'input', 'INPUT실적', 'INPUT생산량', '투입 실적' 중 하나가 포함될 때",
+            "required_inputs": {
+              "data_frame": "production 계열 데이터"
+            },
+            "output_format": "float",
+            "pseudocode": "data_frame[data_frame['OPER_NAME'] == 'INPUT']['PRODUCTION'].sum()",
+            "io_contract": {
+              "input": {
+                "data_frame": "pandas.DataFrame (columns=['OPER_NAME', 'PRODUCTION'])"
+              },
+              "output": "float"
+            }
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_production_by_oper_name",
+          "section": "pandas_function_cases",
+          "key": "calculate_production_by_oper_name",
+          "status": "active",
+          "payload": {
+            "applies_when": "질의가 특정 공정의 'OUTPUT' 또는 '실적'을 요청할 때",
+            "required_inputs": {
+              "data_frame": "production 계열 데이터",
+              "oper_name": "사용자가 지정한 공정 이름"
+            },
+            "output_format": "float",
+            "pseudocode": "data_frame[data_frame['OPER_NAME'] == oper_name]['PRODUCTION'].sum()",
+            "io_contract": {
+              "input": {
+                "data_frame": "pandas.DataFrame (columns=['OPER_NAME', 'PRODUCTION'])",
+                "oper_name": "str"
+              },
+              "output": "float"
+            }
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_production_total",
+          "section": "pandas_function_cases",
+          "key": "calculate_production_total",
+          "status": "active",
+          "payload": {
+            "applies_when": "질의에 '생산량', '생산실적', '실적', 'OUTPUT', 'OUT', 'Out Put', 'output 실적', 'out 실적' 중 하나가 포함되고 특정 공정 조건이 없을 때",
+            "required_inputs": {
+              "data_frame": "production 계열 데이터"
+            },
+            "output_format": "float",
+            "pseudocode": "data_frame['PRODUCTION'].sum()",
+            "io_contract": {
+              "input": {
+                "data_frame": "pandas.DataFrame (columns=['PRODUCTION'])"
+              },
+              "output": "float"
+            }
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_wafer_out_quantity",
+          "section": "pandas_function_cases",
+          "key": "calculate_wafer_out_quantity",
+          "status": "active",
+          "payload": {
+            "applies_when": {
+              "query_contains_any": [
+                "Wafer기준 실적",
+                "Wafer기반 실적",
+                "Wafer Out 수량"
+              ]
+            },
+            "io_contract": {
+              "inputs": [
+                {
+                  "name": "df",
+                  "type": "DataFrame",
+                  "columns": [
+                    {
+                      "name": "PRODUCTION",
+                      "type": "numeric",
+                      "description": "생산량"
+                    },
+                    {
+                      "name": "NETDIE_300_CNT",
+                      "type": "numeric",
+                      "description": "NETDIE_300_CNT 값"
+                    }
+                  ]
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "df",
+                  "type": "DataFrame",
+                  "columns": [
+                    {
+                      "name": "WAFER_OUT_QTY",
+                      "type": "float",
+                      "description": "Wafer Out 수량 (PRODUCTION / NETDIE_300_CNT)"
+                    },
+                    {
+                      "name": "FAIL_UNIT_QTY",
+                      "type": "float",
+                      "description": "NETDIE_300_CNT가 0 또는 NULL일 때의 PRODUCTION 값"
+                    }
+                  ]
+                }
+              ]
+            },
+            "pseudocode": "df['WAFER_OUT_QTY'] = df.apply(lambda row: row['PRODUCTION'] / row['NETDIE_300_CNT'] if pd.notna(row['NETDIE_300_CNT']) and row['NETDIE_300_CNT'] > 0 else None, axis=1)\ndf['FAIL_UNIT_QTY'] = df.apply(lambda row: row['PRODUCTION'] if pd.isna(row['NETDIE_300_CNT']) or row['NETDIE_300_CNT'] <= 0 else None, axis=1)\n# The system will then aggregate WAFER_OUT_QTY and FAIL_UNIT_QTY based on the user's request."
+          },
+          "updated_at": "2026-07-01T12:30:24.906007+00:00",
+          "registration_trace": {
+            "raw_text": "계산 로직을 등록해줘.\nWafer기준 실적, Wafer기반 실적, Wafer Out 수량은 production 계열 데이터에서 PRODUCTION / NETDIE_300_CNT로 계산해.\nNETDIE_300_CNT 값이 0보다 큰 경우에만 WAFER_OUT_QTY를 계산하고, NETDIE_300_CNT가 0 또는 NULL이라 나눌 수 없는 경우에는 해당 PRODUCTION 값을 FAIL_UNIT_QTY 컬럼으로 옆에 보여줘.\nWafer기준 실적은 먼저 row 단위로 WAFER_OUT_QTY와 FAIL_UNIT_QTY를 만든 뒤, 사용자가 요청한 grain 또는 전체 기준으로 합산해.\n생산달성률, 생산달성율, 달성률, 달성율은 단순 metric formula가 아니라 생산 달성율 분석 recipe를 우선 사용해.\n달성률을 평균내지 말고, recipe에서 정한 기준으로 실적수량과 계획수량을 먼저 집계한 뒤 비율을 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_wip_boh",
+          "section": "pandas_function_cases",
+          "key": "calculate_wip_boh",
+          "status": "active",
+          "payload": {
+            "applies_when": "사용자가 BOH 재공, 아침 재공, 07시 기준 재공 등을 특정 기준일 또는 '오늘'에 대해 요청할 때 적용됩니다. 'wip_today' 계열 데이터는 사용하지 않습니다.",
+            "required_inputs": [
+              {
+                "param_name": "reference_date",
+                "description": "사용자가 요청한 재공 기준일 (예: '2023-06-20', '오늘')",
+                "type": "DATE"
+              }
+            ],
+            "io_contract": {
+              "input_columns": [
+                {
+                  "column_name": "DATE",
+                  "column_type": "DATE"
+                },
+                {
+                  "column_name": "WIP",
+                  "column_type": "NUMBER"
+                }
+              ],
+              "output_columns": [
+                {
+                  "column_name": "BOH_Reference_Date",
+                  "column_type": "DATE"
+                },
+                {
+                  "column_name": "WIP_BOH_Value",
+                  "column_type": "NUMBER"
+                }
+              ]
+            },
+            "pseudocode": "1. `reference_date`가 '오늘'이면 현재 날짜를 가져옵니다.\n2. `filter_date`를 `reference_date`의 전일로 설정합니다.\n3. `wip` 계열 데이터에서 `DATE` 컬럼이 `filter_date`인 행을 필터링합니다.\n4. 필터링된 데이터의 `WIP` 컬럼 합계를 계산하여 `WIP_BOH_Value`로 반환합니다.\n5. 결과에는 `reference_date`를 `BOH_Reference_Date`로 함께 반환합니다.",
+            "output_format": "{BOH_Reference_Date} BOH 재공은 {WIP_BOH_Value}입니다."
+          },
+          "updated_at": "2026-07-01T12:29:35.060864+00:00",
+          "registration_trace": {
+            "raw_text": "BOH 재공과 아침 재공 기준일 규칙을 등록해줘.\n아침 재공, BOH 재공, BOH, 07시 기준 재공, 7시 기준 재공은 하루 시작 시점의 재공을 뜻해.\n재공 이력 테이블의 DATE는 해당 일자의 EOH, 즉 끝나는 시점 재공이야.\n그래서 특정 일자의 BOH 재공은 그 전일 DATE의 wip 이력 데이터를 조회해야 해.\n예를 들어 6/20 아침 재공, 6/20 BOH 재공, 6/20 07시 기준 재공은 wip 이력 데이터에 DATE=6/19를 넣어 조회한 결과가 6/20 BOH 값이야.\n오늘 또는 금일 아침 재공, 오늘 BOH, 금일 07시 기준 재공은 wip_today를 사용하지 않고 wip 이력 데이터에 어제 DATE를 넣어 조회해.\n반대로 현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n특정 일자의 EOH 재공, 마감 재공, 종료 재공을 물으면 wip 이력 데이터에 해당 일자 DATE를 그대로 넣어 조회해.\n분석 계획에서는 사용자가 요청한 기준일과 실제 조회 DATE를 구분해. 결과에는 BOH 기준일을 표시하고, retrieval job의 DATE 파라미터에는 기준일의 전일을 넣어.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_wip_eoh",
+          "section": "pandas_function_cases",
+          "key": "calculate_wip_eoh",
+          "status": "active",
+          "payload": {
+            "applies_when": "사용자가 EOH 재공, 마감 재공, 종료 재공 등을 특정 기준일에 대해 요청할 때 적용됩니다.",
+            "required_inputs": [
+              {
+                "param_name": "reference_date",
+                "description": "사용자가 요청한 재공 기준일 (예: '2023-06-20')",
+                "type": "DATE"
+              }
+            ],
+            "io_contract": {
+              "input_columns": [
+                {
+                  "column_name": "DATE",
+                  "column_type": "DATE"
+                },
+                {
+                  "column_name": "WIP",
+                  "column_type": "NUMBER"
+                }
+              ],
+              "output_columns": [
+                {
+                  "column_name": "EOH_Reference_Date",
+                  "column_type": "DATE"
+                },
+                {
+                  "column_name": "WIP_EOH_Value",
+                  "column_type": "NUMBER"
+                }
+              ]
+            },
+            "pseudocode": "1. `reference_date`를 파싱합니다.\n2. `filter_date`를 `reference_date`와 동일하게 설정합니다.\n3. `wip` 계열 데이터에서 `DATE` 컬럼이 `filter_date`인 행을 필터링합니다.\n4. 필터링된 데이터의 `WIP` 컬럼 합계를 계산하여 `WIP_EOH_Value`로 반환합니다.\n5. 결과에는 `reference_date`를 `EOH_Reference_Date`로 함께 반환합니다.",
+            "output_format": "{EOH_Reference_Date} EOH 재공은 {WIP_EOH_Value}입니다."
+          },
+          "updated_at": "2026-07-01T12:29:35.060864+00:00",
+          "registration_trace": {
+            "raw_text": "BOH 재공과 아침 재공 기준일 규칙을 등록해줘.\n아침 재공, BOH 재공, BOH, 07시 기준 재공, 7시 기준 재공은 하루 시작 시점의 재공을 뜻해.\n재공 이력 테이블의 DATE는 해당 일자의 EOH, 즉 끝나는 시점 재공이야.\n그래서 특정 일자의 BOH 재공은 그 전일 DATE의 wip 이력 데이터를 조회해야 해.\n예를 들어 6/20 아침 재공, 6/20 BOH 재공, 6/20 07시 기준 재공은 wip 이력 데이터에 DATE=6/19를 넣어 조회한 결과가 6/20 BOH 값이야.\n오늘 또는 금일 아침 재공, 오늘 BOH, 금일 07시 기준 재공은 wip_today를 사용하지 않고 wip 이력 데이터에 어제 DATE를 넣어 조회해.\n반대로 현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n특정 일자의 EOH 재공, 마감 재공, 종료 재공을 물으면 wip 이력 데이터에 해당 일자 DATE를 그대로 넣어 조회해.\n분석 계획에서는 사용자가 요청한 기준일과 실제 조회 DATE를 구분해. 결과에는 BOH 기준일을 표시하고, retrieval job의 DATE 파라미터에는 기준일의 전일을 넣어.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:calculate_wip_total",
+          "section": "pandas_function_cases",
+          "key": "calculate_wip_total",
+          "status": "active",
+          "payload": {
+            "applies_when": "질의에 '재공', '재공수량', 'WIP', '공정 물량' 중 하나가 포함될 때",
+            "required_inputs": {
+              "data_frame": "wip 계열 데이터"
+            },
+            "output_format": "float",
+            "pseudocode": "data_frame['WIP'].sum()",
+            "io_contract": {
+              "input": {
+                "data_frame": "pandas.DataFrame (columns=['WIP'])"
+              },
+              "output": "float"
+            }
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:component_token_product_lookup",
+          "section": "pandas_function_cases",
+          "key": "component_token_product_lookup",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 속성 토큰으로 제품 조회",
+            "description": "사용자가 '2048G H-HBM16E 제품 찾아줘'와 같이 제품 속성 토큰을 자유롭게 입력하여 제품을 찾는 질문을 할 경우, 이를 일반 제품군 조건으로 해석하지 않고 이 케이스를 사용한다.",
+            "apply_conditions": [
+              "제품 속성 토큰을 포함하여 제품을 찾아달라는 요청 (예: '2048G H-HBM16E 제품 찾아줘')"
+            ],
+            "input_requirements": {
+              "required_inputs": [
+                {
+                  "name": "product_tokens",
+                  "type": "list",
+                  "description": "사용자가 입력한 제품 속성 토큰 리스트"
+                },
+                {
+                  "name": "product_dataframe",
+                  "type": "dataframe",
+                  "description": "조회된 제품 데이터프레임"
+                }
+              ]
+            },
+            "io_contract": {
+              "input_parameters": {
+                "product_tokens": "List[str]",
+                "product_dataframe": "pd.DataFrame"
+              },
+              "output_type": "pd.DataFrame",
+              "output_description": "입력된 제품 토큰과 일치하는 제품 행으로 필터링된 데이터프레임"
+            },
+            "pseudocode": "filtered_df = match_product_tokens(product_dataframe, product_tokens)"
+          },
+          "updated_at": "2026-07-01T12:26:23.847200+00:00",
+          "registration_trace": {
+            "raw_text": "제품 찾기 질문에서 사용자가 \"2048G H-HBM16E 제품 찾아줘\"처럼 제품 속성 토큰을 자유롭게 입력하면,\n일반 제품군 조건으로 해석하지 말고 pandas_function_cases의 component_token_product_lookup 케이스로 저장해줘.\n이 케이스는 match_product_tokens helper를 사용해서 조회된 제품 데이터에서 일치하는 제품 row를 찾는 용도야."
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:interpret_product_unit_analysis_request",
+          "section": "pandas_function_cases",
+          "key": "interpret_product_unit_analysis_request",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 단위 분석 요청 해석 규칙",
+            "description": "사용자가 '제품', 'PRODUCT', 'DEVICE', '자재'와 같은 용어를 사용할 경우, 특정 제품 조건을 의미하는 것이 아니라 제품 단위의 분석을 요청하는 것으로 해석하는 분석 레시피 규칙입니다.",
+            "apply_conditions": [
+              "제품",
+              "PRODUCT",
+              "DEVICE",
+              "자재"
+            ],
+            "input_requirements": {
+              "natural_language_query": {
+                "type": "string",
+                "description": "사용자의 자연어 질의"
+              }
+            },
+            "io_contract": {
+              "output_format": {
+                "analysis_scope": {
+                  "type": "string",
+                  "description": "해석된 분석 범위 (예: 'product_unit')"
+                }
+              },
+              "output_example": {
+                "analysis_scope": "product_unit"
+              }
+            },
+            "pseudocode": "IF user_query CONTAINS ANY OF ['제품', 'PRODUCT', 'DEVICE', '자재'] THEN SET analysis_scope = 'product_unit'"
+          },
+          "updated_at": "2026-07-01T12:22:57.696328+00:00",
+          "registration_trace": {
+            "raw_text": "제품, PRODUCT, DEVICE, 자재는 같은 의미를 가진 분석 대상 표현이야.\n이건 특정 제품 조건이 아니라 사용자가 제품 단위 분석을 요청했다는 표현으로 해석하는 analysis recipe 규칙으로 저장해줘.\n"
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:interpret_shift_A_condition",
+          "section": "pandas_function_cases",
+          "key": "interpret_shift_A_condition",
+          "status": "active",
+          "payload": {
+            "display_name": "A조 Shift 조건 해석",
+            "description": "사용자 입력에서 'Shift A조', 'A조', '1조' 또는 '07:00~15:00' 등의 시간 범위 표현이 감지되면, SHIFT 필드 값을 1로 해석하는 규칙입니다.",
+            "apply_conditions": {
+              "query_contains_any": [
+                "Shift A조",
+                "A조",
+                "1조",
+                "07:00~15:00",
+                "07:00 ~ 15:00",
+                "07:00-15:00",
+                "07시부터 15시까지",
+                "7시부터 15시까지"
+              ]
+            },
+            "input_requirements": [
+              {
+                "name": "query_text",
+                "type": "string",
+                "description": "사용자의 질의 텍스트"
+              }
+            ],
+            "output_format": {
+              "field": "SHIFT",
+              "value": 1
+            },
+            "pseudocode": "IF query_text matches any of ['Shift A조', 'A조', '1조', '07:00~15:00', '07:00 ~ 15:00', '07:00-15:00', '07시부터 15시까지', '7시부터 15시까지']:\n    RETURN {\"SHIFT\": 1}\nELSE:\n    RETURN None",
+            "io_contract": {
+              "inputs": [
+                {
+                  "name": "query_text",
+                  "type": "string",
+                  "description": "사용자의 질의 텍스트"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "interpreted_condition",
+                  "type": "dict",
+                  "description": "{'SHIFT': 1} 형태의 해석된 조건 또는 None"
+                }
+              ]
+            }
+          },
+          "updated_at": "2026-07-01T12:21:23.889966+00:00",
+          "registration_trace": {
+            "raw_text": "Shift와 조 조건을 등록해줘.\nShift A조, A조, 1조는 같은 의미이고 SHIFT 값이 1인 데이터를 뜻해.\n07:00~15:00, 07:00 ~ 15:00, 07:00-15:00, 07시부터 15시까지, 7시부터 15시까지라고 말하면 A조 조건으로 해석해.\nShift B조, B조, 2조는 같은 의미이고 SHIFT 값이 2인 데이터를 뜻해.\n15:00~23:00, 15:00 ~ 23:00, 15:00-23:00, 15시부터 23시까지라고 말하면 B조 조건으로 해석해.\nShift C조, C조, 3조는 같은 의미이고 SHIFT 값이 3인 데이터를 뜻해.\n23:00~07:00, 23:00 ~ 07:00, 23:00-07:00, 23시부터 다음날 7시까지라고 말하면 C조 조건으로 해석해.\n조별 실적, Shift별 실적, A조 실적처럼 물으면 해당 SHIFT 조건을 필터로 사용해."
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:interpret_shift_B_condition",
+          "section": "pandas_function_cases",
+          "key": "interpret_shift_B_condition",
+          "status": "active",
+          "payload": {
+            "display_name": "B조 Shift 조건 해석",
+            "description": "사용자 입력에서 'Shift B조', 'B조', '2조' 또는 '15:00~23:00' 등의 시간 범위 표현이 감지되면, SHIFT 필드 값을 2로 해석하는 규칙입니다.",
+            "apply_conditions": {
+              "query_contains_any": [
+                "Shift B조",
+                "B조",
+                "2조",
+                "15:00~23:00",
+                "15:00 ~ 23:00",
+                "15:00-23:00",
+                "15시부터 23시까지"
+              ]
+            },
+            "input_requirements": [
+              {
+                "name": "query_text",
+                "type": "string",
+                "description": "사용자의 질의 텍스트"
+              }
+            ],
+            "output_format": {
+              "field": "SHIFT",
+              "value": 2
+            },
+            "pseudocode": "IF query_text matches any of ['Shift B조', 'B조', '2조', '15:00~23:00', '15:00 ~ 23:00', '15:00-23:00', '15시부터 23시까지']:\n    RETURN {\"SHIFT\": 2}\nELSE:\n    RETURN None",
+            "io_contract": {
+              "inputs": [
+                {
+                  "name": "query_text",
+                  "type": "string",
+                  "description": "사용자의 질의 텍스트"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "interpreted_condition",
+                  "type": "dict",
+                  "description": "{'SHIFT': 2} 형태의 해석된 조건 또는 None"
+                }
+              ]
+            }
+          },
+          "updated_at": "2026-07-01T12:21:23.889966+00:00",
+          "registration_trace": {
+            "raw_text": "Shift와 조 조건을 등록해줘.\nShift A조, A조, 1조는 같은 의미이고 SHIFT 값이 1인 데이터를 뜻해.\n07:00~15:00, 07:00 ~ 15:00, 07:00-15:00, 07시부터 15시까지, 7시부터 15시까지라고 말하면 A조 조건으로 해석해.\nShift B조, B조, 2조는 같은 의미이고 SHIFT 값이 2인 데이터를 뜻해.\n15:00~23:00, 15:00 ~ 23:00, 15:00-23:00, 15시부터 23시까지라고 말하면 B조 조건으로 해석해.\nShift C조, C조, 3조는 같은 의미이고 SHIFT 값이 3인 데이터를 뜻해.\n23:00~07:00, 23:00 ~ 07:00, 23:00-07:00, 23시부터 다음날 7시까지라고 말하면 C조 조건으로 해석해.\n조별 실적, Shift별 실적, A조 실적처럼 물으면 해당 SHIFT 조건을 필터로 사용해."
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:interpret_shift_C_condition",
+          "section": "pandas_function_cases",
+          "key": "interpret_shift_C_condition",
+          "status": "active",
+          "payload": {
+            "display_name": "C조 Shift 조건 해석",
+            "description": "사용자 입력에서 'Shift C조', 'C조', '3조' 또는 '23:00~07:00' 등의 시간 범위 표현이 감지되면, SHIFT 필드 값을 3으로 해석하는 규칙입니다.",
+            "apply_conditions": {
+              "query_contains_any": [
+                "Shift C조",
+                "C조",
+                "3조",
+                "23:00~07:00",
+                "23:00 ~ 07:00",
+                "23:00-07:00",
+                "23시부터 다음날 7시까지"
+              ]
+            },
+            "input_requirements": [
+              {
+                "name": "query_text",
+                "type": "string",
+                "description": "사용자의 질의 텍스트"
+              }
+            ],
+            "output_format": {
+              "field": "SHIFT",
+              "value": 3
+            },
+            "pseudocode": "IF query_text matches any of ['Shift C조', 'C조', '3조', '23:00~07:00', '23:00 ~ 07:00', '23:00-07:00', '23시부터 다음날 7시까지']:\n    RETURN {\"SHIFT\": 3}\nELSE:\n    RETURN None",
+            "io_contract": {
+              "inputs": [
+                {
+                  "name": "query_text",
+                  "type": "string",
+                  "description": "사용자의 질의 텍스트"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "interpreted_condition",
+                  "type": "dict",
+                  "description": "{'SHIFT': 3} 형태의 해석된 조건 또는 None"
+                }
+              ]
+            }
+          },
+          "updated_at": "2026-07-01T12:21:23.889966+00:00",
+          "registration_trace": {
+            "raw_text": "Shift와 조 조건을 등록해줘.\nShift A조, A조, 1조는 같은 의미이고 SHIFT 값이 1인 데이터를 뜻해.\n07:00~15:00, 07:00 ~ 15:00, 07:00-15:00, 07시부터 15시까지, 7시부터 15시까지라고 말하면 A조 조건으로 해석해.\nShift B조, B조, 2조는 같은 의미이고 SHIFT 값이 2인 데이터를 뜻해.\n15:00~23:00, 15:00 ~ 23:00, 15:00-23:00, 15시부터 23시까지라고 말하면 B조 조건으로 해석해.\nShift C조, C조, 3조는 같은 의미이고 SHIFT 값이 3인 데이터를 뜻해.\n23:00~07:00, 23:00 ~ 07:00, 23:00-07:00, 23시부터 다음날 7시까지라고 말하면 C조 조건으로 해석해.\n조별 실적, Shift별 실적, A조 실적처럼 물으면 해당 SHIFT 조건을 필터로 사용해."
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:join_datasets_by_product_keys",
+          "section": "pandas_function_cases",
+          "key": "join_datasets_by_product_keys",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 키 기반 데이터셋 결합",
+            "applies_when": {
+              "user_request_contains_data_sources": [
+                "production",
+                "wip",
+                "target",
+                "equipment"
+              ],
+              "user_request_implies_product_join": true
+            },
+            "io_contract": {
+              "input_parameters": [
+                {
+                  "name": "datasets_to_join",
+                  "type": "list",
+                  "description": "결합할 데이터셋 목록 (예: production, wip, target, equipment)"
+                }
+              ],
+              "output_columns": [
+                {
+                  "name": "joined_data",
+                  "type": "dataframe",
+                  "description": "제품 키를 기반으로 결합된 데이터프레임"
+                }
+              ]
+            },
+            "pseudocode": "1. 각 데이터셋의 물리 컬럼명을 table catalog의 매핑 정보를 사용하여 표준 제품 키 컬럼명(TECH, DEN, MODE, PKG_TYPE1, PKG_TYPE2, LEAD, MCP_NO)으로 통일합니다.\n2. 통일된 표준 제품 키 컬럼을 사용하여 pandas.merge 또는 유사한 방식으로 데이터셋들을 결합합니다.\n3. 사용자가 '제품별'을 요청하면 표준 제품 키 기준으로 그룹화합니다.\n4. 사용자가 'DEVICE별'을 요청하면 DEVICE 컬럼 기준으로 그룹화합니다.\n5. 사용자가 '전체', '총', '합계'를 요청하면 별도 그룹화 없이 전체 합계를 계산합니다.",
+            "required_inputs": [
+              {
+                "type": "data_source",
+                "name": "production"
+              },
+              {
+                "type": "data_source",
+                "name": "wip"
+              },
+              {
+                "type": "data_source",
+                "name": "target"
+              },
+              {
+                "type": "data_source",
+                "name": "equipment"
+              }
+            ],
+            "output_format": {
+              "type": "dataframe",
+              "description": "결합된 데이터와 요청된 그룹화에 따른 집계 결과"
+            }
+          },
+          "updated_at": "2026-07-01T12:31:03.501071+00:00",
+          "registration_trace": {
+            "raw_text": "제품 기준 join rule을 등록해줘.\nproduction, wip, target, equipment 데이터를 제품 기준으로 결합할 때는 TECH, DEN, MODE, PKG_TYPE1, PKG_TYPE2, LEAD, MCP_NO를 기본 제품 키로 사용해.\ndataset마다 PKG1, PKG2, PKG_TYP1, PKG_TYP2, DENSITY처럼 물리 컬럼명이 달라도 table catalog의 mapping을 통해 PKG_TYPE1, PKG_TYPE2, DEN 같은 표준 컬럼으로 맞춘 뒤 pandas에서 조인해.\n사용자가 제품별이라고 하면 제품 키 기준으로 group by 해.\n사용자가 DEVICE별이라고 하면 DEVICE 기준으로 group by 해.\n사용자가 전체, 총, 합계를 물으면 별도 group by 없이 합계를 보여줘."
+          }
+        },
+        {
+          "_id": "domain:pandas_function_cases:process_sequence_interpretation_rule",
+          "section": "pandas_function_cases",
+          "key": "process_sequence_interpretation_rule",
+          "status": "active",
+          "payload": {
+            "display_name": "공정 차수 번호 해석 규칙",
+            "description": "공정명 뒤에 'N차'와 같이 차수 번호가 붙는 경우, 이는 해당 공정 그룹 전체가 아닌 숫자가 붙은 단일 세부 공정(OPER_NAME)을 의미하며, 'N차'가 명시되지 않고 '차수별로 보여줘'와 같이 전체 차수별 분해를 요청하는 경우 공정 그룹에 포함된 세부 OPER_NAME 기준으로 그룹화하여 데이터를 제공하는 규칙입니다.",
+            "apply_conditions": [
+              "사용자 질의에 공정명과 함께 'N차' (N은 숫자)와 같은 차수 번호가 포함된 경우",
+              "사용자 질의에 '차수별로 보여줘'와 같이 공정 그룹 내 세부 OPER_NAME 기준 그룹화 요청이 포함된 경우"
+            ],
+            "input_requirements": {
+              "data_frame": "분석 대상 데이터프레임 (필수 컬럼: OPER_NAME)",
+              "user_query": "사용자의 자연어 질의 문자열",
+              "process_group_context": "현재 분석 중인 상위 공정 그룹 (선택 사항)"
+            },
+            "output_format": "필터링 또는 그룹화된 데이터프레임",
+            "pseudocode": [
+              "IF user_query contains a process_name followed by 'N차' (e.g., 'DA 1차'):",
+              "    Extract N (numeric part) from 'N차' and the base process_name (e.g., 'DA').",
+              "    FILTER data_frame WHERE OPER_NAME matches a pattern like '{base_process_name}{N}' (e.g., 'DA1').",
+              "    This filter is applied to a single detailed OPER_NAME, not the broad process group.",
+              "ELSE IF user_query requests '차수별로 보여줘' (show by sequence number) without a specific N:",
+              "    GROUP data_frame BY OPER_NAME within the given process_group_context (if applicable).",
+              "ELSE:",
+              "    // Apply default process filtering/grouping logic if neither condition is met"
+            ],
+            "io_contract": {
+              "inputs": [
+                {
+                  "name": "df",
+                  "type": "pandas.DataFrame",
+                  "description": "공정 데이터가 포함된 데이터프레임. 'OPER_NAME' 컬럼을 포함해야 합니다."
+                },
+                {
+                  "name": "query_text",
+                  "type": "str",
+                  "description": "사용자의 원본 질의 텍스트."
+                },
+                {
+                  "name": "process_group",
+                  "type": "str",
+                  "description": "현재 분석 컨텍스트의 상위 공정 그룹명 (선택 사항).",
+                  "optional": true
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "result_df",
+                  "type": "pandas.DataFrame",
+                  "description": "차수 번호 해석 규칙에 따라 필터링 또는 그룹화된 데이터프레임."
+                }
+              ]
+            }
+          },
+          "updated_at": "2026-07-01T12:18:16.053360+00:00",
+          "registration_trace": {
+            "raw_text": "공정 차수 표현 규칙을 등록해줘.\n이 블록은 공정 그룹을 새로 등록하는 것이 아니라 차수 표현을 해석하는 analysis recipe 규칙으로 저장해줘.\n아래 예시는 규칙 설명을 위한 예시일 뿐이므로 D/A1, W/B2 같은 예시 공정을 별도 process_groups item으로 만들지 마.\n전용 내부 필드가 없으면 calculation_rule 또는 pandas_generation_rule에 자연어 규칙으로 보존해도 돼.\n공정명 뒤에 N차처럼 차수 번호가 붙으면 해당 공정 그룹 전체가 아니라 그 숫자가 붙은 단일 세부 공정을 의미해.\n1차는 공정명 뒤에 1이 붙은 OPER_NAME, 2차는 2가 붙은 OPER_NAME, 3차는 3이 붙은 OPER_NAME, 4차는 4가 붙은 OPER_NAME처럼 차수 번호 N을 공정명 뒤 숫자 N과 매칭해서 해석해.\n예를 들어 D/A 1차, DA 1차, D/A1차, DA1차는 D/A1 공정을 의미해.\nW/B 2차, WB 2차, W/B2차, WB2차는 W/B2 공정을 의미해.\n공정 차수 표현은 broad 공정 그룹 필터가 아니라 해당 숫자가 붙은 단일 OPER_NAME 필터로 적용해.\n사용자가 \"차수별로 보여줘\"처럼 특정 차수를 지정하지 않고 전체 차수별 분해를 요청하면 공정 그룹에 포함된 세부 OPER_NAME 기준으로 group by 해서 보여줘.\n"
+          }
+        },
+        {
+          "_id": "domain:process_groups:BG",
+          "section": "process_groups",
+          "key": "BG",
+          "status": "active",
+          "payload": {
+            "display_name": "BG",
+            "aliases": [
+              "BG",
+              "B/G"
+            ],
+            "processes": [
+              "B/G1",
+              "B/G2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:BM",
+          "section": "process_groups",
+          "key": "BM",
+          "status": "active",
+          "payload": {
+            "display_name": "B/M",
+            "aliases": [
+              "B/M",
+              "BM",
+              "비엠"
+            ],
+            "processes": [
+              "B/M"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:DA",
+          "section": "process_groups",
+          "key": "DA",
+          "status": "active",
+          "payload": {
+            "display_name": "D/A",
+            "aliases": [
+              "D/A",
+              "DA"
+            ],
+            "processes": [
+              "D/A1",
+              "D/A2",
+              "D/A3",
+              "D/A4",
+              "D/A5",
+              "D/A6"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:DC",
+          "section": "process_groups",
+          "key": "DC",
+          "status": "active",
+          "payload": {
+            "display_name": "D/C",
+            "aliases": [
+              "D/C"
+            ],
+            "processes": [
+              "D/C1",
+              "D/C2",
+              "D/C3",
+              "D/C4"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:DI",
+          "section": "process_groups",
+          "key": "DI",
+          "status": "active",
+          "payload": {
+            "display_name": "D/I",
+            "aliases": [
+              "D/I",
+              "DI",
+              "DVI"
+            ],
+            "processes": [
+              "D/I"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:DP",
+          "section": "process_groups",
+          "key": "DP",
+          "status": "active",
+          "payload": {
+            "display_name": "DP",
+            "aliases": [
+              "DP",
+              "D/P"
+            ],
+            "processes": [
+              "WET1",
+              "WET2",
+              "L/T1",
+              "L/T2",
+              "B/G1",
+              "B/G2",
+              "H/S1",
+              "H/S2",
+              "W/S1",
+              "W/S2",
+              "WSD1",
+              "WSD2",
+              "WEC1",
+              "WEC2",
+              "WLS1",
+              "WLS2",
+              "WVI",
+              "UV",
+              "C/C1"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:DS",
+          "section": "process_groups",
+          "key": "DS",
+          "status": "active",
+          "payload": {
+            "display_name": "D/S",
+            "aliases": [
+              "D/S",
+              "DS"
+            ],
+            "processes": [
+              "D/S1"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:FCB",
+          "section": "process_groups",
+          "key": "FCB",
+          "status": "active",
+          "payload": {
+            "display_name": "FCB",
+            "aliases": [
+              "FCB"
+            ],
+            "processes": [
+              "FCB1",
+              "FCB2",
+              "FCB/H"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:FCBH",
+          "section": "process_groups",
+          "key": "FCBH",
+          "status": "active",
+          "payload": {
+            "display_name": "FCB/H",
+            "aliases": [
+              "FCB/H",
+              "FCBH"
+            ],
+            "processes": [
+              "FCB/H"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:HS",
+          "section": "process_groups",
+          "key": "HS",
+          "status": "active",
+          "payload": {
+            "display_name": "HS",
+            "aliases": [
+              "HS",
+              "H/S"
+            ],
+            "processes": [
+              "H/S1",
+              "H/S2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:LT",
+          "section": "process_groups",
+          "key": "LT",
+          "status": "active",
+          "payload": {
+            "display_name": "LT",
+            "aliases": [
+              "LT",
+              "L/T"
+            ],
+            "processes": [
+              "L/T1",
+              "L/T2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:PC",
+          "section": "process_groups",
+          "key": "PC",
+          "status": "active",
+          "payload": {
+            "display_name": "P/C",
+            "aliases": [
+              "P/C"
+            ],
+            "processes": [
+              "P/C1",
+              "P/C2",
+              "P/C3",
+              "P/C4",
+              "P/C5"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:PCO",
+          "section": "process_groups",
+          "key": "PCO",
+          "status": "active",
+          "payload": {
+            "display_name": "PCO",
+            "aliases": [
+              "PCO"
+            ],
+            "processes": [
+              "PCO1",
+              "PCO2",
+              "PCO3",
+              "PCO4",
+              "PCO5",
+              "PCO6"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:PLH",
+          "section": "process_groups",
+          "key": "PLH",
+          "status": "active",
+          "payload": {
+            "display_name": "P/L",
+            "aliases": [
+              "P/L",
+              "PLH"
+            ],
+            "processes": [
+              "PLH"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:QCSPC",
+          "section": "process_groups",
+          "key": "QCSPC",
+          "status": "active",
+          "payload": {
+            "display_name": "QCSPC",
+            "aliases": [
+              "QCSPC"
+            ],
+            "processes": [
+              "QCSPC1",
+              "QCSPC2",
+              "QCSPC3",
+              "QCSPC4"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:SAT",
+          "section": "process_groups",
+          "key": "SAT",
+          "status": "active",
+          "payload": {
+            "display_name": "SAT",
+            "aliases": [
+              "SAT"
+            ],
+            "processes": [
+              "SAT1",
+              "SAT2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:SBM",
+          "section": "process_groups",
+          "key": "SBM",
+          "status": "active",
+          "payload": {
+            "display_name": "SBM",
+            "aliases": [
+              "SBM",
+              "SBM공정"
+            ],
+            "processes": [
+              "SBM"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:SG",
+          "section": "process_groups",
+          "key": "SG",
+          "status": "active",
+          "payload": {
+            "display_name": "S/G",
+            "aliases": [
+              "S/G",
+              "SG",
+              "S/G공정",
+              "SG공정"
+            ],
+            "processes": [
+              "S/G"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:WB",
+          "section": "process_groups",
+          "key": "WB",
+          "status": "active",
+          "payload": {
+            "display_name": "W/B",
+            "aliases": [
+              "W/B",
+              "WB"
+            ],
+            "processes": [
+              "W/B1",
+              "W/B2",
+              "W/B3",
+              "W/B4",
+              "W/B5",
+              "W/B6"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:WEC",
+          "section": "process_groups",
+          "key": "WEC",
+          "status": "active",
+          "payload": {
+            "display_name": "WEC",
+            "aliases": [
+              "WEC"
+            ],
+            "processes": [
+              "WEC1",
+              "WEC2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:WET",
+          "section": "process_groups",
+          "key": "WET",
+          "status": "active",
+          "payload": {
+            "display_name": "WET",
+            "aliases": [
+              "WET"
+            ],
+            "processes": [
+              "WET1",
+              "WET2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:WLS",
+          "section": "process_groups",
+          "key": "WLS",
+          "status": "active",
+          "payload": {
+            "display_name": "WLS",
+            "aliases": [
+              "WLS"
+            ],
+            "processes": [
+              "WLS1",
+              "WLS2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:WS",
+          "section": "process_groups",
+          "key": "WS",
+          "status": "active",
+          "payload": {
+            "display_name": "WS",
+            "aliases": [
+              "WS",
+              "W/S"
+            ],
+            "processes": [
+              "W/S1",
+              "W/S2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:process_groups:WSD",
+          "section": "process_groups",
+          "key": "WSD",
+          "status": "active",
+          "payload": {
+            "display_name": "WSD",
+            "aliases": [
+              "WSD"
+            ],
+            "processes": [
+              "WSD1",
+              "WSD2"
+            ]
+          },
+          "updated_at": "2026-07-01T12:17:01.166869+00:00",
+          "registration_trace": {
+            "raw_text": "DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.\n\nWET 공정 그룹은 OPER_NAME 값 WET1, WET2를 포함해.\n\nLT 또는 L/T 공정 그룹은 OPER_NAME 값 L/T1, L/T2를 포함해.\n\nBG 또는 B/G 공정 그룹은 OPER_NAME 값 B/G1, B/G2를 포함해.\n\nHS 또는 H/S 공정 그룹은 OPER_NAME 값 H/S1, H/S2를 포함해.\n\nWS 또는 W/S 공정 그룹은 OPER_NAME 값 W/S1, W/S2를 포함해.\n\nWSD 공정 그룹은 OPER_NAME 값 WSD1, WSD2를 포함해.\n\nWEC 공정 그룹은 OPER_NAME 값 WEC1, WEC2를 포함해.\n\nWLS 공정 그룹은 OPER_NAME 값 WLS1, WLS2를 포함해.\n\nD/A 또는 DA 공정 그룹은 OPER_NAME 값 D/A1, D/A2, D/A3, D/A4, D/A5, D/A6를 포함해.\n\nPCO 공정 그룹은 OPER_NAME 값 PCO1, PCO2, PCO3, PCO4, PCO5, PCO6를 포함해.\n\nD/C 공정 그룹은 OPER_NAME 값 D/C1, D/C2, D/C3, D/C4를 포함해.\n\nD/I 또는 DI 또는 DVI 공정 그룹은 OPER_NAME 값 D/I를 의미해.\n\nD/S 또는 DS 공정 그룹은 OPER_NAME 값 D/S1을 의미하고 PKG_TYPE1 조건은 없어.\n\nFCB 공정 그룹은 OPER_NAME 값 FCB1, FCB2, FCB/H를 포함해.\n\nFCB/H 또는 FCBH 공정 그룹은 OPER_NAME 값 FCB/H를 의미해.\n\nB/M 또는 BM 또는 비엠 공정 그룹은 OPER_NAME 값 B/M을 의미해.\n\nP/C 공정 그룹은 OPER_NAME 값 P/C1, P/C2, P/C3, P/C4, P/C5를 포함해.\n\nW/B 또는 WB 공정 그룹은 OPER_NAME 값 W/B1, W/B2, W/B3, W/B4, W/B5, W/B6를 포함해.\n\nQCSPC 공정 그룹은 OPER_NAME 값 QCSPC1, QCSPC2, QCSPC3, QCSPC4를 포함해.\n\nSAT 공정 그룹은 OPER_NAME 값 SAT1, SAT2를 포함해.\n\nP/L 또는 PLH 공정 그룹은 OPER_NAME 값 PLH를 의미해.\n\nS/G 또는 SG 또는 S/G공정 또는 SG공정은 OPER_NAME 값이 S/G인 공정을 의미해.\n\nSBM 또는 SBM공정은 OPER_NAME 값이 SBM인 공정을 의미해."
+          }
+        },
+        {
+          "_id": "domain:product_key_columns:standard_product_keys",
+          "section": "product_key_columns",
+          "key": "standard_product_keys",
+          "status": "active",
+          "payload": {
+            "display_name": "표준 제품 키",
+            "columns": [
+              "TECH",
+              "DEN",
+              "MODE",
+              "PKG_TYPE1",
+              "PKG_TYPE2",
+              "LEAD",
+              "MCP_NO"
+            ],
+            "description": "production, wip, target, equipment 데이터셋을 제품 기준으로 결합할 때 사용되는 표준 제품 키."
+          },
+          "updated_at": "2026-07-01T12:31:03.501071+00:00",
+          "registration_trace": {
+            "raw_text": "제품 기준 join rule을 등록해줘.\nproduction, wip, target, equipment 데이터를 제품 기준으로 결합할 때는 TECH, DEN, MODE, PKG_TYPE1, PKG_TYPE2, LEAD, MCP_NO를 기본 제품 키로 사용해.\ndataset마다 PKG1, PKG2, PKG_TYP1, PKG_TYP2, DENSITY처럼 물리 컬럼명이 달라도 table catalog의 mapping을 통해 PKG_TYPE1, PKG_TYPE2, DEN 같은 표준 컬럼으로 맞춘 뒤 pandas에서 조인해.\n사용자가 제품별이라고 하면 제품 키 기준으로 group by 해.\n사용자가 DEVICE별이라고 하면 DEVICE 기준으로 group by 해.\n사용자가 전체, 총, 합계를 물으면 별도 group by 없이 합계를 보여줘."
+          }
+        },
+        {
+          "_id": "domain:product_terms:2HI_PRODUCT",
+          "section": "product_terms",
+          "key": "2HI_PRODUCT",
+          "status": "active",
+          "payload": {
+            "display_name": "2Hi 제품",
+            "aliases": [
+              "2Hi"
+            ],
+            "conditions": {
+              "TSV_DIE_TYP": {
+                "eq": "2Hi"
+              }
+            }
+          },
+          "updated_at": "2026-07-01T12:25:33.760153+00:00",
+          "registration_trace": {
+            "raw_text": "적층 단수 제품 조건을 등록해줘.\n2Hi 제품은 TSV_DIE_TYP 값이 2Hi인 제품이야.\n4Hi 제품은 TSV_DIE_TYP 값이 4Hi인 제품이야.\n8Hi 제품은 TSV_DIE_TYP 값이 8Hi인 제품이야.\n2Hi, 4Hi, 8Hi 같은 적층 단수 구분은 TSV_DIE_TYP 컬럼 값으로 구분해."
+          }
+        },
+        {
+          "_id": "domain:product_terms:4HI_PRODUCT",
+          "section": "product_terms",
+          "key": "4HI_PRODUCT",
+          "status": "active",
+          "payload": {
+            "display_name": "4Hi 제품",
+            "aliases": [
+              "4Hi"
+            ],
+            "conditions": {
+              "TSV_DIE_TYP": {
+                "eq": "4Hi"
+              }
+            }
+          },
+          "updated_at": "2026-07-01T12:25:33.760153+00:00",
+          "registration_trace": {
+            "raw_text": "적층 단수 제품 조건을 등록해줘.\n2Hi 제품은 TSV_DIE_TYP 값이 2Hi인 제품이야.\n4Hi 제품은 TSV_DIE_TYP 값이 4Hi인 제품이야.\n8Hi 제품은 TSV_DIE_TYP 값이 8Hi인 제품이야.\n2Hi, 4Hi, 8Hi 같은 적층 단수 구분은 TSV_DIE_TYP 컬럼 값으로 구분해."
+          }
+        },
+        {
+          "_id": "domain:product_terms:8HI_PRODUCT",
+          "section": "product_terms",
+          "key": "8HI_PRODUCT",
+          "status": "active",
+          "payload": {
+            "display_name": "8Hi 제품",
+            "aliases": [
+              "8Hi"
+            ],
+            "conditions": {
+              "TSV_DIE_TYP": {
+                "eq": "8Hi"
+              }
+            }
+          },
+          "updated_at": "2026-07-01T12:25:33.760153+00:00",
+          "registration_trace": {
+            "raw_text": "적층 단수 제품 조건을 등록해줘.\n2Hi 제품은 TSV_DIE_TYP 값이 2Hi인 제품이야.\n4Hi 제품은 TSV_DIE_TYP 값이 4Hi인 제품이야.\n8Hi 제품은 TSV_DIE_TYP 값이 8Hi인 제품이야.\n2Hi, 4Hi, 8Hi 같은 적층 단수 구분은 TSV_DIE_TYP 컬럼 값으로 구분해."
+          }
+        },
+        {
+          "_id": "domain:product_terms:AUTO_PRODUCT",
+          "section": "product_terms",
+          "key": "AUTO_PRODUCT",
+          "status": "active",
+          "payload": {
+            "display_name": "AUTO향 제품",
+            "aliases": [
+              "AUTO향",
+              "오토모티브향",
+              "오토향"
+            ],
+            "conditions": [
+              {
+                "column": "MCP_NO",
+                "operator": "is_not_empty"
+              },
+              {
+                "column": "MCP_NO",
+                "operator": "ends_with_any",
+                "value": [
+                  "I",
+                  "O",
+                  "N",
+                  "P",
+                  "Q",
+                  "V"
+                ]
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:24:52.156499+00:00",
+          "registration_trace": {
+            "raw_text": "AUTO향 제품 조건을 등록해줘.\nAUTO향, 오토모티브향, 오토향은 MCP_NO 값이 존재하고 MCP_NO 맨 뒷자리 문자가 I, O, N, P, Q, V 중 하나인 제품을 말해."
+          }
+        },
+        {
+          "_id": "domain:product_terms:HBM_3DS_TSV_PRODUCT",
+          "section": "product_terms",
+          "key": "HBM_3DS_TSV_PRODUCT",
+          "status": "active",
+          "payload": {
+            "display_name": "HBM, 3DS, TSV 제품",
+            "aliases": [
+              "HBM",
+              "3DS",
+              "TSV"
+            ],
+            "conditions": [
+              {
+                "column": "TSV_DIE_TYP",
+                "operator": "is_not_null_or_empty"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:25:11.706392+00:00",
+          "registration_trace": {
+            "raw_text": "HBM, 3DS, TSV 제품 조건을 등록해줘.\nHBM, 3DS, TSV 제품은 TSV_DIE_TYP 값이 존재하고 NULL 또는 빈칸이 아닌 제품으로 판단해"
+          }
+        },
+        {
+          "_id": "domain:product_terms:MOBILE_PRODUCT",
+          "section": "product_terms",
+          "key": "MOBILE_PRODUCT",
+          "status": "active",
+          "payload": {
+            "display_name": "MOBILE 제품",
+            "aliases": [
+              "MOBILE 제품",
+              "MOBILE"
+            ],
+            "condition_by_family": {
+              "production": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "field": "MODE",
+                    "operator": "startsWith",
+                    "value": "LP"
+                  },
+                  {
+                    "field": "PKG_TYPE1",
+                    "operator": "in",
+                    "value": [
+                      "LFBGA",
+                      "TFBGA",
+                      "UFBGA",
+                      "VFBGA",
+                      "WFBGA"
+                    ]
+                  },
+                  {
+                    "operator": "or",
+                    "operands": [
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isNull"
+                      },
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isEmpty"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "wip": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "field": "MODE",
+                    "operator": "startsWith",
+                    "value": "LP"
+                  },
+                  {
+                    "field": "PKG_TYPE1",
+                    "operator": "in",
+                    "value": [
+                      "LFBGA",
+                      "TFBGA",
+                      "UFBGA",
+                      "VFBGA",
+                      "WFBGA"
+                    ]
+                  },
+                  {
+                    "operator": "or",
+                    "operands": [
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isNull"
+                      },
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isEmpty"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "lot": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "field": "MODE",
+                    "operator": "startsWith",
+                    "value": "LP"
+                  },
+                  {
+                    "field": "PKG_TYPE1",
+                    "operator": "in",
+                    "value": [
+                      "LFBGA",
+                      "TFBGA",
+                      "UFBGA",
+                      "VFBGA",
+                      "WFBGA"
+                    ]
+                  },
+                  {
+                    "operator": "or",
+                    "operands": [
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isNull"
+                      },
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isEmpty"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "equipment": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "field": "MODE",
+                    "operator": "startsWith",
+                    "value": "LP"
+                  },
+                  {
+                    "field": "PKG_TYPE1",
+                    "operator": "in",
+                    "value": [
+                      "LFBGA",
+                      "TFBGA",
+                      "UFBGA",
+                      "VFBGA",
+                      "WFBGA"
+                    ]
+                  },
+                  {
+                    "operator": "or",
+                    "operands": [
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isNull"
+                      },
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isEmpty"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "capacity": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "field": "MODE",
+                    "operator": "startsWith",
+                    "value": "LP"
+                  },
+                  {
+                    "field": "PKG_TYPE1",
+                    "operator": "in",
+                    "value": [
+                      "LFBGA",
+                      "TFBGA",
+                      "UFBGA",
+                      "VFBGA",
+                      "WFBGA"
+                    ]
+                  },
+                  {
+                    "operator": "or",
+                    "operands": [
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isNull"
+                      },
+                      {
+                        "field": "MCP_NO",
+                        "operator": "isEmpty"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "updated_at": "2026-07-01T12:24:28.915510+00:00",
+          "registration_trace": {
+            "raw_text": "MOBILE 제품 조건을 등록해줘.\nsection은 product_terms이고 key는 MOBILE_PRODUCT야.\ndisplay_name은 MOBILE 제품이고 aliases는 MOBILE 제품, MOBILE이야.\nMOBILE 제품은 MODE가 LP로 시작하고, PKG_TYPE1이 LFBGA, TFBGA, UFBGA, VFBGA, WFBGA 중 하나이며, MCP_NO 값이 NULL이거나 빈칸인 제품이야.\nproduction, wip, lot, equipment, capacity 계열 모두 같은 조건을 condition_by_family로 저장해."
+          }
+        },
+        {
+          "_id": "domain:product_terms:POP",
+          "section": "product_terms",
+          "key": "POP",
+          "status": "active",
+          "payload": {
+            "display_name": "POP 제품",
+            "description": "POP 제품은 MODE가 LP로 시작하고, PKG_TYPE1이 LFBGA, TFBGA, UFBGA, VFBGA, WFBGA 중 하나이며, MCP_NO 값이 존재하고 NULL 또는 빈칸이 아닌 제품입니다.",
+            "conditions": [
+              {
+                "column": "MODE",
+                "operator": "starts_with",
+                "value": "LP"
+              },
+              {
+                "column": "PKG_TYPE1",
+                "operator": "in",
+                "value": [
+                  "LFBGA",
+                  "TFBGA",
+                  "UFBGA",
+                  "VFBGA",
+                  "WFBGA"
+                ]
+              },
+              {
+                "column": "MCP_NO",
+                "operator": "is_not_null_or_empty"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:24:07.343925+00:00",
+          "registration_trace": {
+            "raw_text": "POP 제품 조건을 등록해줘.\nPOP 제품은 MODE가 LP로 시작하고, PKG_TYPE1이 LFBGA, TFBGA, UFBGA, VFBGA, WFBGA 중 하나이며, MCP_NO 값이 존재하고 NULL 또는 빈칸이 아닌 제품이야."
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:equipment_count",
+          "section": "quantity_terms",
+          "key": "equipment_count",
+          "status": "active",
+          "payload": {
+            "display_name": "장비 대수",
+            "aliases": [
+              "장비 대수",
+              "설비 대수",
+              "장비 수",
+              "설비 수",
+              "몇 대"
+            ],
+            "data_source": "equipment",
+            "aggregation_method": "nunique",
+            "columns": [
+              "EQP_ID",
+              "EQPID"
+            ]
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:input_quantity",
+          "section": "quantity_terms",
+          "key": "input_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "투입량",
+            "aliases": [
+              "투입량",
+              "INPUT",
+              "input",
+              "INPUT실적",
+              "INPUT생산량",
+              "투입 실적"
+            ],
+            "data_source": "production",
+            "column": "PRODUCTION",
+            "aggregation_method": "sum",
+            "filters": [
+              {
+                "column": "OPER_NAME",
+                "operator": "eq",
+                "value": "INPUT"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:production_quantity",
+          "section": "quantity_terms",
+          "key": "production_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "생산량",
+            "aliases": [
+              "생산량",
+              "생산실적",
+              "실적",
+              "OUTPUT",
+              "OUT",
+              "Out Put",
+              "output 실적",
+              "out 실적"
+            ],
+            "data_source": "production",
+            "column": "PRODUCTION",
+            "aggregation_method": "sum"
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:target_data",
+          "section": "quantity_terms",
+          "key": "target_data",
+          "status": "active",
+          "payload": {
+            "display_name": "계획",
+            "aliases": [
+              "계획",
+              "스케쥴",
+              "스케줄",
+              "SCHD",
+              "투입계획",
+              "일별 투입계획",
+              "생산계획"
+            ],
+            "data_source": "target",
+            "usage_condition": "질문에 '계획' 또는 '스케쥴' 문자가 포함된 경우에만 사용"
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:wip_boh_quantity",
+          "section": "quantity_terms",
+          "key": "wip_boh_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "BOH 재공",
+            "aliases": [
+              "아침 재공",
+              "BOH 재공",
+              "BOH",
+              "07시 기준 재공",
+              "7시 기준 재공"
+            ],
+            "data_source": "wip",
+            "column": "WIP",
+            "aggregation_method": "sum"
+          },
+          "updated_at": "2026-07-01T12:29:35.060864+00:00",
+          "registration_trace": {
+            "raw_text": "BOH 재공과 아침 재공 기준일 규칙을 등록해줘.\n아침 재공, BOH 재공, BOH, 07시 기준 재공, 7시 기준 재공은 하루 시작 시점의 재공을 뜻해.\n재공 이력 테이블의 DATE는 해당 일자의 EOH, 즉 끝나는 시점 재공이야.\n그래서 특정 일자의 BOH 재공은 그 전일 DATE의 wip 이력 데이터를 조회해야 해.\n예를 들어 6/20 아침 재공, 6/20 BOH 재공, 6/20 07시 기준 재공은 wip 이력 데이터에 DATE=6/19를 넣어 조회한 결과가 6/20 BOH 값이야.\n오늘 또는 금일 아침 재공, 오늘 BOH, 금일 07시 기준 재공은 wip_today를 사용하지 않고 wip 이력 데이터에 어제 DATE를 넣어 조회해.\n반대로 현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n특정 일자의 EOH 재공, 마감 재공, 종료 재공을 물으면 wip 이력 데이터에 해당 일자 DATE를 그대로 넣어 조회해.\n분석 계획에서는 사용자가 요청한 기준일과 실제 조회 DATE를 구분해. 결과에는 BOH 기준일을 표시하고, retrieval job의 DATE 파라미터에는 기준일의 전일을 넣어.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:wip_eoh_quantity",
+          "section": "quantity_terms",
+          "key": "wip_eoh_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "EOH 재공",
+            "aliases": [
+              "EOH 재공",
+              "마감 재공",
+              "종료 재공"
+            ],
+            "data_source": "wip",
+            "column": "WIP",
+            "aggregation_method": "sum"
+          },
+          "updated_at": "2026-07-01T12:29:35.060864+00:00",
+          "registration_trace": {
+            "raw_text": "BOH 재공과 아침 재공 기준일 규칙을 등록해줘.\n아침 재공, BOH 재공, BOH, 07시 기준 재공, 7시 기준 재공은 하루 시작 시점의 재공을 뜻해.\n재공 이력 테이블의 DATE는 해당 일자의 EOH, 즉 끝나는 시점 재공이야.\n그래서 특정 일자의 BOH 재공은 그 전일 DATE의 wip 이력 데이터를 조회해야 해.\n예를 들어 6/20 아침 재공, 6/20 BOH 재공, 6/20 07시 기준 재공은 wip 이력 데이터에 DATE=6/19를 넣어 조회한 결과가 6/20 BOH 값이야.\n오늘 또는 금일 아침 재공, 오늘 BOH, 금일 07시 기준 재공은 wip_today를 사용하지 않고 wip 이력 데이터에 어제 DATE를 넣어 조회해.\n반대로 현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n특정 일자의 EOH 재공, 마감 재공, 종료 재공을 물으면 wip 이력 데이터에 해당 일자 DATE를 그대로 넣어 조회해.\n분석 계획에서는 사용자가 요청한 기준일과 실제 조회 DATE를 구분해. 결과에는 BOH 기준일을 표시하고, retrieval job의 DATE 파라미터에는 기준일의 전일을 넣어.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:wip_quantity",
+          "section": "quantity_terms",
+          "key": "wip_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "재공수량",
+            "aliases": [
+              "재공",
+              "재공수량",
+              "WIP",
+              "공정 물량"
+            ],
+            "data_source": "wip",
+            "column": "WIP",
+            "aggregation_method": "sum"
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        },
+        {
+          "_id": "domain:quantity_terms:wip_today_quantity",
+          "section": "quantity_terms",
+          "key": "wip_today_quantity",
+          "status": "active",
+          "payload": {
+            "display_name": "현재 재공",
+            "aliases": [
+              "현재 재공",
+              "지금 재공",
+              "금일 현재 재공"
+            ],
+            "data_source": "wip_today"
+          },
+          "updated_at": "2026-07-01T12:28:57.003114+00:00",
+          "registration_trace": {
+            "raw_text": "수량 용어를 등록해줘.\n재공, 재공수량, WIP, 공정 물량은 wip 계열 데이터의 WIP 컬럼 합계를 의미해.\n\n현재 재공, 지금 재공, 금일 현재 재공은 wip_today 계열 데이터를 사용해.\n\n생산량, 생산실적, 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\nOUTPUT, OUT, Out Put, output 실적, out 실적은 production 계열 데이터의 PRODUCTION 컬럼 합계를 의미해.\n\n특정 공정의 OUTPUT, 실적을 물으면 production 계열 데이터에서 해당 OPER_NAME 조건을 적용하고 PRODUCTION을 집계해.\n\n투입량, INPUT, input, INPUT실적, INPUT생산량, 투입 실적은 PKG INPUT 공정의 생산 실적을 의미하고, production 계열 데이터에서 OPER_NAME 값이 'INPUT'인 행의 PRODUCTION 합계로 계산해.\n\n\n계획, 스케쥴, 스케줄, SCHD, 투입계획, 일별 투입계획, 생산계획은 target 계열 데이터를 의미해.\n계획이나 스케쥴 문자가 질문에 포함되지 않으면 target 계열 데이터는 사용하지 않아.\n\n장비 대수, 설비 대수, 장비 수, 설비 수, 몇 대는 equipment 계열 데이터에서 EQP_ID 또는 EQPID의 중복 제거 개수로 계산해.\n"
+          }
+        }
+      ]
+    },
+    "table-catalog": {
+      "metadata_kind": "table-catalog",
+      "display_name": "table catalog metadata",
+      "collection_name": "agent_v4_table_catalog_items",
+      "document_count": 9,
+      "documents": [
+        {
+          "_id": "table_catalog:eqp_uph",
+          "dataset_key": "eqp_uph",
+          "status": "active",
+          "payload": {
+            "display_name": "Equipment UPH",
+            "dataset_family": "equipment",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "GMS_DB",
+              "query_template": "SELECT \n\n  EQUIP_MODEL\n  ,OPER\n  ,OPER_NAME\n  ,PRESS_CNT\n  ,PROD_TYP AS \"MODE\"\n  ,TECH\n  ,ORG\n  ,DENSITY\n  ,PKG_TYP AS PKG1\n  ,PKG_TYP_2 AS PKG2\n  ,LEAD_CNT AS LEAD\n  ,MCP_NO\n  ,RECIPE_ID \n  ,round(AVG_UPH_VAL,2) AS UPH\n  ,WORK_DT AS LOAD_DT\n  ,BASE_DT\nFROM UPH\nWHERE 1=1"
+            },
+            "required_params": [],
+            "required_param_mappings": {},
+            "filter_mappings": {
+              "EQP_MODEL": [
+                "EQUIP_MODEL"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "RECIPE_ID": [
+                "RECIPE_ID"
+              ]
+            },
+            "standard_column_aliases": {
+              "UPH": [
+                "UPH"
+              ],
+              "DATE": [
+                "LOAD_DT"
+              ],
+              "EQP_MODEL": [
+                "EQUIP_MODEL"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "RECIPE_ID": [
+                "RECIPE_ID"
+              ]
+            },
+            "columns": [
+              {
+                "name": "EQUIP_MODEL",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "OPER",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "OPER_NAME",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "PRESS_CNT",
+                "type": "MEASURE"
+              },
+              {
+                "name": "MODE",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "TECH",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "ORG",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "DENSITY",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "PKG1",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "PKG2",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "LEAD",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "MCP_NO",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "RECIPE_ID",
+                "type": "DIMENSION"
+              },
+              {
+                "name": "UPH",
+                "type": "MEASURE",
+                "is_primary_measure": true
+              },
+              {
+                "name": "LOAD_DT",
+                "type": "DATE"
+              },
+              {
+                "name": "BASE_DT",
+                "type": "DATE"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:43:01.914779+00:00",
+          "registration_trace": {
+            "raw_text": "장비모델/제품별 UPH 데이터는 eqp_uph로 등록해줘.\n이 데이터는 Oracle기반 조회고 db_key는 GMS_DB야\n화면에 보일 이름은 Equipment UPH이면 돼.\nOracle GMS_DB의 UPH 테이블에서 장비모델/공정/제품의 평균 UPH를 가져오는 데이터야.\n이 데이터는 필수 파라미터 없이 조회해.\n제품/장비모델별 UPH 값은 UPH 컬럼에 나와있어.\n\nquery_template:\n\nSELECT \n\n  EQUIP_MODEL\n  ,OPER\n  ,OPER_NAME\n  ,PRESS_CNT\n  ,PROD_TYP AS \"MODE\"\n  ,TECH\n  ,ORG\n  ,DENSITY\n  ,PKG_TYP AS PKG1\n  ,PKG_TYP_2 AS PKG2\n  ,LEAD_CNT AS LEAD\n  ,MCP_NO\n  ,RECIPE_ID \n  ,round(AVG_UPH_VAL,2) AS UPH\n  ,WORK_DT AS LOAD_DT\n  ,BASE_DT\nFROM UPH\nWHERE 1=1\n\nfilter_mappings는 EQP_MODEL -> EQUIP_MODEL, OPER_NAME -> OPER_NAME, OPER_NUM -> OPER, MODE -> MODE, TECH -> TECH, ORG -> ORG, DEN -> DENSITY, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, RECIPE_ID -> RECIPE_ID로 연결해줘.\n"
+          }
+        },
+        {
+          "_id": "table_catalog:equipment_assign",
+          "dataset_key": "equipment_assign",
+          "status": "active",
+          "payload": {
+            "display_name": "Equipment Assign현황",
+            "dataset_family": "equipment",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "SELECT \n  BAY_ID, \n  EQUIP_ID, \n  EQUIP_MODEL, \n  PRESS_CNT,\n  OPER,\n  OPER_NM,\n  MODE, \n  DENSITY, \n  TECH, \n  PKG1, \n  PKG2, \n  LEAD, \n  ORG,\n  PKGSIZE,  \n  MCP_NO,\n  DEVICE,\n  DEVICE_DESC,\n  LOT_ID,\n  RECIPE_ID\nFROM  EQP_TABLE\nWHERE 1=1 "
+            },
+            "required_params": [],
+            "required_param_mappings": {},
+            "filter_mappings": {
+              "EQP_ID": [
+                "EQUIP_ID"
+              ],
+              "EQP_MODEL": [
+                "EQUIP_MODEL"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "DEVICE": [
+                "DEVICE"
+              ],
+              "DEVICE_DESC": [
+                "DEVICE_DESC"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NM"
+              ],
+              "LOT_ID": [
+                "LOT_ID"
+              ],
+              "RECIPE_ID": [
+                "RECIPE_ID"
+              ]
+            },
+            "standard_column_aliases": {
+              "EQP_ID": [
+                "EQUIP_ID"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NM"
+              ]
+            },
+            "columns": [
+              {
+                "column_name": "BAY_ID",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "EQUIP_ID",
+                "column_type": "TEXT",
+                "description": "장비 ID",
+                "count_measure": {
+                  "measure_name": "장비 대수",
+                  "measure_type": "COUNT_DISTINCT",
+                  "column_name": "EQUIP_ID"
+                }
+              },
+              {
+                "column_name": "EQUIP_MODEL",
+                "column_type": "TEXT",
+                "description": "장비 모델"
+              },
+              {
+                "column_name": "PRESS_CNT",
+                "column_type": "NUMBER"
+              },
+              {
+                "column_name": "OPER",
+                "column_type": "TEXT",
+                "description": "공정 번호"
+              },
+              {
+                "column_name": "OPER_NM",
+                "column_type": "TEXT",
+                "description": "공정 이름"
+              },
+              {
+                "column_name": "MODE",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "DENSITY",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "TECH",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "PKG1",
+                "column_type": "TEXT",
+                "description": "패키지 타입1"
+              },
+              {
+                "column_name": "PKG2",
+                "column_type": "TEXT",
+                "description": "패키지 타입2"
+              },
+              {
+                "column_name": "LEAD",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "ORG",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "PKGSIZE",
+                "column_type": "TEXT",
+                "description": "패키지 사이즈"
+              },
+              {
+                "column_name": "MCP_NO",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "DEVICE",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "DEVICE_DESC",
+                "column_type": "TEXT",
+                "description": "디바이스 설명"
+              },
+              {
+                "column_name": "LOT_ID",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "RECIPE_ID",
+                "column_type": "TEXT"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:42:15.569821+00:00",
+          "registration_trace": {
+            "raw_text": "장비 Assign 현황 데이터는 equipment_assign으로 등록해줘.\n이 데이터는 Oracle기반 조회고 db_key는 PNT_RPT야\n화면에 보일 이름은 Equipment Assign현황 이면 돼.\nOracle PNT_RPT의 EQP_TABLE에서 설비별 보유 현황을 가져오는 데이터야.\n이 데이터는 필수 파라미터 없이 조회해.\n주요 수량 정보는 없고 \n장비 수를 물어볼때는 이 데이터의 EQUIP_ID(표준컬럼 EQP_ID) 컬럼값의 중복 제거된 ROW COUNT가 장비 대수야. 따로 장비대수 컬럼은 없고 계산해줘야해.\n\nquery_template:\n\nSELECT \n  BAY_ID, \n  EQUIP_ID, \n  EQUIP_MODEL, \n  PRESS_CNT,\n  OPER,\n  OPER_NM,\n  MODE, \n  DENSITY, \n  TECH, \n  PKG1, \n  PKG2, \n  LEAD, \n  ORG,\n  PKGSIZE,  \n  MCP_NO,\n  DEVICE,\n  DEVICE_DESC,\n  LOT_ID,\n  RECIPE_ID\nFROM  EQP_TABLE\nWHERE 1=1 \n\nfilter_mappings는 EQP_ID -> EQUIP_ID, EQP_MODEL -> EQPIP_MODEL, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, ORG -> ORG, DEVICE -> DEVICE, DEVICE_DESC -> DEVICE_DESC, OPER_NUM -> OPER, OPER_NAME -> OPER_NM, LOT_ID -> LOT_ID, RECIPE_ID -> RECIPE_ID 로 연결해줘.\n"
+          }
+        },
+        {
+          "_id": "table_catalog:hold_history",
+          "dataset_key": "hold_history",
+          "status": "active",
+          "payload": {
+            "display_name": "HOLD History",
+            "dataset_family": "hold",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "/*HOLD_LOT_HISTORY*/\n\n        SELECT\n\n            LOT_ID,\n            PROD_QTY,\n            OPER,\n            OPER_NAME,\n            HOLD_TM,\n            HOLD_CD,\n            HOLD_USER,\n            HOLD_DESC,\n            FAB,\n            FAMILY,\n            MODE,\n            DENSITY,\n            TECH,\n            ORG,\n            PKG1,\n            PKG2,\n            LEAD,\n            MCP_NO,\n            GRADE,\n            OWNER,\n            \n            DEVICE,\n            DEVICE_DESC,\n            PKG_SIZE,\n            THK_CD,\n            flow_id   \n        FROM HOLD_HIS\n        WHERE LOT_ID = {LOT_ID}"
+            },
+            "required_params": [
+              "LOT_ID"
+            ],
+            "required_param_mappings": {
+              "LOT_ID": [
+                "LOT_ID"
+              ]
+            },
+            "filter_mappings": {
+              "LOT_ID": [
+                "LOT_ID"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "TSV_DIE_TYP": [
+                "TSV_DIE_TYPE"
+              ],
+              "DEVICE": [
+                "DEVICE"
+              ],
+              "DEVICE_DESC": [
+                "DEVICE_DESC"
+              ]
+            },
+            "standard_column_aliases": {
+              "QUANTITY": [
+                "PROD_QTY"
+              ],
+              "COUNT": [
+                "LOT_ID"
+              ],
+              "HOLD_TIME": [
+                "HOLD_TM"
+              ],
+              "HOLD_CODE": [
+                "HOLD_CD"
+              ],
+              "HOLD_DESCRIPTION": [
+                "HOLD_DESC"
+              ]
+            },
+            "columns": [
+              {
+                "column_name": "LOT_ID",
+                "column_alias": "LOT_ID"
+              },
+              {
+                "column_name": "PROD_QTY",
+                "column_alias": "PROD_QTY"
+              },
+              {
+                "column_name": "OPER",
+                "column_alias": "OPER"
+              },
+              {
+                "column_name": "OPER_NAME",
+                "column_alias": "OPER_NAME"
+              },
+              {
+                "column_name": "HOLD_TM",
+                "column_alias": "HOLD_TM"
+              },
+              {
+                "column_name": "HOLD_CD",
+                "column_alias": "HOLD_CD"
+              },
+              {
+                "column_name": "HOLD_USER",
+                "column_alias": "HOLD_USER"
+              },
+              {
+                "column_name": "HOLD_DESC",
+                "column_alias": "HOLD_DESC"
+              },
+              {
+                "column_name": "FAB",
+                "column_alias": "FAB"
+              },
+              {
+                "column_name": "FAMILY",
+                "column_alias": "FAMILY"
+              },
+              {
+                "column_name": "MODE",
+                "column_alias": "MODE"
+              },
+              {
+                "column_name": "DENSITY",
+                "column_alias": "DENSITY"
+              },
+              {
+                "column_name": "TECH",
+                "column_alias": "TECH"
+              },
+              {
+                "column_name": "ORG",
+                "column_alias": "ORG"
+              },
+              {
+                "column_name": "PKG1",
+                "column_alias": "PKG1"
+              },
+              {
+                "column_name": "PKG2",
+                "column_alias": "PKG2"
+              },
+              {
+                "column_name": "LEAD",
+                "column_alias": "LEAD"
+              },
+              {
+                "column_name": "MCP_NO",
+                "column_alias": "MCP_NO"
+              },
+              {
+                "column_name": "GRADE",
+                "column_alias": "GRADE"
+              },
+              {
+                "column_name": "OWNER",
+                "column_alias": "OWNER"
+              },
+              {
+                "column_name": "DEVICE",
+                "column_alias": "DEVICE"
+              },
+              {
+                "column_name": "DEVICE_DESC",
+                "column_alias": "DEVICE_DESC"
+              },
+              {
+                "column_name": "PKG_SIZE",
+                "column_alias": "PKG_SIZE"
+              },
+              {
+                "column_name": "THK_CD",
+                "column_alias": "THK_CD"
+              },
+              {
+                "column_name": "flow_id",
+                "column_alias": "flow_id"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:44:52.282594+00:00",
+          "registration_trace": {
+            "raw_text": "HOLD 이력 조회 데이터는 hold_history로 등록해줘.\n화면에 보일 이름은 HOLD History이면 돼.\n이 데이터는 Oracle기반 조회고 db_key는 PNT_RPT야.\nHOLD된 LOT의 HOLD 발생 사유, HOLD 발생 시각, 해제 예정일, HOLD 설명을 확인하는 Oracle 데이터야.\nLOT_ID가 조회 필수 조건이야.\nHOLD Lot 건수는 LOT_ID의 UNIQUE수량를 count해야하고,\nHOLD DIE수량이나 UNIT수량을 물어볼때는 OLD_SUB_PROD_QTY값의 합을 구해야해.\nHOLD_TM은 HOLD 발생 시각이고 HOLD_CD는 HOLD CODE를 말하는거야\nHOLD DESC는 상세 사유를 담은 컬럼이야\n\nquery_template:\n/*HOLD_LOT_HISTORY*/\n\n        SELECT\n\n            LOT_ID,\n            PROD_QTY,\n            OPER,\n            OPER_NAME,\n            HOLD_TM,\n            HOLD_CD,\n            HOLD_USER,\n            HOLD_DESC,\n            FAB,\n            FAMILY,\n            MODE,\n            DENSITY,\n            TECH,\n            ORG,\n            PKG1,\n            PKG2,\n            LEAD,\n            MCP_NO,\n            GRADE,\n            OWNER,\n            \n            DEVICE,\n            DEVICE_DESC,\n            PKG_SIZE,\n            THK_CD,\n            flow_id   \n        FROM HOLD_HIS\n        WHERE LOT_ID = {LOT_ID}\n\nfilter_mappings는 LOT_ID -> LOT_ID, OPER_NAME -> OPER_NAME, OPER_NUM -> OPER,, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, TSV_DIE_TYP -> TSV_DIE_TYPE, DEVICE -> DEVICE, DEVICE_DESC -> DEVICE_DESC 로 연결해줘."
+          }
+        },
+        {
+          "_id": "table_catalog:lot_status",
+          "dataset_key": "lot_status",
+          "status": "active",
+          "payload": {
+            "display_name": "LOT Status",
+            "dataset_family": "wip",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "/*Current Wip Status*/\nSELECT\nERM_ID,OPER,OPER_NAME,FAB,OWNER,GRADE,DEVICE,LOT_ID,SUB_LOT_ID,PROD_QTY,WF_QTY,IN_TAT,CUM_TAT,EQP_ID,FLOW_ID,OPER_IN_TM,FAC_IN_TIME,HOLD_STAT,HOLD_REASON,FAMILY,MODE,DENSITY,TECH,ORG,PKG1,PKG2,PKG3,LEAD,MCP_NO,THK_CD,LOT_STAT,LOT_GRP,PKG_SIZE,HOT_LOT,HOT_LEVEL,PKG_COMPOSIT,DURABLE_ID,DURABLE_TYP,SUB_QTY,TSV_DIE_TYPE,EVENT_DESC,MOVE_IN_TM,PAD_ABNORMAL,SWR_REQ_NO,INSP_TARGET\nFROM WIP_STATE\nWHERE 1=1"
+            },
+            "required_params": [],
+            "required_param_mappings": {},
+            "filter_mappings": {
+              "OPER_NAME": [
+                "OPER_NAME"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "TSV_DIE_TYP": [
+                "TSV_DIE_TYPE"
+              ],
+              "EQP_ID": [
+                "EQP_ID"
+              ],
+              "LOT_ID": [
+                "LOT_ID"
+              ]
+            },
+            "standard_column_aliases": {
+              "PROD_QTY": [
+                "DIE수량",
+                "UNIT수량"
+              ],
+              "WF_QTY": [
+                "Wafer수량",
+                "웨이퍼수량"
+              ],
+              "IN_TAT": [
+                "현재 공정 유입 이후 TAT"
+              ],
+              "CUM_TAT": [
+                "누적 TAT"
+              ],
+              "LOT_ID": [
+                "Lot 건수"
+              ],
+              "HOLD_STAT": [
+                "HOLD여부"
+              ]
+            },
+            "columns": [
+              {
+                "column_name": "ERM_ID",
+                "column_type": "string"
+              },
+              {
+                "column_name": "OPER",
+                "column_type": "string",
+                "description": "공정 번호"
+              },
+              {
+                "column_name": "OPER_NAME",
+                "column_type": "string",
+                "description": "공정 이름"
+              },
+              {
+                "column_name": "FAB",
+                "column_type": "string"
+              },
+              {
+                "column_name": "OWNER",
+                "column_type": "string"
+              },
+              {
+                "column_name": "GRADE",
+                "column_type": "string"
+              },
+              {
+                "column_name": "DEVICE",
+                "column_type": "string"
+              },
+              {
+                "column_name": "LOT_ID",
+                "column_type": "string",
+                "is_primary_key": true,
+                "description": "Lot ID. Lot 건수 계산에 사용됩니다."
+              },
+              {
+                "column_name": "SUB_LOT_ID",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PROD_QTY",
+                "column_type": "number",
+                "description": "생산 수량 (DIE/UNIT 수량)"
+              },
+              {
+                "column_name": "WF_QTY",
+                "column_type": "number",
+                "description": "Wafer 수량"
+              },
+              {
+                "column_name": "IN_TAT",
+                "column_type": "number",
+                "description": "현재 공정 유입 이후 TAT"
+              },
+              {
+                "column_name": "CUM_TAT",
+                "column_type": "number",
+                "description": "누적 TAT"
+              },
+              {
+                "column_name": "EQP_ID",
+                "column_type": "string"
+              },
+              {
+                "column_name": "FLOW_ID",
+                "column_type": "string"
+              },
+              {
+                "column_name": "OPER_IN_TM",
+                "column_type": "string"
+              },
+              {
+                "column_name": "FAC_IN_TIME",
+                "column_type": "string"
+              },
+              {
+                "column_name": "HOLD_STAT",
+                "column_type": "string",
+                "description": "Lot의 Hold 상태 (OnHold, NotOnHold)"
+              },
+              {
+                "column_name": "HOLD_REASON",
+                "column_type": "string"
+              },
+              {
+                "column_name": "FAMILY",
+                "column_type": "string"
+              },
+              {
+                "column_name": "MODE",
+                "column_type": "string"
+              },
+              {
+                "column_name": "DENSITY",
+                "column_type": "string"
+              },
+              {
+                "column_name": "TECH",
+                "column_type": "string"
+              },
+              {
+                "column_name": "ORG",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PKG1",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PKG2",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PKG3",
+                "column_type": "string"
+              },
+              {
+                "column_name": "LEAD",
+                "column_type": "string"
+              },
+              {
+                "column_name": "MCP_NO",
+                "column_type": "string"
+              },
+              {
+                "column_name": "THK_CD",
+                "column_type": "string"
+              },
+              {
+                "column_name": "LOT_STAT",
+                "column_type": "string"
+              },
+              {
+                "column_name": "LOT_GRP",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PKG_SIZE",
+                "column_type": "string"
+              },
+              {
+                "column_name": "HOT_LOT",
+                "column_type": "string"
+              },
+              {
+                "column_name": "HOT_LEVEL",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PKG_COMPOSIT",
+                "column_type": "string"
+              },
+              {
+                "column_name": "DURABLE_ID",
+                "column_type": "string"
+              },
+              {
+                "column_name": "DURABLE_TYP",
+                "column_type": "string"
+              },
+              {
+                "column_name": "SUB_QTY",
+                "column_type": "string"
+              },
+              {
+                "column_name": "TSV_DIE_TYPE",
+                "column_type": "string"
+              },
+              {
+                "column_name": "EVENT_DESC",
+                "column_type": "string"
+              },
+              {
+                "column_name": "MOVE_IN_TM",
+                "column_type": "string"
+              },
+              {
+                "column_name": "PAD_ABNORMAL",
+                "column_type": "string"
+              },
+              {
+                "column_name": "SWR_REQ_NO",
+                "column_type": "string"
+              },
+              {
+                "column_name": "INSP_TARGET",
+                "column_type": "string"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:43:34.092878+00:00",
+          "registration_trace": {
+            "raw_text": "LOT 정보조회 데이터는 lot_status로 등록해줘.\n화면에 보일 이름은 LOT Status이면 돼.\n현재 재공에서 작업중 Lot 수량, 작업대기 Lot 수량, Hold Lot 수량, Lot별 TAT를 확인하는 Oracle 데이터야.\n이 데이터는 필수 조회 조건이 없어. (LOAD_DT와 BASE_DT는 단순 확인용 값)\n수량/지표로는 PROD_QTY, WF_QTY, IN_TAT, CUM_TAT를 사용해.\n특정 LOT들을 물어볼때는 LOT_ID컬럼에 IN조건을 걸면 돼\nLot 건수는 LOT_ID를 count해야하고,\nDIE수량이나 UNIT수량을 물어볼때는 PROD_QTY값의 합을 구해야해.\n그리고 Wafer수량, 웨이퍼수량을 물어볼때 사용하는게 WF_QTY컬럼이야.\n\nIN_TAT는 현재 공정 유입 이후 TAT이고 CUM_TAT는 누적 TAT야.\nHOLD여부는 HOLD_STAT컬럼이 'OnHold'값을 가지는 경우를 말해(OnHold, NotOnHold)\n\nsource는 oracle이고 db_key는 PNT_RPT야.\n\nquery_template:\n/*Current Wip Status*/\nSELECT\nERM_ID,OPER,OPER_NAME,FAB,OWNER,GRADE,DEVICE,LOT_ID,SUB_LOT_ID,PROD_QTY,WF_QTY,IN_TAT,CUM_TAT,EQP_ID,FLOW_ID,OPER_IN_TM,FAC_IN_TIME,HOLD_STAT,HOLD_REASON,FAMILY,MODE,DENSITY,TECH,ORG,PKG1,PKG2,PKG3,LEAD,MCP_NO,THK_CD,LOT_STAT,LOT_GRP,PKG_SIZE,HOT_LOT,HOT_LEVEL,PKG_COMPOSIT,DURABLE_ID,DURABLE_TYP,SUB_QTY,TSV_DIE_TYPE,EVENT_DESC,MOVE_IN_TM,PAD_ABNORMAL,SWR_REQ_NO,INSP_TARGET\nFROM WIP_STATE\nWHERE 1=1\n\nfilter_mappings는 OPER_NAME -> OPER_NAME, OPER_NUM -> OPER, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, TSV_DIE_TYP -> TSV_DIE_TYPE, EQP_ID -> EQP_ID, LOT_ID -> LOT_ID로 연결해줘.\n"
+          }
+        },
+        {
+          "_id": "table_catalog:production",
+          "dataset_key": "production",
+          "status": "active",
+          "payload": {
+            "display_name": "Production History",
+            "dataset_family": "production",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "SELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ, PRODUCTION \nFROM PROD_TABLE2\nWHERE 1=1\nAND WORK_DATE = {DATE}"
+            },
+            "required_params": [
+              "DATE"
+            ],
+            "required_param_mappings": {
+              "DATE": [
+                "WORK_DT"
+              ]
+            },
+            "filter_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "TSV_DIE_TYP": [
+                "TSV_DIE_TYP"
+              ],
+              "DEVICE": [
+                "DEVICE"
+              ],
+              "DEVICE_DESC": [
+                "DEVICE_DESC"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ]
+            },
+            "standard_column_aliases": {
+              "date": "WORK_DT",
+              "date_format": "YYYYMMDD",
+              "quantity": "PRODUCTION"
+            },
+            "columns": [
+              {
+                "column_name": "WORK_DATE",
+                "column_type": "DATE"
+              },
+              {
+                "column_name": "SHIFT",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "FACTORY",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "FAB",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "FAMILY",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "MODE",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "DENSITY",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "TECH",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "ORG",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "PKG1",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "PKG2",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "LEAD",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "MCP_NO",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "TSV_DIE_TYP",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "DEVICE",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "DEVICE_DESC",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "DIE_ATTACH_QTY",
+                "column_type": "NUMBER"
+              },
+              {
+                "column_name": "NETDIE_300_CNT",
+                "column_type": "NUMBER"
+              },
+              {
+                "column_name": "OPER",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "OPER_NAME",
+                "column_type": "VARCHAR"
+              },
+              {
+                "column_name": "OPER_SEQ",
+                "column_type": "NUMBER"
+              },
+              {
+                "column_name": "PRODUCTION",
+                "column_type": "NUMBER"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:40:16.472723+00:00",
+          "registration_trace": {
+            "raw_text": "이력 생산 실적 데이터는 production으로 등록해줘.\n화면에 보일 이름은 Production History이면 돼.\nproduction은 production 계열의 이력 생산 실적 source야.\n조회할 때 DATE 값은 WORK_DT 컬럼에 넣어서 조회하고, DATE는 조회 필수 기준일이야. DATE는 YYYYMMDD형식이야\n수량은 PRODUCTION 컬럼을 사용하고, 이 값은 생산량이야.\nsource는 oracle이고 db_key는 PNT_RPT야.\n\nquery_template:\nSELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ, PRODUCTION \nFROM PROD_TABLE2\nWHERE 1=1\nAND WORK_DATE = {DATE}\n\nfilter_mappings는 DATE -> WORK_DATE, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, TSV_DIE_TYP -> TSV_DIE_TYP, DEVICE -> DEVICE, DEVICE_DESC -> DEVICE_DESC, OPER_NUM -> OPER, OPER_NAME -> OPER_NAME로 연결해줘."
+          }
+        },
+        {
+          "_id": "table_catalog:production_today",
+          "dataset_key": "production_today",
+          "status": "active",
+          "payload": {
+            "display_name": "Production Today",
+            "dataset_family": "production",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "--쿼리 작성\nSELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ, PRODUCTION \nFROM PROD_TABLE\nWHERE 1=1\nAND WORK_DATE = {DATE}"
+            },
+            "required_params": [
+              "DATE"
+            ],
+            "required_param_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ]
+            },
+            "filter_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "TSV_DIE_TYP": [
+                "TSV_DIE_TYP"
+              ],
+              "DEVICE": [
+                "DEVICE"
+              ],
+              "DEVICE_DESC": [
+                "DEVICE_DESC"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ]
+            },
+            "standard_column_aliases": {
+              "QUANTITY": "PRODUCTION"
+            },
+            "columns": [
+              {
+                "column_name": "PRODUCTION",
+                "description": "생산량"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:39:14.815716+00:00",
+          "registration_trace": {
+            "raw_text": "당일용 생산 실적 데이터는 production_today로 등록해줘.\n화면에 보일 이름은 Production Today이면 돼.\n당일 생산 실적 질문에 사용하는 Oracle 데이터야.\nproduction_today는 production 계열의 당일용 생산 실적 source야.\n조회할 때 DATE 값은 WORK_DT 컬럼에 넣어서 조회하고, DATE는 조회 필수 기준일이야.\nDATE는 YYYYMMDD 형식이야.\n수량은 PRODUCTION 컬럼을 사용하고, 이 값은 생산량이야.\nsource는 oracle이고 db_key는 PNT_RPT야.\n\nquery_template:\n\n--쿼리 작성\nSELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ, PRODUCTION \nFROM PROD_TABLE\nWHERE 1=1\nAND WORK_DATE = {DATE}\n\nfilter_mappings는 DATE -> WORK_DATE, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, TSV_DIE_TYP -> TSV_DIE_TYP, DEVICE -> DEVICE, DEVICE_DESC -> DEVICE_DESC, OPER_NUM -> OPER, OPER_NAME -> OPER_NAME로 연결해줘."
+          }
+        },
+        {
+          "_id": "table_catalog:target",
+          "dataset_key": "target",
+          "status": "active",
+          "payload": {
+            "display_name": "PKG Target Goodocs Plan",
+            "dataset_family": "plan",
+            "source_type": "goodocs",
+            "source_config": {
+              "source_type": "goodocs",
+              "doc_id": "1212121212121212121212"
+            },
+            "required_params": [],
+            "required_param_mappings": {},
+            "filter_mappings": {
+              "DATE": [
+                "DATE"
+              ],
+              "MODE": [
+                "Mode"
+              ],
+              "DEN": [
+                "DEN"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP NO"
+              ]
+            },
+            "standard_column_aliases": {
+              "투입계획": [
+                "INPUT 계획"
+              ],
+              "TARGET": [
+                "OUT 계획"
+              ],
+              "생산목표": [
+                "OUT 계획"
+              ],
+              "MODE": [
+                "Mode"
+              ],
+              "DENSITY": [
+                "DEN"
+              ],
+              "MCP_NO": [
+                "MCP NO"
+              ]
+            },
+            "columns": [
+              {
+                "column_name": "DATE",
+                "column_type": "DATE",
+                "date_format_conversion_required": true,
+                "date_format": "YYYY-MM-DD"
+              },
+              {
+                "column_name": "Mode",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "DEN",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "TECH",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "PKG1",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "PKG2",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "LEAD",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "ORG",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "MCP NO",
+                "column_type": "TEXT"
+              },
+              {
+                "column_name": "INPUT 계획",
+                "column_type": "NUMBER",
+                "is_primary_numeric": true
+              },
+              {
+                "column_name": "OUT 계획",
+                "column_type": "NUMBER",
+                "is_primary_numeric": true
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:41:38.901656+00:00",
+          "registration_trace": {
+            "raw_text": "PKG 계획 데이터는 target으로 등록해줘.\n화면에 보일 이름은 PKG Target Goodocs Plan이면 돼.\nGoodocs PKG 계획 문서에서 일자와 제품 속성별 INPUT계획, OUT계획을 가져오는 데이터야.\n이 데이터는 Goodocs source이고 별도 필수 조회 파라미터는 없어.\n이게 중요한데 이 데이터에서 사용하는 DATE형식은 'YYYYMMDD'가 아니라 'YYYY-MM-DD'형식이라서 형식 변환이 필요해\n계획 수량은 'INPUT 계획'과 'OUT 계획' 두 컬럼에 있는 값을 모두 사용해. 두 컬럼 모두 분석 수량으로 쓰는 계획 수량 컬럼이야.\nGoodocs 문서 ID는 1212121212121212121212 이야\n목표2 문서에는 DATE, Mode, DEN, TECH, PKG1, PKG2, LEAD, ORG, MCP NO, INPUT 계획, OUT 계획 컬럼이 있어.\n\nfilter_mappings는 DATE -> DATE, MODE -> Mode, DEN -> DEN, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP NO로 연결해줘.\n\n'INPUT 계획'은 투입계획이라고도 부르고 'OUT 계획'은 TARGET,생산목표라고도 불러."
+          }
+        },
+        {
+          "_id": "table_catalog:wip",
+          "dataset_key": "wip",
+          "status": "active",
+          "payload": {
+            "display_name": "WIP History",
+            "dataset_family": "wip",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "--쿼리 작성\nSELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ\n        , WIP\nFROM WIP_TABLE2\nWHERE 1=1\nAND WORK_DATE = {DATE}"
+            },
+            "required_params": [
+              "DATE"
+            ],
+            "required_param_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ]
+            },
+            "filter_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "TSV_DIE_TYP": [
+                "TSV_DIE_TYP"
+              ],
+              "DEVICE": [
+                "DEVICE"
+              ],
+              "DEVICE_DESC": [
+                "DEVICE_DESC"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ]
+            },
+            "standard_column_aliases": {
+              "quantity": [
+                "WIP"
+              ],
+              "date": [
+                "WORK_DATE"
+              ]
+            }
+          },
+          "updated_at": "2026-07-01T12:41:13.796527+00:00",
+          "registration_trace": {
+            "raw_text": "이력 재공 데이터는 wip으로 등록해줘.\n화면에 보일 이름은 WIP History이면 돼.\nwip은 wip 계열의 이력 재공 source야.\n조회할 때 DATE 값은 WORK_DT 컬럼에 넣어서 조회하고, DATE는 조회 필수 기준일이야.\n수량은 WIP 컬럼을 사용하고, 이 값은 재공 수량이야.\nsource는 oracle이고 db_key는 PNT_RPT야.\n\nquery_template:\n\n--쿼리 작성\nSELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ\n        , WIP\nFROM WIP_TABLE2\nWHERE 1=1\nAND WORK_DATE = {DATE}\n\nfilter_mappings는 DATE -> WORK_DATE, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, TSV_DIE_TYP -> TSV_DIE_TYP, DEVICE -> DEVICE, DEVICE_DESC -> DEVICE_DESC, OPER_NUM -> OPER, OPER_NAME -> OPER_NAME으로 연결해줘.\n"
+          }
+        },
+        {
+          "_id": "table_catalog:wip_today",
+          "dataset_key": "wip_today",
+          "status": "active",
+          "payload": {
+            "display_name": "WIP Today",
+            "dataset_family": "wip",
+            "source_type": "oracle",
+            "source_config": {
+              "source_type": "oracle",
+              "db_key": "PNT_RPT",
+              "query_template": "SELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ\n        , WIP\nFROM WIP_TABLE\nWHERE 1=1\nAND WORK_DATE = {DATE}"
+            },
+            "required_params": [
+              "DATE"
+            ],
+            "required_param_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ]
+            },
+            "filter_mappings": {
+              "DATE": [
+                "WORK_DATE"
+              ],
+              "MODE": [
+                "MODE"
+              ],
+              "DEN": [
+                "DENSITY"
+              ],
+              "TECH": [
+                "TECH"
+              ],
+              "ORG": [
+                "ORG"
+              ],
+              "PKG_TYPE1": [
+                "PKG1"
+              ],
+              "PKG_TYPE2": [
+                "PKG2"
+              ],
+              "LEAD": [
+                "LEAD"
+              ],
+              "MCP_NO": [
+                "MCP_NO"
+              ],
+              "TSV_DIE_TYP": [
+                "TSV_DIE_TYP"
+              ],
+              "DEVICE": [
+                "DEVICE"
+              ],
+              "DEVICE_DESC": [
+                "DEVICE_DESC"
+              ],
+              "OPER_NUM": [
+                "OPER"
+              ],
+              "OPER_NAME": [
+                "OPER_NAME"
+              ]
+            },
+            "standard_column_aliases": {
+              "QUANTITY": [
+                "WIP"
+              ]
+            },
+            "columns": [
+              {
+                "name": "WORK_DATE",
+                "type": "DATE"
+              },
+              {
+                "name": "SHIFT",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "FACTORY",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "FAB",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "FAMILY",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "MODE",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "DENSITY",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "TECH",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "ORG",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "PKG1",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "PKG2",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "LEAD",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "MCP_NO",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "TSV_DIE_TYP",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "DEVICE",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "DEVICE_DESC",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "DIE_ATTACH_QTY",
+                "type": "NUMBER"
+              },
+              {
+                "name": "NETDIE_300_CNT",
+                "type": "NUMBER"
+              },
+              {
+                "name": "OPER",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "OPER_NAME",
+                "type": "VARCHAR"
+              },
+              {
+                "name": "OPER_SEQ",
+                "type": "NUMBER"
+              },
+              {
+                "name": "WIP",
+                "type": "NUMBER",
+                "description": "재공 수량"
+              }
+            ]
+          },
+          "updated_at": "2026-07-01T12:40:41.659861+00:00",
+          "registration_trace": {
+            "raw_text": "당일용 재공 데이터는 wip_today로 등록해줘.\n화면에 보일 이름은 WIP Today이면 돼.\n당일 재공 질문에 사용하는 Oracle 데이터야.\nwip_today는 wip 계열의 당일용 재공 source야.\n조회할 때 DATE 값은 WORK_DT 컬럼에 넣어서 조회하고, DATE는 조회 필수 기준일이야.\n수량은 WIP 컬럼을 사용하고, 이 값은 재공 수량이야.\nsource는 oracle이고 db_key는 PNT_RPT야.\n\nquery_template:\n\nSELECT WORK_DATE, SHIFT, FACTORY, FAB, FAMILY, MODE, DENSITY, TECH, ORG, PKG1\n        , PKG2, LEAD, MCP_NO, TSV_DIE_TYP, DEVICE, DEVICE_DESC, DIE_ATTACH_QTY, NETDIE_300_CNT, OPER\n        , OPER_NAME, OPER_SEQ\n        , WIP\nFROM WIP_TABLE\nWHERE 1=1\nAND WORK_DATE = {DATE}\n\nfilter_mappings는 DATE -> WORK_DATE, MODE -> MODE, DEN -> DENSITY, TECH -> TECH, ORG -> ORG, PKG_TYPE1 -> PKG1, PKG_TYPE2 -> PKG2, LEAD -> LEAD, MCP_NO -> MCP_NO, TSV_DIE_TYP -> TSV_DIE_TYP, DEVICE -> DEVICE, DEVICE_DESC -> DEVICE_DESC, OPER_NUM -> OPER, OPER_NAME -> OPER_NAME으로 연결해줘."
+          }
+        }
+      ]
+    },
+    "main-flow-filter": {
+      "metadata_kind": "main-flow-filter",
+      "display_name": "main variable/filter metadata",
+      "collection_name": "agent_v4_main_flow_filters",
+      "document_count": 17,
+      "documents": [
+        {
+          "_id": "main_flow_filter:DATE",
+          "filter_key": "DATE",
+          "status": "active",
+          "payload": {
+            "display_name": "기준일",
+            "aliases": [
+              "날짜",
+              "일자",
+              "기준일",
+              "작업일",
+              "오늘",
+              "금일",
+              "어제",
+              "전일",
+              "date",
+              "work date"
+            ],
+            "column_candidates": [
+              "DATE",
+              "WORK_DATE"
+            ],
+            "semantic_role": "date",
+            "value_type": "date",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:DEN",
+          "filter_key": "DEN",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 용량",
+            "aliases": [],
+            "column_candidates": [
+              "DEN"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:DEVICE_DESC",
+          "filter_key": "DEVICE_DESC",
+          "status": "active",
+          "payload": {
+            "display_name": "설명",
+            "aliases": [
+              "DEVICE_DESC",
+              "제품 설명"
+            ],
+            "column_candidates": [
+              "DEVICE_DESC"
+            ],
+            "semantic_role": "description",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "contains"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:EQP_ID",
+          "filter_key": "EQP_ID",
+          "status": "active",
+          "payload": {
+            "display_name": "장비 ID",
+            "aliases": [
+              "EQP_ID",
+              "EQPID"
+            ],
+            "column_candidates": [
+              "EQP_ID"
+            ],
+            "semantic_role": "id",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:EQP_MODEL",
+          "filter_key": "EQP_MODEL",
+          "status": "active",
+          "payload": {
+            "display_name": "장비 모델",
+            "aliases": [],
+            "column_candidates": [
+              "EQP_MODEL"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:LEAD",
+          "filter_key": "LEAD",
+          "status": "active",
+          "payload": {
+            "display_name": "lead count",
+            "aliases": [],
+            "column_candidates": [
+              "LEAD"
+            ],
+            "semantic_role": "number",
+            "value_type": "number",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:LOT_ID",
+          "filter_key": "LOT_ID",
+          "status": "active",
+          "payload": {
+            "display_name": "Lot ID",
+            "aliases": [],
+            "column_candidates": [
+              "LOT_ID"
+            ],
+            "semantic_role": "id",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:MCP_NO",
+          "filter_key": "MCP_NO",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 코드",
+            "aliases": [
+              "MCP_NO",
+              "MCP NO",
+              "MCP_SALES_NO",
+              "MCP_SALE_CD",
+              "MCPSALENO"
+            ],
+            "column_candidates": [
+              "MCP_NO",
+              "MCP_SALES_NO",
+              "MCP_SALE_CD"
+            ],
+            "semantic_role": "id",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:MODE",
+          "filter_key": "MODE",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 모드",
+            "aliases": [],
+            "column_candidates": [
+              "MODE"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:OPER_NAME",
+          "filter_key": "OPER_NAME",
+          "status": "active",
+          "payload": {
+            "display_name": "공정명",
+            "aliases": [
+              "공정",
+              "작업공정",
+              "operation",
+              "process",
+              "oper name"
+            ],
+            "column_candidates": [
+              "OPER_NAME"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:OPER_NUM",
+          "filter_key": "OPER_NUM",
+          "status": "active",
+          "payload": {
+            "display_name": "공정 번호/차수",
+            "aliases": [
+              "공정번호",
+              "공정 차수",
+              "oper num",
+              "oper no"
+            ],
+            "column_candidates": [
+              "OPER_NUM",
+              "OPER_NO"
+            ],
+            "semantic_role": "id",
+            "value_type": "number",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:ORG",
+          "filter_key": "ORG",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 ORG/조직 코드",
+            "aliases": [],
+            "column_candidates": [
+              "ORG"
+            ],
+            "semantic_role": "id",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:PKG_TYPE1",
+          "filter_key": "PKG_TYPE1",
+          "status": "active",
+          "payload": {
+            "display_name": "package type 1",
+            "aliases": [],
+            "column_candidates": [
+              "PKG_TYPE1"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:PKG_TYPE2",
+          "filter_key": "PKG_TYPE2",
+          "status": "active",
+          "payload": {
+            "display_name": "package type 2",
+            "aliases": [],
+            "column_candidates": [
+              "PKG_TYPE2"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:RECIPE_ID",
+          "filter_key": "RECIPE_ID",
+          "status": "active",
+          "payload": {
+            "display_name": "Recipe ID",
+            "aliases": [],
+            "column_candidates": [
+              "RECIPE_ID"
+            ],
+            "semantic_role": "id",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:TECH",
+          "filter_key": "TECH",
+          "status": "active",
+          "payload": {
+            "display_name": "제품 기술",
+            "aliases": [],
+            "column_candidates": [
+              "TECH"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        },
+        {
+          "_id": "main_flow_filter:TSV_DIE_TYP",
+          "filter_key": "TSV_DIE_TYP",
+          "status": "active",
+          "payload": {
+            "display_name": "TSV die type 판별",
+            "aliases": [
+              "HBM",
+              "3DS",
+              "TSV",
+              "2Hi",
+              "4Hi",
+              "8Hi"
+            ],
+            "column_candidates": [
+              "TSV_DIE_TYP"
+            ],
+            "semantic_role": "category",
+            "value_type": "text",
+            "value_shape": "scalar",
+            "operator": "eq"
+          },
+          "updated_at": "2026-07-01T12:51:20.809859+00:00",
+          "registration_trace": {
+            "raw_text": "[기준일/공정 필터]\nDATE는 기준일 필터야. 날짜, 일자, 기준일, 작업일, 오늘, 금일, 어제, 전일, date, work date는 DATE 조건으로 해석해줘.\nOPER_NAME은 공정명 필터야. 공정, 작업공정, operation, process, oper name은 OPER_NAME 조건으로 해석해줘.\nOPER_NUM은 공정 번호/차수 필터야. 공정번호, 공정 차수, oper num, oper no는 OPER_NUM 조건으로 해석해줘.\n\n[제품 속성 필터]\nTECH는 제품 기술, DEN은 제품 용량, MODE는 제품 모드 필터야.\nPKG_TYPE1은 package type 1, PKG_TYPE2는 package type 2 필터야.\nORG는 제품 ORG/조직 코드 필터야.\nLEAD는 lead count 필터야.\nMCP_NO는 제품 코드 필터야. MCP_NO, MCP NO, MCP_SALES_NO, MCP_SALE_CD, MCPSALENO는 같은 의미 후보야.\nDEVICE_DESC는 사용자가 DEVICE_DESC 또는 제품 설명을 명시적으로 말했을 때만 사용하는 설명 필터야.\nTSV_DIE_TYP은 HBM/3DS/TSV 또는 2Hi/4Hi/8Hi 같은 TSV die type 판별 필터야.\n\n[장비/Lot/Recipe 필터]\nEQP_ID는 장비 ID 필터야. EQP_ID와 EQPID는 같은 의미 후보야.\nEQP_MODEL은 장비 모델 필터야.\nLOT_ID는 Lot ID 필터야.\nRECIPE_ID는 Recipe ID 필터야."
+          }
+        }
+      ]
+    }
+  }
+}

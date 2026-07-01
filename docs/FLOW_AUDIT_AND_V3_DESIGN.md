@@ -84,7 +84,7 @@ v3 중간 payload는 아래 항목만 지속적으로 전달한다.
 
 | key | 사용 구간 |
 | --- | --- |
-| `request` | session id, question, timezone/date |
+| `request` | session id, question, reference date |
 | `state` | compact previous state, current_data summary, data_ref |
 | `metadata` | domain/table catalog/main flow filters |
 | `intent_plan` | route, analysis_kind, step_plan, output contract |

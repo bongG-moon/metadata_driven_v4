@@ -29,7 +29,7 @@ def _payload(value: Any) -> dict[str, Any]:
 
 
 class ApiResponseBuilder(Component):
-    display_name = "23 API 응답 생성기"
+    display_name = "22 API 응답 생성기"
     description = "최종 API 응답을 만들고 전체 런타임 소스 데이터를 제거합니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
     outputs = [Output(name="api_response", display_name="API 응답", method="build_payload")]

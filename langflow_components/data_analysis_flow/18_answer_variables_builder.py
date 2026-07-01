@@ -24,7 +24,7 @@ def _payload(value: Any) -> dict[str, Any]:
 
 
 class AnswerVariablesBuilder(Component):
-    display_name = "19 답변 생성 변수 생성기"
+    display_name = "18 답변 생성 변수 생성기"
     description = "Langflow 프롬프트 템플릿과 에이전트/LLM에 연결할 답변 생성 변수를 제공합니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
     outputs = [

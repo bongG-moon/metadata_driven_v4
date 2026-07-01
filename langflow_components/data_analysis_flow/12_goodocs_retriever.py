@@ -31,7 +31,7 @@ def _not_implemented(source_type: str, jobs: list[dict[str, Any]]) -> dict[str, 
 
 
 class GoodocsRetriever(Component):
-    display_name = "13 Goodocs 조회기"
+    display_name = "12 Goodocs 조회기"
     description = "Goodocs 조회 작업을 처리합니다. 현재 skeleton은 실제 어댑터 미구현 상태를 명확한 오류로 반환합니다."
     inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
     outputs = [Output(name="retrieval_payload", display_name="조회 페이로드", method="build_payload")]

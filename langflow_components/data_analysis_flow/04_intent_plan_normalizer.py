@@ -15,8 +15,11 @@ def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, An
     plan = parsed.get("intent_plan") if isinstance(parsed.get("intent_plan"), dict) else parsed
     retrieval_jobs = plan.get("retrieval_jobs") if isinstance(plan.get("retrieval_jobs"), list) else []
     pandas_plan = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
+    pandas_plan = _ensure_function_case_step(plan, pandas_plan, retrieval_jobs)
     next_payload = deepcopy(payload)
-    next_payload["intent_plan"] = {**plan, "retrieval_jobs": retrieval_jobs, "pandas_execution_plan": pandas_plan}
+    normalized_plan = {**plan, "retrieval_jobs": retrieval_jobs, "pandas_execution_plan": pandas_plan}
+    normalized_plan["selected_function_cases"] = _selected_function_cases(normalized_plan)
+    next_payload["intent_plan"] = normalized_plan
     next_payload["metadata_refs"] = parsed.get("metadata_refs", plan.get("metadata_refs", [])) if isinstance(parsed.get("metadata_refs", plan.get("metadata_refs", [])), list) else []
     next_payload.setdefault("trace", {}).setdefault("inspection", {})["intent"] = {
         "stage": "04_intent_plan_normalizer",
@@ -29,6 +32,48 @@ def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, An
     if not retrieval_jobs:
         next_payload.setdefault("trace", {}).setdefault("warnings", []).append({"type": "missing_retrieval_jobs", "message": "intent_plan.retrieval_jobs가 비어 있습니다."})
     return next_payload
+
+
+def _ensure_function_case_step(plan: dict[str, Any], pandas_plan: list[Any], retrieval_jobs: list[dict[str, Any]]) -> list[Any]:
+    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
+    function_name = str(case.get("function_name") or "").strip()
+    case_key = str(case.get("key") or case.get("case_key") or case.get("function_case_key") or "").strip()
+    if not function_name and not case_key:
+        return pandas_plan
+    for step in pandas_plan:
+        if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case":
+            return pandas_plan
+    source_alias = str(case.get("source_alias") or "").strip()
+    if not source_alias and retrieval_jobs:
+        source_alias = str(retrieval_jobs[0].get("source_alias") or retrieval_jobs[0].get("dataset_key") or "").strip()
+    step = {
+        "step": "특화 함수 적용",
+        "operation": "apply_pandas_function_case",
+        "function_case_key": case_key,
+        "function_name": function_name,
+        "input_text": str(case.get("input_text") or ""),
+        "source_alias": source_alias,
+    }
+    return [step, *pandas_plan]
+
+
+def _selected_function_cases(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    cases = []
+    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
+    if case:
+        cases.append(deepcopy(case))
+    for step in plan.get("pandas_execution_plan", []) if isinstance(plan.get("pandas_execution_plan"), list) else []:
+        if not isinstance(step, dict) or str(step.get("operation") or "") != "apply_pandas_function_case":
+            continue
+        item = {
+            "key": step.get("function_case_key", ""),
+            "function_name": step.get("function_name", ""),
+            "input_text": step.get("input_text", ""),
+            "source_alias": step.get("source_alias", ""),
+        }
+        if item not in cases:
+            cases.append(item)
+    return cases
 
 
 def _payload(value: Any) -> dict[str, Any]:

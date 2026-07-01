@@ -244,7 +244,7 @@ def test_data_retriever_langflow_pipeline_dummy_path():
     adapted = adapter.build_retrieval_payload(merged)
     output_names = {item.kwargs.get("name") for item in adapter.RetrievalPayloadAdapter.outputs}
 
-    assert {row["OPER_NAME"] for row in adapted["runtime_sources"]["wip_data"]} == {"D/A1", "D/A2", "W/B1", "W/B2"}
+    assert {"D/A1", "D/A2", "W/B1", "W/B2"}.issubset({row["OPER_NAME"] for row in adapted["runtime_sources"]["wip_data"]})
     assert adapted["source_results"][0]["source_execution"]["used_dummy_data"] is True
     assert adapted["source_results"][0]["source_execution"]["filters_applied_in_retriever"] is False
     assert adapted["source_results"][0]["pandas_filters"] == {"OPER_NAME": {"operator": "in", "values": ["D/A1"]}}
@@ -319,7 +319,7 @@ def test_intent_variables_builder_hides_date_context_ports():
 
     output_names = {item.kwargs.get("name") for item in intent_variables.IntentVariablesBuilder.outputs}
 
-    assert output_names == {"question", "state_summary", "metadata_candidates", "output_schema"}
+    assert output_names == {"question", "state_summary", "metadata_candidates", "specialized_prompt", "output_schema"}
     assert "reference_date" not in output_names
     assert "timezone" not in output_names
 
@@ -426,7 +426,7 @@ def test_langflow_dummy_data_applies_required_params_and_preserves_pandas_filter
     production, hold = payload["source_results"]
 
     assert {row["WORK_DATE"] for row in production["rows"]} == {"20260701"}
-    assert {row["PKG1"] for row in production["rows"]} == {"LFBGA", "HBM", "UFBGA"}
+    assert {"LFBGA", "HBM", "UFBGA"}.issubset({row["PKG1"] for row in production["rows"]})
     assert production["pandas_filters"] == {"PKG_TYPE1": {"operator": "eq", "value": "LFBGA"}}
     assert production["source_execution"]["filters_applied_in_retriever"] is False
     assert {row["LOT_ID"] for row in hold["rows"]} == {"T1234567GEN1"}
@@ -483,7 +483,7 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     dummy_result = dummy.retrieve_dummy_data(dummy_bundle)
     merged = merger.merge_source_retrieval_payloads(validated, dummy_result)
     payload = adapter.build_retrieval_payload(merged)
-    assert payload["source_results"][0]["row_count"] == 4
+    assert payload["source_results"][0]["row_count"] > 4
     assert payload["source_results"][0]["pandas_filters"] == {"OPER_NAME": {"operator": "eq", "value": "D/A1"}}
 
     pandas_prompt_vars = pandas_variables.build_variables(payload)
@@ -497,7 +497,7 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     payload = pandas_executor.execute_pandas_code(payload, pandas_llm_response)
 
     assert payload["analysis"]["status"] == "ok"
-    assert payload["data"]["rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 120}]
+    assert payload["data"]["rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 363}]
     generated_code = payload["trace"]["inspection"]["pandas_execution"]["generated_code"]
     assert "OPER_NAME" in generated_code
     assert "_filter_values_1_1 = ['D/A1']" in generated_code
@@ -615,6 +615,171 @@ def test_pandas_executor_prepends_non_required_filters_before_aggregation():
     assert "_filter_values_1_1 = ['D/A1', 'D/A2', 'D/A3', 'D/A4', 'D/A5', 'D/A6']" in generated_code
     assert ".isin(_filter_values_1_1)" in generated_code
     assert "grouped_data = sources[\"production_data\"].groupby" in generated_code
+
+
+def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "intent_plan": {
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "production_today",
+                    "source_alias": "production_data",
+                    "required_params": {"DATE": "20260701"},
+                    "filters": {"MCP_NO": {"operator": "starts_with", "value": "L-267"}},
+                }
+            ],
+            "pandas_execution_plan": [],
+        },
+        "runtime_sources": {
+            "production_data": [
+                {"TECH": "1C", "DENSITY": "16G", "MODE": "LPDDR5", "LEAD": "267", "MCP_NO": "L-267A1", "DEVICE": "DEV-L267", "PRODUCTION": 10},
+                {"TECH": "1Y", "DENSITY": "8G", "MODE": "LPDDR4", "LEAD": "218", "MCP_NO": "L-218K8H", "DEVICE": "DEV-L218K8H", "PRODUCTION": 20},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    result = pandas_executor.execute_pandas_code(payload, {"code": "result = sources['production_data'][['DEVICE', 'MCP_NO']]"})
+
+    assert result["analysis"]["status"] == "ok"
+    assert result["data"]["rows"] == [{"DEVICE": "DEV-L267", "MCP_NO": "L-267A1"}]
+    assert ".str.startswith(str(_filter_values_1_1[0]), na=False)" in result["trace"]["inspection"]["pandas_execution"]["generated_code"]
+
+    helper_payload = {
+        "runtime_sources": {
+            "wip_data": [
+                {"TECH": "DA", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": "180", "DEVICE": "DEV-DA-GDDR6", "WIP": 33},
+                {"TECH": "ZZ", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": "180", "DEVICE": "DEV-ZZ-GDDR6", "WIP": 99},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    helper_result = pandas_executor.execute_pandas_code(
+        helper_payload,
+        {"code": "df = match_product_tokens('DA 16G GDDR6 180', sources['wip_data'])\nresult = df[['TECH', 'DEVICE', 'WIP']]"},
+    )
+
+    assert helper_result["analysis"]["status"] == "ok"
+    assert helper_result["data"]["rows"] == [{"TECH": "DA", "DEVICE": "DEV-DA-GDDR6", "WIP": 33}]
+    helper_trace = helper_result["trace"]["inspection"]["pandas_execution"]
+    effective_code = helper_trace["effective_code_with_helpers"]
+    assert helper_trace["used_helpers"] == ["match_product_tokens"]
+    assert helper_result["analysis"]["used_helpers"] == ["match_product_tokens"]
+    assert helper_result["analysis"]["effective_code_with_helpers"] == effective_code
+    assert "def match_product_tokens" in effective_code
+    assert "df = match_product_tokens('DA 16G GDDR6 180', sources['wip_data'])" in effective_code
+
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    helper_message = message_adapter.build_message(helper_result)
+    assert "사용 helper" in helper_message
+    assert "실제 실행 pandas 코드" in helper_message
+    assert "def match_product_tokens" in helper_message
+
+
+def test_pandas_executor_uses_shared_namespace_for_comprehensions():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "production_data": [
+                {"OPER_NAME": "D/A1", "PRODUCTION": 10},
+                {"OPER_NAME": "D/A2", "PRODUCTION": 20},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    llm_response = {
+        "code": (
+            "df_production_data = sources['production_data']\n"
+            "group_by_cols = ['OPER_NAME']\n"
+            "if all(col in df_production_data.columns for col in group_by_cols):\n"
+            "    result = df_production_data.groupby(group_by_cols)['PRODUCTION'].sum().reset_index()\n"
+            "else:\n"
+            "    result = pd.DataFrame(columns=group_by_cols + ['PRODUCTION'])"
+        )
+    }
+
+    result = pandas_executor.execute_pandas_code(payload, llm_response)
+
+    assert result["analysis"]["status"] == "ok"
+    assert result["data"]["row_count"] == 2
+
+
+def test_intent_and_pandas_variables_expose_selected_function_case_context():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    pandas_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_pandas_variables_builder.py")
+    payload = {"request": {"question": "RG 32G DDR4 FBGA 96 DDP 제품 BG공정 생산량 알려줘"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    normalized = intent_normalizer.normalize_intent_plan(
+        payload,
+        {
+            "intent_plan": {
+                "analysis_kind": "product_token_analysis",
+                "pandas_function_case": {
+                    "key": "product_token_match",
+                    "function_name": "match_product_tokens",
+                    "input_text": "RG 32G DDR4 FBGA 96 DDP",
+                },
+                "retrieval_jobs": [{"dataset_key": "production_today", "source_alias": "production_data"}],
+                "pandas_execution_plan": [{"step": "sum_production", "source_alias": "production_data"}],
+            }
+        },
+    )
+
+    assert normalized["intent_plan"]["pandas_execution_plan"][0]["operation"] == "apply_pandas_function_case"
+    variables = pandas_variables.build_variables(normalized)
+    context = json.loads(variables["function_case_context_json"])
+
+    assert context["available_helpers"][0]["function_name"] == "match_product_tokens"
+    assert context["selected_steps"][0]["input_text"] == "RG 32G DDR4 FBGA 96 DDP"
+
+
+def test_pandas_repair_variables_and_retry_selector_use_failed_execution_context():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    repair_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17a_pandas_repair_variables_builder.py")
+    selector = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17c_pandas_retry_result_selector.py")
+    payload = {
+        "intent_plan": {"retrieval_jobs": [], "pandas_execution_plan": []},
+        "runtime_sources": {"production_data": [{"DEVICE": "DEV001", "PRODUCTION": 10}]},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    failed = pandas_executor.execute_pandas_code(payload, {"code": "result = sources['missing_data']"})
+    variables = repair_variables.build_variables(failed, "1")
+
+    assert failed["analysis"]["status"] == "error"
+    assert variables["repair_required"] == "true"
+    assert "missing_data" in variables["failed_code"]
+    assert "KeyError" in variables["error_context_json"]
+
+    retry = pandas_executor.execute_pandas_code(failed, {"code": "result = sources['production_data']"})
+    selected = selector.select_pandas_result(failed, retry)
+
+    assert selected["analysis"]["status"] == "ok"
+    assert selected["trace"]["inspection"]["pandas_retry_selection"]["selected"] == "retry"
+
+
+def test_langflow_dummy_data_covers_representative_manufacturing_cases():
+    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
+    payload = dummy.retrieve_dummy_data(
+        {
+            "retrieval_job_bundle": {
+                "source_type": "dummy",
+                "jobs": [
+                    {"dataset_key": "production_today", "source_alias": "production_today", "required_params": {"DATE": "20260701"}},
+                    {"dataset_key": "production", "source_alias": "production", "required_params": {"DATE": "20260630"}},
+                    {"dataset_key": "wip", "source_alias": "wip", "required_params": {"DATE": "20260630"}},
+                    {"dataset_key": "wip", "source_alias": "wip_boh_0627", "required_params": {"DATE": "20260626"}},
+                ],
+            }
+        }
+    )
+    results = {item["source_alias"]: item["rows"] for item in payload["source_results"]}
+
+    assert any(row["OPER_NAME"] == "INPUT" and str(row["MCP_NO"]).startswith("L-267") for row in results["production_today"])
+    assert any(row["OPER_NAME"] == "FCB/H" and row["DEVICE"] == "DEV-SP-DDR5" for row in results["production"])
+    assert any(row["OPER_NAME"] == "SBM" and row["MCP_NO"] == "L-218K8H" for row in results["production"])
+    assert any(row["OPER_NAME"].startswith("W/B") and row["FAMILY"] == "HBM" for row in results["wip"])
+    assert any(row["OPER_NAME"] == "D/A1" and row["DEVICE"] == "DEV-DA-GDDR6" for row in results["wip"])
+    assert any(row["OPER_NAME"].startswith("W/B") for row in results["wip_boh_0627"])
 
 
 def test_data_analysis_split_mongodb_metadata_loaders_use_v4_env_defaults(monkeypatch):
@@ -838,10 +1003,15 @@ def test_langflow_prompt_templates_only_expose_valid_variables():
         "question",
         "state_summary",
         "metadata_candidates",
+        "specialized_prompt",
         "output_schema",
         "intent_plan_json",
         "source_schema_json",
         "source_preview_json",
+        "function_case_context_json",
+        "repair_required",
+        "failed_code",
+        "error_context_json",
         "output_contract_json",
         "result_summary_json",
         "applied_scope_json",

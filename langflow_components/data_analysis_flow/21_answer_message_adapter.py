@@ -150,12 +150,18 @@ def _pandas_section(payload: dict[str, Any]) -> str:
     if error not in (None, "", [], {}):
         lines.append(f"- 실행 오류: `{_display_value(error)}`")
 
-    code = str(pandas_trace.get("generated_code") or analysis.get("analysis_code") or "").strip()
+    used_helpers = pandas_trace.get("used_helpers") or analysis.get("used_helpers")
+    if used_helpers not in (None, "", [], {}):
+        lines.append(f"- 사용 helper: `{_display_value(used_helpers)}`")
+
+    effective_code = str(pandas_trace.get("effective_code_with_helpers") or analysis.get("effective_code_with_helpers") or "").strip()
+    code = effective_code or str(pandas_trace.get("generated_code") or analysis.get("analysis_code") or "").strip()
     pandas_code_json = analysis.get("pandas_code_json") if isinstance(analysis.get("pandas_code_json"), dict) else {}
     if not code:
         code = str(pandas_code_json.get("code") or "").strip()
     if code:
-        lines.append("- 생성된 pandas 코드:")
+        label = "실제 실행 pandas 코드" if effective_code else "생성된 pandas 코드"
+        lines.append(f"- {label}:")
         lines.append("```python\n" + code + "\n```")
 
     return "\n".join(lines)

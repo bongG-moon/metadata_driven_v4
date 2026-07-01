@@ -46,18 +46,104 @@ PRODUCTS = [
         "PKG1": "UFBGA",
         "PKG2": "MOBILE",
         "LEAD": "180",
-        "MCP_NO": "MCP002",
+        "MCP_NO": "",
         "TSV_DIE_TYP": "",
         "DEVICE": "DEV002",
         "DEVICE_DESC": "LPDDR5X sample",
     },
+    {
+        "FAMILY": "MOBILE",
+        "MODE": "LPDDR5",
+        "DENSITY": "16G",
+        "TECH": "1C",
+        "ORG": "PKG",
+        "PKG1": "LFBGA",
+        "PKG2": "MOBILE",
+        "LEAD": "267",
+        "MCP_NO": "L-267A1",
+        "TSV_DIE_TYP": "",
+        "DEVICE": "DEV-L267",
+        "DEVICE_DESC": "L-267 input mobile sample",
+    },
+    {
+        "FAMILY": "GRAPHICS",
+        "MODE": "GDDR6",
+        "DENSITY": "16G",
+        "TECH": "DA",
+        "ORG": "PKG",
+        "PKG1": "FBGA",
+        "PKG2": "GRAPHICS",
+        "LEAD": "180",
+        "MCP_NO": "",
+        "TSV_DIE_TYP": "",
+        "DEVICE": "DEV-DA-GDDR6",
+        "DEVICE_DESC": "DA 16G GDDR6 180 product",
+    },
+    {
+        "FAMILY": "DDR",
+        "MODE": "DDR4",
+        "DENSITY": "32G",
+        "TECH": "RG",
+        "ORG": "DDP",
+        "PKG1": "FBGA",
+        "PKG2": "DDP",
+        "LEAD": "96",
+        "MCP_NO": "",
+        "TSV_DIE_TYP": "",
+        "DEVICE": "DEV-RG-DDR4",
+        "DEVICE_DESC": "RG 32G DDR4 FBGA 96 DDP product",
+    },
+    {
+        "FAMILY": "DDR",
+        "MODE": "DDR5",
+        "DENSITY": "16G",
+        "TECH": "SP",
+        "ORG": "SDP",
+        "PKG1": "FCBGA",
+        "PKG2": "SDP",
+        "LEAD": "78",
+        "MCP_NO": "2ND-X4",
+        "TSV_DIE_TYP": "",
+        "DEVICE": "DEV-SP-DDR5",
+        "DEVICE_DESC": "SP 16G DDR5 2ND X4 78 FCBGA SDP product",
+    },
+    {
+        "FAMILY": "MCP",
+        "MODE": "LPDDR4",
+        "DENSITY": "8G",
+        "TECH": "1Y",
+        "ORG": "PKG",
+        "PKG1": "FBGA",
+        "PKG2": "MCP",
+        "LEAD": "218",
+        "MCP_NO": "L-218K8H",
+        "TSV_DIE_TYP": "",
+        "DEVICE": "DEV-L218K8H",
+        "DEVICE_DESC": "L-218K8H product",
+    },
 ]
 
 PROCESSES = [
+    {"OPER": "INPUT", "OPER_NAME": "INPUT", "OPER_SEQ": "010"},
     {"OPER": "DA1", "OPER_NAME": "D/A1", "OPER_SEQ": "100"},
     {"OPER": "DA2", "OPER_NAME": "D/A2", "OPER_SEQ": "110"},
+    {"OPER": "DA3", "OPER_NAME": "D/A3", "OPER_SEQ": "120"},
+    {"OPER": "DA4", "OPER_NAME": "D/A4", "OPER_SEQ": "130"},
+    {"OPER": "DA5", "OPER_NAME": "D/A5", "OPER_SEQ": "140"},
+    {"OPER": "DA6", "OPER_NAME": "D/A6", "OPER_SEQ": "150"},
+    {"OPER": "DS1", "OPER_NAME": "D/S1", "OPER_SEQ": "160"},
     {"OPER": "WB1", "OPER_NAME": "W/B1", "OPER_SEQ": "200"},
     {"OPER": "WB2", "OPER_NAME": "W/B2", "OPER_SEQ": "210"},
+    {"OPER": "WB3", "OPER_NAME": "W/B3", "OPER_SEQ": "220"},
+    {"OPER": "WB4", "OPER_NAME": "W/B4", "OPER_SEQ": "230"},
+    {"OPER": "WB5", "OPER_NAME": "W/B5", "OPER_SEQ": "240"},
+    {"OPER": "WB6", "OPER_NAME": "W/B6", "OPER_SEQ": "250"},
+    {"OPER": "FCB1", "OPER_NAME": "FCB1", "OPER_SEQ": "300"},
+    {"OPER": "FCB2", "OPER_NAME": "FCB2", "OPER_SEQ": "310"},
+    {"OPER": "FCBH", "OPER_NAME": "FCB/H", "OPER_SEQ": "320"},
+    {"OPER": "BG1", "OPER_NAME": "B/G1", "OPER_SEQ": "400"},
+    {"OPER": "BG2", "OPER_NAME": "B/G2", "OPER_SEQ": "410"},
+    {"OPER": "SBM", "OPER_NAME": "SBM", "OPER_SEQ": "500"},
 ]
 
 
@@ -106,10 +192,10 @@ def _skipped(source_type: str, reason: str) -> dict[str, Any]:
 
 def _rows_for_dataset(dataset_key: str) -> list[dict[str, Any]]:
     rows = {
-        "production_today": _production_rows("20260701", [1000, 700, 650]),
-        "production": _production_rows("20260630", [900, 620, 580]),
-        "wip_today": _wip_rows("20260701", [120, 80, 75, 55]),
-        "wip": _wip_rows("20260630", [130, 85, 65, 45]),
+        "production_today": _production_rows(["20260701"]),
+        "production": _production_rows(["20260630", "20260627", "20260624"]),
+        "wip_today": _wip_rows(["20260701"]),
+        "wip": _wip_rows(["20260630", "20260626", "20260624", "20260623"]),
         "target": _target_rows(),
         "equipment_assign": _equipment_assign_rows(),
         "equipment_status": _equipment_assign_rows(),
@@ -120,12 +206,72 @@ def _rows_for_dataset(dataset_key: str) -> list[dict[str, Any]]:
     return deepcopy(rows)
 
 
-def _production_rows(work_date: str, quantities: list[int]) -> list[dict[str, Any]]:
-    return [_product_process_row(work_date, index, index, PRODUCTION=quantity) for index, quantity in enumerate(quantities)]
+def _production_rows(work_dates: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for work_date in work_dates:
+        for product_index, _product in enumerate(PRODUCTS):
+            for process_name in _production_processes_for_product(product_index):
+                process_index = _process_index(process_name)
+                quantity = _quantity_value(work_date, product_index, process_index, base=180)
+                rows.append(_product_process_row(work_date, product_index, process_index, PRODUCTION=quantity))
+    return rows
 
 
-def _wip_rows(work_date: str, quantities: list[int]) -> list[dict[str, Any]]:
-    return [_product_process_row(work_date, index, index, WIP=quantity, LOT_ID=f"L{index + 1:03d}") for index, quantity in enumerate(quantities)]
+def _wip_rows(work_dates: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for work_date in work_dates:
+        for product_index, _product in enumerate(PRODUCTS):
+            for process_name in _wip_processes_for_product(product_index):
+                process_index = _process_index(process_name)
+                quantity = _quantity_value(work_date, product_index, process_index, base=35)
+                rows.append(_product_process_row(work_date, product_index, process_index, WIP=quantity, LOT_ID=f"L{product_index + 1:03d}-{process_name.replace('/', '')}"))
+    return rows
+
+
+def _production_processes_for_product(product_index: int) -> list[str]:
+    common = ["INPUT", "D/A1", "D/A2", "W/B1", "W/B2", "FCB1", "FCB/H", "B/G1", "SBM"]
+    if product_index == 1:
+        return ["INPUT", "W/B1", "W/B2", "FCB1", "FCB2", "FCB/H"]
+    if product_index == 3:
+        return ["INPUT", "D/A1", "B/G1", "B/G2"]
+    if product_index == 4:
+        return ["INPUT", "B/G1", "B/G2"]
+    if product_index == 5:
+        return ["INPUT", "B/G1", "B/G2"]
+    if product_index == 6:
+        return ["INPUT", "FCB1", "FCB2", "FCB/H"]
+    if product_index == 7:
+        return ["INPUT", "SBM", "D/A1"]
+    return common
+
+
+def _wip_processes_for_product(product_index: int) -> list[str]:
+    common = ["D/A1", "D/A2", "W/B1", "W/B2", "FCB1", "FCB/H", "B/G1", "D/S1"]
+    if product_index == 1:
+        return ["W/B1", "W/B2", "FCB1", "FCB2", "FCB/H"]
+    if product_index == 3:
+        return ["B/G1", "B/G2"]
+    if product_index == 4:
+        return ["D/A1"]
+    if product_index == 5:
+        return ["B/G1", "B/G2"]
+    if product_index == 6:
+        return ["FCB1", "FCB/H"]
+    if product_index == 7:
+        return ["SBM"]
+    return common
+
+
+def _process_index(oper_name: str) -> int:
+    for index, process in enumerate(PROCESSES):
+        if process["OPER_NAME"] == oper_name or process["OPER"] == oper_name:
+            return index
+    return 0
+
+
+def _quantity_value(work_date: str, product_index: int, process_index: int, base: int) -> int:
+    date_factor = int(str(work_date)[-2:]) if str(work_date)[-2:].isdigit() else 1
+    return base + product_index * 37 + process_index * 11 + date_factor
 
 
 def _target_rows() -> list[dict[str, Any]]:
@@ -159,15 +305,18 @@ def _target_rows() -> list[dict[str, Any]]:
 
 def _equipment_assign_rows() -> list[dict[str, Any]]:
     rows = []
+    models = ["EQM-A", "EQM-HBM", "EQM-MOBILE", "EQM-FCB", "EQM-BG"]
+    press_counts = [2, 4, 1, 3, 2]
+    pkg_sizes = ["12x12", "18x18", "10x10", "14x14", "16x16"]
     for index, product in enumerate(PRODUCTS):
         process = PROCESSES[index % len(PROCESSES)]
-        model = ["EQM-A", "EQM-HBM", "EQM-MOBILE"][index]
+        model = models[index % len(models)]
         rows.append(
             {
                 "BAY_ID": f"BAY{index + 1:02d}",
                 "EQUIP_ID": f"EQP{index + 1:03d}",
                 "EQUIP_MODEL": model,
-                "PRESS_CNT": [2, 4, 1][index],
+                "PRESS_CNT": press_counts[index % len(press_counts)],
                 "OPER": process["OPER"],
                 "OPER_NM": process["OPER_NAME"],
                 "MODE": product["MODE"],
@@ -177,7 +326,7 @@ def _equipment_assign_rows() -> list[dict[str, Any]]:
                 "PKG2": product["PKG2"],
                 "LEAD": product["LEAD"],
                 "ORG": product["ORG"],
-                "PKGSIZE": ["12x12", "18x18", "10x10"][index],
+                "PKGSIZE": pkg_sizes[index % len(pkg_sizes)],
                 "MCP_NO": product["MCP_NO"],
                 "DEVICE": product["DEVICE"],
                 "DEVICE_DESC": product["DEVICE_DESC"],
@@ -198,15 +347,18 @@ def _equipment_assign_rows() -> list[dict[str, Any]]:
 
 def _eqp_uph_rows() -> list[dict[str, Any]]:
     rows = []
+    models = ["EQM-A", "EQM-HBM", "EQM-MOBILE", "EQM-FCB", "EQM-BG"]
+    press_counts = [2, 4, 1, 3, 2]
+    uph_values = [123.4, 88.2, 156.7, 112.0, 97.5]
     for index, product in enumerate(PRODUCTS):
         process = PROCESSES[index % len(PROCESSES)]
-        model = ["EQM-A", "EQM-HBM", "EQM-MOBILE"][index]
+        model = models[index % len(models)]
         rows.append(
             {
                 "EQUIP_MODEL": model,
                 "OPER": process["OPER"],
                 "OPER_NAME": process["OPER_NAME"],
-                "PRESS_CNT": [2, 4, 1][index],
+                "PRESS_CNT": press_counts[index % len(press_counts)],
                 "MODE": product["MODE"],
                 "TECH": product["TECH"],
                 "ORG": product["ORG"],
@@ -216,7 +368,7 @@ def _eqp_uph_rows() -> list[dict[str, Any]]:
                 "LEAD": product["LEAD"],
                 "MCP_NO": product["MCP_NO"],
                 "RECIPE_ID": f"RCP-{index + 1:03d}",
-                "UPH": [123.4, 88.2, 156.7][index],
+                "UPH": uph_values[index % len(uph_values)],
                 "LOAD_DT": "20260701",
                 "BASE_DT": "20260701",
                 "EQP_MODEL": model,

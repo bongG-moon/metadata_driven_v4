@@ -12,6 +12,76 @@ from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 FORBIDDEN_NAMES = {"open", "exec", "eval", "__import__", "compile", "input"}
+RUNTIME_HELPER_SOURCES = {
+    "match_product_tokens": """# 표시용: 실제 실행 시 executor namespace에서 제공되는 helper입니다.
+# re 모듈과 pandas DataFrame은 executor가 이미 제공합니다.
+def match_product_tokens(input_text, frame, token_columns=None, output_order=None):
+    if not hasattr(frame, "copy"):
+        return frame
+    result = frame.copy()
+    if result.empty:
+        return result
+    columns = _available_token_columns(result, token_columns)
+    tokens = _product_tokens(input_text)
+    if not columns or not tokens:
+        return result
+    mask = None
+    for token in tokens:
+        token_mask = None
+        normalized_token = _normalize_token(token)
+        for column in columns:
+            values = result[column].map(_normalize_token)
+            current = values.str.contains(normalized_token, na=False, regex=False) | values.map(
+                lambda value: bool(value) and (normalized_token in value or value in normalized_token)
+            )
+            token_mask = current if token_mask is None else (token_mask | current)
+        mask = token_mask if mask is None else (mask & token_mask)
+    filtered = result if mask is None else result[mask].copy()
+    ordered_columns = [column for column in _as_list(output_order) if column in filtered.columns]
+    if ordered_columns:
+        rest = [column for column in filtered.columns if column not in ordered_columns]
+        filtered = filtered[ordered_columns + rest]
+    return filtered
+
+
+def _available_token_columns(frame, token_columns=None):
+    candidates = _as_list(token_columns) or [
+        "TECH", "DEN", "DENSITY", "MODE", "PKG_TYPE1", "PKG1", "PKG_TYPE2", "PKG2",
+        "LEAD", "MCP_NO", "MCP NO", "DEVICE", "DEVICE_DESC", "TSV_DIE_TYP",
+        "TSV_DIE_TYPE", "ORG", "FAMILY",
+    ]
+    return [str(column) for column in candidates if str(column) in frame.columns]
+
+
+def _product_tokens(value):
+    text = str(value or "").upper()
+    raw_tokens = re.findall(r"[A-Z0-9]+(?:[-_/][A-Z0-9]+)*", text)
+    stopwords = {
+        "PRODUCT", "DEVICE", "PKG", "WIP", "INPUT", "OUTPUT", "OUT", "PRODUCTION",
+        "TODAY", "YESTERDAY", "WB", "FCB", "BG", "SBM",
+    }
+    tokens = []
+    for token in raw_tokens:
+        cleaned = token.strip("-_/")
+        if cleaned and cleaned not in stopwords and cleaned not in tokens:
+            tokens.append(cleaned)
+    return tokens
+
+
+def _normalize_token(value):
+    return re.sub(r"[^A-Z0-9]+", "", str(value if value is not None else "").upper())
+
+
+def _as_list(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if value in (None, "", {}, []):
+        return []
+    return [value]
+""",
+}
 
 
 def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]:
@@ -23,6 +93,7 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
         return _analysis_error(next_payload, "missing_code", "pandas code LLM 응답에 code가 없습니다.", "")
     filter_plan = _pandas_filter_plan(next_payload)
     code = _with_pandas_filter_preamble(code, filter_plan)
+    helper_trace = _runtime_helper_trace(code)
     guard_error = _guard_code(code)
     if guard_error:
         return _analysis_error(next_payload, "unsafe_code", guard_error, code)
@@ -30,16 +101,56 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
         import pandas as pd  # type: ignore
 
         sources = {alias: pd.DataFrame(rows) for alias, rows in next_payload.get("runtime_sources", {}).items()}
-        local_ns: dict[str, Any] = {"pd": pd, "sources": sources, "result": None}
-        exec(compile(code, "<pandas_code>", "exec"), {"__builtins__": {"len": len, "sum": sum, "min": min, "max": max, "round": round, "str": str, "int": int, "float": float, "list": list, "dict": dict}}, local_ns)
-        result = local_ns.get("result")
+        safe_builtins = {
+            "all": all,
+            "any": any,
+            "bool": bool,
+            "dict": dict,
+            "enumerate": enumerate,
+            "float": float,
+            "int": int,
+            "len": len,
+            "list": list,
+            "max": max,
+            "min": min,
+            "range": range,
+            "round": round,
+            "set": set,
+            "sorted": sorted,
+            "str": str,
+            "sum": sum,
+            "tuple": tuple,
+        }
+        exec_ns: dict[str, Any] = {
+            "__builtins__": safe_builtins,
+            "pd": pd,
+            "sources": sources,
+            "result": None,
+            "result_df": None,
+            "match_product_tokens": match_product_tokens,
+        }
+        exec(compile(code, "<pandas_code>", "exec"), exec_ns, exec_ns)
+        result = exec_ns.get("result")
+        if result is None:
+            result = exec_ns.get("result_df")
         rows, columns = _result_to_rows(result)
-        next_payload["analysis"] = {"status": "ok", "row_count": len(rows), "columns": columns, "rows": rows[:50]}
+        next_payload["analysis"] = {
+            "status": "ok",
+            "row_count": len(rows),
+            "columns": columns,
+            "rows": rows[:50],
+            "analysis_code": code,
+            "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
+            "used_helpers": helper_trace["used_helpers"],
+        }
         next_payload["data"] = {"columns": columns, "rows": rows[:50], "row_count": len(rows), "data_ref": ""}
         next_payload.setdefault("trace", {}).setdefault("inspection", {})["pandas_execution"] = {
             "stage": "17_pandas_code_executor",
             "status": "ok",
             "generated_code": code,
+            "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
+            "used_helpers": helper_trace["used_helpers"],
+            "helper_sources": helper_trace["helper_sources"],
             "pandas_filter_plan": filter_plan,
             "execution_result": {"row_count": len(rows), "columns": columns, "preview_rows": rows[:20]},
             "error": None,
@@ -81,10 +192,164 @@ def _result_to_rows(result: Any) -> tuple[list[dict[str, Any]], list[str]]:
 
 
 def _analysis_error(payload: dict[str, Any], error_type: str, message: str, code: str, tb: str = "") -> dict[str, Any]:
-    payload["analysis"] = {"status": "error", "row_count": 0, "columns": [], "rows": [], "error": {"type": error_type, "message": message}}
+    helper_trace = _runtime_helper_trace(code)
+    payload["analysis"] = {
+        "status": "error",
+        "row_count": 0,
+        "columns": [],
+        "rows": [],
+        "error": {"type": error_type, "message": message},
+        "errors": [message],
+        "repairable_errors": [message],
+        "analysis_code": code,
+        "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
+        "used_helpers": helper_trace["used_helpers"],
+    }
     payload.setdefault("trace", {}).setdefault("errors", []).append({"type": error_type, "message": message})
-    payload.setdefault("trace", {}).setdefault("inspection", {})["pandas_execution"] = {"stage": "17_pandas_code_executor", "status": "error", "generated_code": code, "error": {"type": error_type, "message": message, "traceback_summary": tb[:1000]}}
+    payload.setdefault("trace", {}).setdefault("inspection", {})["pandas_execution"] = {
+        "stage": "17_pandas_code_executor",
+        "status": "error",
+        "generated_code": code,
+        "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
+        "used_helpers": helper_trace["used_helpers"],
+        "helper_sources": helper_trace["helper_sources"],
+        "error": {"type": error_type, "message": message, "traceback_summary": tb[:1000]},
+    }
     return payload
+
+
+def _runtime_helper_trace(code: str) -> dict[str, Any]:
+    helper_names = _used_runtime_helpers(code)
+    helper_sources = [{"function_name": name, "source": RUNTIME_HELPER_SOURCES[name]} for name in helper_names]
+    return {
+        "used_helpers": helper_names,
+        "helper_sources": helper_sources,
+        "effective_code_with_helpers": _effective_code_with_helpers(code, helper_sources),
+    }
+
+
+def _used_runtime_helpers(code: str) -> list[str]:
+    used: list[str] = []
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        tree = None
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in RUNTIME_HELPER_SOURCES:
+                if node.func.id not in used:
+                    used.append(node.func.id)
+    for name in RUNTIME_HELPER_SOURCES:
+        if name not in used and re.search(rf"\b{re.escape(name)}\s*\(", code or ""):
+            used.append(name)
+    return used
+
+
+def _effective_code_with_helpers(code: str, helper_sources: list[dict[str, Any]]) -> str:
+    cleaned_code = str(code or "").strip()
+    if not helper_sources:
+        return cleaned_code
+    blocks = ["# ===== 런타임 helper 정의(표시용) ====="]
+    blocks.extend(str(item.get("source") or "").strip() for item in helper_sources if item.get("source"))
+    blocks.append("# ===== 실제 실행 pandas 코드 =====")
+    blocks.append(cleaned_code)
+    return "\n\n".join(block for block in blocks if block)
+
+
+def match_product_tokens(input_text: Any, frame: Any, token_columns: Any = None, output_order: Any = None) -> Any:
+    if not hasattr(frame, "copy"):
+        return frame
+    result = frame.copy()
+    if result.empty:
+        return result
+    columns = _available_token_columns(result, token_columns)
+    tokens = _product_tokens(input_text)
+    if not columns or not tokens:
+        return result
+    mask = None
+    for token in tokens:
+        token_mask = None
+        normalized_token = _normalize_token(token)
+        for column in columns:
+            values = result[column].map(_normalize_token)
+            current = values.str.contains(normalized_token, na=False, regex=False) | values.map(lambda value: bool(value) and (normalized_token in value or value in normalized_token))
+            token_mask = current if token_mask is None else (token_mask | current)
+        mask = token_mask if mask is None else (mask & token_mask)
+    if mask is None:
+        filtered = result
+    else:
+        filtered = result[mask].copy()
+    ordered_columns = [column for column in _as_list(output_order) if column in filtered.columns]
+    if ordered_columns:
+        rest = [column for column in filtered.columns if column not in ordered_columns]
+        filtered = filtered[ordered_columns + rest]
+    return filtered
+
+
+def _available_token_columns(frame: Any, token_columns: Any = None) -> list[str]:
+    candidates = _as_list(token_columns) or [
+        "TECH",
+        "DEN",
+        "DENSITY",
+        "MODE",
+        "PKG_TYPE1",
+        "PKG1",
+        "PKG_TYPE2",
+        "PKG2",
+        "LEAD",
+        "MCP_NO",
+        "MCP NO",
+        "DEVICE",
+        "DEVICE_DESC",
+        "TSV_DIE_TYP",
+        "TSV_DIE_TYPE",
+        "ORG",
+        "FAMILY",
+    ]
+    return [str(column) for column in candidates if str(column) in frame.columns]
+
+
+def _product_tokens(value: Any) -> list[str]:
+    text = str(value or "").upper()
+    raw_tokens = re.findall(r"[A-Z0-9]+(?:[-_/][A-Z0-9]+)*", text)
+    stopwords = {
+        "PRODUCT",
+        "DEVICE",
+        "PKG",
+        "WIP",
+        "INPUT",
+        "OUTPUT",
+        "OUT",
+        "PRODUCTION",
+        "TODAY",
+        "YESTERDAY",
+        "WB",
+        "FCB",
+        "BG",
+        "SBM",
+    }
+    tokens = []
+    for token in raw_tokens:
+        cleaned = token.strip("-_/")
+        if not cleaned or cleaned in stopwords:
+            continue
+        if cleaned not in tokens:
+            tokens.append(cleaned)
+    return tokens
+
+
+def _normalize_token(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", str(value if value is not None else "").upper())
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if value in (None, "", {}, []):
+        return []
+    return [value]
 
 
 def _pandas_filter_plan(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -148,6 +413,16 @@ def _condition_code(df_var: str, job_index: int, condition_index: int, condition
         lines.append(f"        {mask_var} = {df_var}[{col_var}].astype(str).str.contains(str({values_var}[0]), case=False, na=False, regex=False)")
         lines.append(f"        for _filter_value in {values_var}[1:]:")
         lines.append(f"            {mask_var} = {mask_var} | {df_var}[{col_var}].astype(str).str.contains(str(_filter_value), case=False, na=False, regex=False)")
+        lines.append(f"        {df_var} = {df_var}[{mask_var}]")
+    elif operator in {"starts_with", "startswith", "prefix"}:
+        lines.append(f"        {mask_var} = {df_var}[{col_var}].astype(str).str.startswith(str({values_var}[0]), na=False)")
+        lines.append(f"        for _filter_value in {values_var}[1:]:")
+        lines.append(f"            {mask_var} = {mask_var} | {df_var}[{col_var}].astype(str).str.startswith(str(_filter_value), na=False)")
+        lines.append(f"        {df_var} = {df_var}[{mask_var}]")
+    elif operator in {"ends_with", "endswith", "suffix"}:
+        lines.append(f"        {mask_var} = {df_var}[{col_var}].astype(str).str.endswith(str({values_var}[0]), na=False)")
+        lines.append(f"        for _filter_value in {values_var}[1:]:")
+        lines.append(f"            {mask_var} = {mask_var} | {df_var}[{col_var}].astype(str).str.endswith(str(_filter_value), na=False)")
         lines.append(f"        {df_var} = {df_var}[{mask_var}]")
     return lines
 

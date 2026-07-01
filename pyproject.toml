@@ -1,0 +1,13 @@
+[project]
+name = "meta-driven-v4"
+version = "0.1.0"
+description = "Metadata-driven manufacturing agent v4 reference runtime"
+requires-python = ">=3.10"
+dependencies = [
+  "pymongo>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

@@ -1,0 +1,465 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+from lfx.custom.custom_component.component import Component
+from lfx.io import DataInput, Output
+from lfx.schema.data import Data
+
+
+PRODUCTS = [
+    {
+        "FAMILY": "MEMORY",
+        "MODE": "LPDDR5",
+        "DENSITY": "16G",
+        "TECH": "1Z",
+        "ORG": "PKG",
+        "PKG1": "LFBGA",
+        "PKG2": "POP",
+        "LEAD": "200",
+        "MCP_NO": "MCP001",
+        "TSV_DIE_TYP": "8Hi",
+        "DEVICE": "DEV001",
+        "DEVICE_DESC": "LPDDR5 sample",
+    },
+    {
+        "FAMILY": "HBM",
+        "MODE": "HBM3E",
+        "DENSITY": "24G",
+        "TECH": "1A",
+        "ORG": "PKG",
+        "PKG1": "HBM",
+        "PKG2": "TSV",
+        "LEAD": "300",
+        "MCP_NO": "MCPHBM",
+        "TSV_DIE_TYP": "12Hi",
+        "DEVICE": "DEV-HBM",
+        "DEVICE_DESC": "HBM3E sample",
+    },
+    {
+        "FAMILY": "MOBILE",
+        "MODE": "LPDDR5X",
+        "DENSITY": "32G",
+        "TECH": "1B",
+        "ORG": "PKG",
+        "PKG1": "UFBGA",
+        "PKG2": "MOBILE",
+        "LEAD": "180",
+        "MCP_NO": "MCP002",
+        "TSV_DIE_TYP": "",
+        "DEVICE": "DEV002",
+        "DEVICE_DESC": "LPDDR5X sample",
+    },
+]
+
+PROCESSES = [
+    {"OPER": "DA1", "OPER_NAME": "D/A1", "OPER_SEQ": "100"},
+    {"OPER": "DA2", "OPER_NAME": "D/A2", "OPER_SEQ": "110"},
+    {"OPER": "WB1", "OPER_NAME": "W/B1", "OPER_SEQ": "200"},
+    {"OPER": "WB2", "OPER_NAME": "W/B2", "OPER_SEQ": "210"},
+]
+
+
+def retrieve_dummy_data(payload_value: Any) -> dict[str, Any]:
+    payload = _payload(payload_value)
+    bundle = payload.get("retrieval_job_bundle") if isinstance(payload.get("retrieval_job_bundle"), dict) else {}
+    jobs = bundle.get("jobs") if isinstance(bundle.get("jobs"), list) else []
+    if not jobs:
+        return _skipped("dummy", "no dummy retrieval jobs")
+    results = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        rows = _rows_for_dataset(str(job.get("dataset_key") or ""))
+        rows = _apply_params(rows, job.get("required_params"))
+        rows = _apply_filters(rows, job.get("filters"))
+        results.append(
+            {
+                "source_alias": job.get("source_alias") or job.get("dataset_key"),
+                "dataset_key": job.get("dataset_key"),
+                "source_type": job.get("source_type"),
+                "status": "ok",
+                "row_count": len(rows),
+                "columns": sorted({column for row in rows for column in row}),
+                "preview_rows": rows[:20],
+                "rows": rows,
+                "applied_params": job.get("required_params", {}),
+                "applied_filters": job.get("filters", {}),
+                "data_ref": "",
+                "source_execution": {
+                    "used_dummy_data": True,
+                    "adapter": "dummy",
+                    "declared_source_type": job.get("source_type"),
+                    "params_applied_in_retriever": True,
+                    "filters_applied_in_retriever": True,
+                },
+                "warnings": [],
+                "errors": [],
+            }
+        )
+    return {"source_type": "dummy", "status": "ok", "skipped": False, "source_results": results, "errors": [], "warnings": []}
+
+
+def _skipped(source_type: str, reason: str) -> dict[str, Any]:
+    return {"source_type": source_type, "status": "skipped", "skipped": True, "skip_reason": reason, "source_results": [], "errors": [], "warnings": []}
+
+
+def _rows_for_dataset(dataset_key: str) -> list[dict[str, Any]]:
+    rows = {
+        "production_today": _production_rows("20260701", [1000, 700, 650]),
+        "production": _production_rows("20260630", [900, 620, 580]),
+        "wip_today": _wip_rows("20260701", [120, 80, 75, 55]),
+        "wip": _wip_rows("20260630", [130, 85, 65, 45]),
+        "target": _target_rows(),
+        "equipment_assign": _equipment_assign_rows(),
+        "equipment_status": _equipment_assign_rows(),
+        "eqp_uph": _eqp_uph_rows(),
+        "lot_status": _lot_status_rows(),
+        "hold_history": _hold_history_rows(),
+    }.get(dataset_key, [])
+    return deepcopy(rows)
+
+
+def _production_rows(work_date: str, quantities: list[int]) -> list[dict[str, Any]]:
+    return [_product_process_row(work_date, index, index, PRODUCTION=quantity) for index, quantity in enumerate(quantities)]
+
+
+def _wip_rows(work_date: str, quantities: list[int]) -> list[dict[str, Any]]:
+    return [_product_process_row(work_date, index, index, WIP=quantity, LOT_ID=f"L{index + 1:03d}") for index, quantity in enumerate(quantities)]
+
+
+def _target_rows() -> list[dict[str, Any]]:
+    rows = []
+    for index, product in enumerate(PRODUCTS):
+        rows.append(
+            {
+                "DATE": "2026-07-01",
+                "Mode": product["MODE"],
+                "DEN": product["DENSITY"],
+                "TECH": product["TECH"],
+                "PKG1": product["PKG1"],
+                "PKG2": product["PKG2"],
+                "LEAD": product["LEAD"],
+                "ORG": product["ORG"],
+                "MCP NO": product["MCP_NO"],
+                "INPUT 계획": 800 - index * 100,
+                "OUT 계획": 1200 - index * 150,
+                "MODE": product["MODE"],
+                "DENSITY": product["DENSITY"],
+                "PKG_TYPE1": product["PKG1"],
+                "PKG_TYPE2": product["PKG2"],
+                "MCP_NO": product["MCP_NO"],
+                "INPUT_PLAN": 800 - index * 100,
+                "OUT_PLAN": 1200 - index * 150,
+                "TARGET": 1200 - index * 150,
+            }
+        )
+    return rows
+
+
+def _equipment_assign_rows() -> list[dict[str, Any]]:
+    rows = []
+    for index, product in enumerate(PRODUCTS):
+        process = PROCESSES[index % len(PROCESSES)]
+        model = ["EQM-A", "EQM-HBM", "EQM-MOBILE"][index]
+        rows.append(
+            {
+                "BAY_ID": f"BAY{index + 1:02d}",
+                "EQUIP_ID": f"EQP{index + 1:03d}",
+                "EQUIP_MODEL": model,
+                "PRESS_CNT": [2, 4, 1][index],
+                "OPER": process["OPER"],
+                "OPER_NM": process["OPER_NAME"],
+                "MODE": product["MODE"],
+                "DENSITY": product["DENSITY"],
+                "TECH": product["TECH"],
+                "PKG1": product["PKG1"],
+                "PKG2": product["PKG2"],
+                "LEAD": product["LEAD"],
+                "ORG": product["ORG"],
+                "PKGSIZE": ["12x12", "18x18", "10x10"][index],
+                "MCP_NO": product["MCP_NO"],
+                "DEVICE": product["DEVICE"],
+                "DEVICE_DESC": product["DEVICE_DESC"],
+                "LOT_ID": "T1234567GEN1" if index == 0 else f"T765432{index}GEN1",
+                "RECIPE_ID": f"RCP-{index + 1:03d}",
+                "EQP_ID": f"EQP{index + 1:03d}",
+                "EQP_MODEL": model,
+                "EQPIP_MODEL": model,
+                "DEN": product["DENSITY"],
+                "PKG_TYPE1": product["PKG1"],
+                "PKG_TYPE2": product["PKG2"],
+                "OPER_NAME": process["OPER_NAME"],
+                "OPER_NUM": process["OPER"],
+            }
+        )
+    return rows
+
+
+def _eqp_uph_rows() -> list[dict[str, Any]]:
+    rows = []
+    for index, product in enumerate(PRODUCTS):
+        process = PROCESSES[index % len(PROCESSES)]
+        model = ["EQM-A", "EQM-HBM", "EQM-MOBILE"][index]
+        rows.append(
+            {
+                "EQUIP_MODEL": model,
+                "OPER": process["OPER"],
+                "OPER_NAME": process["OPER_NAME"],
+                "PRESS_CNT": [2, 4, 1][index],
+                "MODE": product["MODE"],
+                "TECH": product["TECH"],
+                "ORG": product["ORG"],
+                "DENSITY": product["DENSITY"],
+                "PKG1": product["PKG1"],
+                "PKG2": product["PKG2"],
+                "LEAD": product["LEAD"],
+                "MCP_NO": product["MCP_NO"],
+                "RECIPE_ID": f"RCP-{index + 1:03d}",
+                "UPH": [123.4, 88.2, 156.7][index],
+                "LOAD_DT": "20260701",
+                "BASE_DT": "20260701",
+                "EQP_MODEL": model,
+                "DEN": product["DENSITY"],
+                "PKG_TYPE1": product["PKG1"],
+                "PKG_TYPE2": product["PKG2"],
+                "OPER_NUM": process["OPER"],
+            }
+        )
+    return rows
+
+
+def _lot_status_rows() -> list[dict[str, Any]]:
+    return [
+        _lot_row(_product_process_row("20260701", 0, 0), "T1234567GEN1", "OnHold", "WAITING", 100, 25, 12.5, 40.0, "검증용 HOLD"),
+        _lot_row(_product_process_row("20260701", 1, 1), "T7654321GEN1", "NotOnHold", "RUNNING", 80, 20, 5.0, 25.0, ""),
+        _lot_row(_product_process_row("20260701", 2, 2), "T2222222GEN1", "NotOnHold", "WAITING", 60, 18, 3.5, 18.0, ""),
+    ]
+
+
+def _hold_history_rows() -> list[dict[str, Any]]:
+    return [
+        _hold_row(_product_process_row("20260701", 0, 0), "T1234567GEN1", "H001", "검증용 HOLD 이력"),
+        _hold_row(_product_process_row("20260701", 1, 1), "T7654321GEN1", "H002", "레시피 확인 HOLD"),
+    ]
+
+
+def _product_process_row(work_date: str, product_index: int, process_index: int, **overrides: Any) -> dict[str, Any]:
+    product = PRODUCTS[product_index % len(PRODUCTS)]
+    process = PROCESSES[process_index % len(PROCESSES)]
+    row = {
+        "WORK_DATE": work_date,
+        "WORK_DT": work_date,
+        "SHIFT": str((process_index % 3) + 1),
+        "FACTORY": "PNT",
+        "FAB": "PKG",
+        "FAMILY": product["FAMILY"],
+        "MODE": product["MODE"],
+        "DENSITY": product["DENSITY"],
+        "DEN": product["DENSITY"],
+        "TECH": product["TECH"],
+        "ORG": product["ORG"],
+        "PKG1": product["PKG1"],
+        "PKG_TYPE1": product["PKG1"],
+        "PKG2": product["PKG2"],
+        "PKG_TYPE2": product["PKG2"],
+        "LEAD": product["LEAD"],
+        "MCP_NO": product["MCP_NO"],
+        "TSV_DIE_TYP": product["TSV_DIE_TYP"],
+        "TSV_DIE_TYPE": product["TSV_DIE_TYP"],
+        "DEVICE": product["DEVICE"],
+        "DEVICE_DESC": product["DEVICE_DESC"],
+        "DIE_ATTACH_QTY": product_index + 1,
+        "NETDIE_300_CNT": 100 + product_index * 20,
+        "OPER": process["OPER"],
+        "OPER_NUM": process["OPER"],
+        "OPER_NAME": process["OPER_NAME"],
+        "OPER_NM": process["OPER_NAME"],
+        "OPER_SEQ": process["OPER_SEQ"],
+    }
+    row.update(overrides)
+    return row
+
+
+def _lot_row(base: dict[str, Any], lot_id: str, hold_stat: str, lot_stat: str, prod_qty: int, wf_qty: int, in_tat: float, cum_tat: float, hold_reason: str) -> dict[str, Any]:
+    return {
+        "ERM_ID": "ERM-PKG",
+        "OPER": base["OPER"],
+        "OPER_NAME": base["OPER_NAME"],
+        "FAB": base["FAB"],
+        "OWNER": "PNT",
+        "GRADE": "A",
+        "DEVICE": base["DEVICE"],
+        "LOT_ID": lot_id,
+        "SUB_LOT_ID": f"{lot_id}-S1",
+        "PROD_QTY": prod_qty,
+        "WF_QTY": wf_qty,
+        "IN_TAT": in_tat,
+        "CUM_TAT": cum_tat,
+        "EQP_ID": "EQP001",
+        "FLOW_ID": "FLOW-PKG",
+        "OPER_IN_TM": "2026-07-01 07:10:00",
+        "FAC_IN_TIME": "2026-07-01 04:00:00",
+        "HOLD_STAT": hold_stat,
+        "HOLD_REASON": hold_reason,
+        "FAMILY": base["FAMILY"],
+        "MODE": base["MODE"],
+        "DENSITY": base["DENSITY"],
+        "TECH": base["TECH"],
+        "ORG": base["ORG"],
+        "PKG1": base["PKG1"],
+        "PKG2": base["PKG2"],
+        "PKG3": "",
+        "LEAD": base["LEAD"],
+        "MCP_NO": base["MCP_NO"],
+        "THK_CD": "STD",
+        "LOT_STAT": lot_stat,
+        "LOT_GRP": "NORMAL",
+        "PKG_SIZE": "12x12",
+        "HOT_LOT": "N",
+        "HOT_LEVEL": "",
+        "PKG_COMPOSIT": "",
+        "DURABLE_ID": "",
+        "DURABLE_TYP": "",
+        "SUB_QTY": prod_qty,
+        "TSV_DIE_TYPE": base["TSV_DIE_TYPE"],
+        "EVENT_DESC": "HOLD" if hold_stat == "OnHold" else "MOVE",
+        "MOVE_IN_TM": "2026-07-01 07:10:00",
+        "PAD_ABNORMAL": "N",
+        "SWR_REQ_NO": "",
+        "INSP_TARGET": "N",
+        "DEN": base["DENSITY"],
+        "PKG_TYPE1": base["PKG1"],
+        "PKG_TYPE2": base["PKG2"],
+        "TSV_DIE_TYP": base["TSV_DIE_TYPE"],
+        "OPER_NUM": base["OPER"],
+        "DEVICE_DESC": base["DEVICE_DESC"],
+    }
+
+
+def _hold_row(base: dict[str, Any], lot_id: str, hold_cd: str, hold_desc: str) -> dict[str, Any]:
+    return {
+        "LOT_ID": lot_id,
+        "PROD_QTY": 100,
+        "OPER": base["OPER"],
+        "OPER_NAME": base["OPER_NAME"],
+        "HOLD_TM": "2026-07-01 08:00:00",
+        "HOLD_CD": hold_cd,
+        "HOLD_USER": "USER01",
+        "HOLD_DESC": hold_desc,
+        "FAB": base["FAB"],
+        "FAMILY": base["FAMILY"],
+        "MODE": base["MODE"],
+        "DENSITY": base["DENSITY"],
+        "TECH": base["TECH"],
+        "ORG": base["ORG"],
+        "PKG1": base["PKG1"],
+        "PKG2": base["PKG2"],
+        "LEAD": base["LEAD"],
+        "MCP_NO": base["MCP_NO"],
+        "GRADE": "A",
+        "OWNER": "PNT",
+        "DEVICE": base["DEVICE"],
+        "DEVICE_DESC": base["DEVICE_DESC"],
+        "PKG_SIZE": "12x12",
+        "THK_CD": "STD",
+        "flow_id": "FLOW-PKG",
+        "DEN": base["DENSITY"],
+        "PKG_TYPE1": base["PKG1"],
+        "PKG_TYPE2": base["PKG2"],
+        "TSV_DIE_TYPE": base["TSV_DIE_TYPE"],
+        "TSV_DIE_TYP": base["TSV_DIE_TYPE"],
+        "OPER_NUM": base["OPER"],
+    }
+
+
+def _apply_params(rows: list[dict[str, Any]], params: Any) -> list[dict[str, Any]]:
+    if not isinstance(params, dict):
+        return rows
+    filtered = rows
+    for field, value in params.items():
+        if value in (None, "", [], {}):
+            continue
+        filtered = _filter_rows(filtered, str(field), [value], "eq", keep_if_missing=True)
+    return filtered
+
+
+def _apply_filters(rows: list[dict[str, Any]], filters: Any) -> list[dict[str, Any]]:
+    if isinstance(filters, list):
+        items = [(condition.get("field"), condition) for condition in filters if isinstance(condition, dict)]
+    elif isinstance(filters, dict):
+        items = list(filters.items())
+    else:
+        return rows
+    filtered = rows
+    for field, condition in items:
+        if not field:
+            continue
+        if isinstance(condition, dict):
+            values = condition.get("values", condition.get("value", []))
+            operator = condition.get("operator", condition.get("op", "eq"))
+        else:
+            values = condition
+            operator = "eq"
+        if not isinstance(values, list):
+            values = [values]
+        filtered = _filter_rows(filtered, str(field), values, str(operator), keep_if_missing=True)
+    return filtered
+
+
+def _filter_rows(rows: list[dict[str, Any]], field: str, values: list[Any], operator: str, keep_if_missing: bool) -> list[dict[str, Any]]:
+    candidates = _field_candidates(field)
+    if not any(any(candidate in row for candidate in candidates) for row in rows):
+        return rows if keep_if_missing else []
+    normalized_values = {_normalize(value) for value in values}
+    if operator in {"eq", "in", "="}:
+        return [row for row in rows if any(_normalize(row.get(candidate)) in normalized_values for candidate in candidates if candidate in row)]
+    if operator in {"not_in", "ne", "!="}:
+        return [row for row in rows if all(_normalize(row.get(candidate)) not in normalized_values for candidate in candidates if candidate in row)]
+    if operator in {"contains", "like"}:
+        return [row for row in rows if any(any(value in _normalize(row.get(candidate)) for value in normalized_values) for candidate in candidates if candidate in row)]
+    return rows
+
+
+def _field_candidates(field: str) -> list[str]:
+    aliases = {
+        "DATE": ["DATE", "WORK_DATE", "WORK_DT", "LOAD_DT", "BASE_DT"],
+        "WORK_DATE": ["WORK_DATE", "WORK_DT", "DATE"],
+        "MODE": ["MODE", "Mode"],
+        "DEN": ["DEN", "DENSITY"],
+        "PKG_TYPE1": ["PKG_TYPE1", "PKG1"],
+        "PKG_TYPE2": ["PKG_TYPE2", "PKG2"],
+        "MCP_NO": ["MCP_NO", "MCP NO"],
+        "TSV_DIE_TYP": ["TSV_DIE_TYP", "TSV_DIE_TYPE"],
+        "OPER_NUM": ["OPER_NUM", "OPER"],
+        "OPER_NAME": ["OPER_NAME", "OPER_NM"],
+        "EQP_ID": ["EQP_ID", "EQUIP_ID"],
+        "EQP_MODEL": ["EQP_MODEL", "EQUIP_MODEL", "EQPIP_MODEL"],
+    }
+    return aliases.get(field, [field])
+
+
+def _normalize(value: Any) -> str:
+    text = str(value if value is not None else "").strip().upper()
+    digits = "".join(character for character in text if character.isdigit())
+    if len(digits) >= 8:
+        return digits[:8]
+    return text
+
+
+def _payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return deepcopy(value)
+    data = getattr(value, "data", None)
+    return deepcopy(data) if isinstance(data, dict) else {}
+
+
+class DummyDataRetriever(Component):
+    display_name = "09 더미 데이터 조회기"
+    description = "실제 소스 조회가 꺼져 있을 때 데이터 조회 작업을 data_catalog 구조와 같은 더미 행으로 실행합니다."
+    inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
+    outputs = [Output(name="retrieval_payload", display_name="조회 페이로드", method="build_payload")]
+
+    def build_payload(self) -> Data:
+        return Data(data=retrieve_dummy_data(getattr(self, "payload", None)))

@@ -24,8 +24,9 @@ def build_message(payload_value: Any) -> str:
     if answer:
         sections.append("### 답변\n" + _escape_markdown_tilde(answer))
 
+    result_table_section = "" if _contains_markdown_table(answer) else _result_table_section(payload)
     for section in (
-        _result_table_section(payload),
+        result_table_section,
         _intent_section(payload),
         _retrieval_section(payload),
         _pandas_section(payload),
@@ -42,6 +43,17 @@ def build_message(payload_value: Any) -> str:
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}
+
+
+def _contains_markdown_table(text: str) -> bool:
+    lines = [line.strip() for line in str(text or "").splitlines()]
+    for index in range(len(lines) - 1):
+        if "|" not in lines[index] or "|" not in lines[index + 1]:
+            continue
+        divider = lines[index + 1].replace("|", "").replace(":", "").replace("-", "").strip()
+        if not divider:
+            return True
+    return False
 
 
 def _result_table_section(payload: dict[str, Any]) -> str:

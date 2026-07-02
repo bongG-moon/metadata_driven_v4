@@ -676,6 +676,25 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
     assert "def match_product_tokens" in helper_message
 
 
+def test_answer_message_adapter_skips_duplicate_result_table_when_answer_has_table():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "요청 결과입니다.\n\n| OPER_NAME | wip_sum |\n| --- | ---: |\n| D/A1 | 363 |",
+        "data": {
+            "columns": ["OPER_NAME", "wip_sum"],
+            "rows": [{"OPER_NAME": "D/A1", "wip_sum": 363}],
+            "row_count": 1,
+        },
+        "intent_plan": {"analysis_kind": "wip_sum_by_oper"},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert message.count("| OPER_NAME | wip_sum |") == 1
+    assert "wip_sum_by_oper" in message
+
+
 def test_pandas_executor_uses_shared_namespace_for_comprehensions():
     pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
     payload = {

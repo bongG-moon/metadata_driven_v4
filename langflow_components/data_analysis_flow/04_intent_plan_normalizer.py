@@ -76,6 +76,87 @@ def _selected_function_cases(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return cases
 
 
+def _ensure_function_case_step(plan: dict[str, Any], pandas_plan: list[Any], retrieval_jobs: list[dict[str, Any]]) -> list[Any]:
+    cases = _function_case_items(plan)
+    if not cases:
+        return pandas_plan
+    existing_steps = [step for step in pandas_plan if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case"]
+    steps_to_add = []
+    for case in cases:
+        function_name = str(case.get("function_name") or "").strip()
+        case_key = str(case.get("key") or case.get("case_key") or case.get("function_case_key") or "").strip()
+        if not function_name and not case_key:
+            continue
+        source_alias = str(case.get("source_alias") or "").strip()
+        if not source_alias and retrieval_jobs:
+            source_alias = str(retrieval_jobs[0].get("source_alias") or retrieval_jobs[0].get("dataset_key") or "").strip()
+        input_text = str(case.get("input_text") or "")
+        if _has_function_case_step(existing_steps + steps_to_add, function_name, case_key, input_text, source_alias):
+            continue
+        steps_to_add.append(
+            {
+                "step": "특화 함수 적용",
+                "operation": "apply_pandas_function_case",
+                "function_case_key": case_key,
+                "function_name": function_name,
+                "input_text": input_text,
+                "source_alias": source_alias,
+            }
+        )
+    return [*steps_to_add, *pandas_plan]
+
+
+def _has_function_case_step(steps: list[Any], function_name: str, case_key: str, input_text: str, source_alias: str) -> bool:
+    for step in steps:
+        if not isinstance(step, dict) or str(step.get("operation") or "") != "apply_pandas_function_case":
+            continue
+        if function_name and str(step.get("function_name") or "") != function_name:
+            continue
+        if case_key and str(step.get("function_case_key") or step.get("key") or "") != case_key:
+            continue
+        if input_text and str(step.get("input_text") or "") != input_text:
+            continue
+        if source_alias and str(step.get("source_alias") or "") != source_alias:
+            continue
+        return True
+    return False
+
+
+def _selected_function_cases(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    cases = []
+    for case in _function_case_items(plan):
+        cases.append(deepcopy(case))
+    for step in plan.get("pandas_execution_plan", []) if isinstance(plan.get("pandas_execution_plan"), list) else []:
+        if not isinstance(step, dict) or str(step.get("operation") or "") != "apply_pandas_function_case":
+            continue
+        item = {
+            "key": step.get("function_case_key", ""),
+            "function_name": step.get("function_name", ""),
+            "input_text": step.get("input_text", ""),
+            "source_alias": step.get("source_alias", ""),
+        }
+        if item not in cases:
+            cases.append(item)
+    return cases
+
+
+def _function_case_items(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    single = plan.get("pandas_function_case")
+    if isinstance(single, dict) and single:
+        items.append(deepcopy(single))
+    elif isinstance(single, list):
+        items.extend(deepcopy(item) for item in single if isinstance(item, dict) and item)
+    multiple = plan.get("pandas_function_cases")
+    if isinstance(multiple, list):
+        items.extend(deepcopy(item) for item in multiple if isinstance(item, dict) and item)
+    deduped: list[dict[str, Any]] = []
+    for item in items:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}

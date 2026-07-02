@@ -81,22 +81,30 @@ def _as_list(value):
         return []
     return [value]
 """,
+    "sample_passthrough_helper": """# 표시용: 여러 특화 함수 전달 형식을 확인하기 위한 더미 helper입니다.
+def sample_passthrough_helper(input_text, frame, note=None):
+    if hasattr(frame, "copy"):
+        return frame.copy()
+    return frame
+""",
 }
 
 
 def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]:
     payload = _payload(payload_value)
     parsed = _json(llm_response)
-    code = parsed.get("code") or parsed.get("pandas_code") or ""
+    llm_code = str(parsed.get("code") or parsed.get("pandas_code") or "")
+    code = llm_code
     next_payload = deepcopy(payload)
     if not code:
         return _analysis_error(next_payload, "missing_code", "pandas code LLM 응답에 code가 없습니다.", "")
     filter_plan = _pandas_filter_plan(next_payload)
+    filter_preamble = _pandas_filter_preamble(filter_plan)
     code = _with_pandas_filter_preamble(code, filter_plan)
     helper_trace = _runtime_helper_trace(code)
     guard_error = _guard_code(code)
     if guard_error:
-        return _analysis_error(next_payload, "unsafe_code", guard_error, code)
+        return _analysis_error(next_payload, "unsafe_code", guard_error, code, "", llm_code, filter_preamble, filter_plan)
     try:
         import pandas as pd  # type: ignore
 
@@ -128,6 +136,7 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "result": None,
             "result_df": None,
             "match_product_tokens": match_product_tokens,
+            "sample_passthrough_helper": sample_passthrough_helper,
         }
         exec(compile(code, "<pandas_code>", "exec"), exec_ns, exec_ns)
         result = exec_ns.get("result")
@@ -140,6 +149,8 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "columns": columns,
             "rows": rows[:50],
             "analysis_code": code,
+            "llm_generated_code": llm_code,
+            "pandas_filter_preamble": filter_preamble,
             "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
             "used_helpers": helper_trace["used_helpers"],
         }
@@ -148,6 +159,8 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "stage": "17_pandas_code_executor",
             "status": "ok",
             "generated_code": code,
+            "llm_generated_code": llm_code,
+            "pandas_filter_preamble": filter_preamble,
             "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
             "used_helpers": helper_trace["used_helpers"],
             "helper_sources": helper_trace["helper_sources"],
@@ -157,7 +170,7 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
         }
         return next_payload
     except Exception as exc:
-        return _analysis_error(next_payload, "pandas_execution_error", f"{type(exc).__name__}: {exc}", code, traceback.format_exc(limit=3))
+        return _analysis_error(next_payload, "pandas_execution_error", f"{type(exc).__name__}: {exc}", code, traceback.format_exc(limit=3), llm_code, filter_preamble, filter_plan)
 
 
 def _guard_code(code: str) -> str:
@@ -191,7 +204,16 @@ def _result_to_rows(result: Any) -> tuple[list[dict[str, Any]], list[str]]:
     return rows, columns
 
 
-def _analysis_error(payload: dict[str, Any], error_type: str, message: str, code: str, tb: str = "") -> dict[str, Any]:
+def _analysis_error(
+    payload: dict[str, Any],
+    error_type: str,
+    message: str,
+    code: str,
+    tb: str = "",
+    llm_code: str = "",
+    filter_preamble: str = "",
+    filter_plan: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     helper_trace = _runtime_helper_trace(code)
     payload["analysis"] = {
         "status": "error",
@@ -202,6 +224,8 @@ def _analysis_error(payload: dict[str, Any], error_type: str, message: str, code
         "errors": [message],
         "repairable_errors": [message],
         "analysis_code": code,
+        "llm_generated_code": llm_code or code,
+        "pandas_filter_preamble": filter_preamble,
         "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
         "used_helpers": helper_trace["used_helpers"],
     }
@@ -210,6 +234,9 @@ def _analysis_error(payload: dict[str, Any], error_type: str, message: str, code
         "stage": "17_pandas_code_executor",
         "status": "error",
         "generated_code": code,
+        "llm_generated_code": llm_code or code,
+        "pandas_filter_preamble": filter_preamble,
+        "pandas_filter_plan": filter_plan or [],
         "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
         "used_helpers": helper_trace["used_helpers"],
         "helper_sources": helper_trace["helper_sources"],
@@ -284,6 +311,12 @@ def match_product_tokens(input_text: Any, frame: Any, token_columns: Any = None,
         rest = [column for column in filtered.columns if column not in ordered_columns]
         filtered = filtered[ordered_columns + rest]
     return filtered
+
+
+def sample_passthrough_helper(input_text: Any, frame: Any, note: Any = None) -> Any:
+    if hasattr(frame, "copy"):
+        return frame.copy()
+    return frame
 
 
 def _available_token_columns(frame: Any, token_columns: Any = None) -> list[str]:
@@ -396,18 +429,18 @@ def _pandas_filter_preamble(filter_plan: list[dict[str, Any]]) -> str:
 
 def _condition_code(df_var: str, job_index: int, condition_index: int, condition: dict[str, Any]) -> list[str]:
     field = str(condition.get("field") or "").strip()
-    operator = str(condition.get("operator") or "eq").strip().lower()
+    operator = _normalize_filter_operator(condition.get("operator") or "eq")
     values = condition.get("values") if isinstance(condition.get("values"), list) else []
-    if not field or not values:
+    if not field or (not values and operator not in {"is_null", "is_empty", "null_or_empty", "not_null", "not_empty"}):
         return []
     col_var = f"_filter_col_{job_index}_{condition_index}"
     values_var = f"_filter_values_{job_index}_{condition_index}"
     mask_var = f"_filter_mask_{job_index}_{condition_index}"
     candidates = _field_candidates(field)
     lines = [f"    {col_var} = {_column_choice_expression(df_var, candidates)}", f"    {values_var} = {values!r}", f"    if {col_var}:"]
-    if operator in {"eq", "=", "in"}:
+    if operator in {"eq", "in"}:
         lines.append(f"        {df_var} = {df_var}[{df_var}[{col_var}].isin({values_var})]")
-    elif operator in {"ne", "!=", "not_in", "not in"}:
+    elif operator in {"ne", "not_in"}:
         lines.append(f"        {df_var} = {df_var}[~{df_var}[{col_var}].isin({values_var})]")
     elif operator in {"contains", "like"}:
         lines.append(f"        {mask_var} = {df_var}[{col_var}].astype(str).str.contains(str({values_var}[0]), case=False, na=False, regex=False)")
@@ -424,6 +457,94 @@ def _condition_code(df_var: str, job_index: int, condition_index: int, condition
         lines.append(f"        for _filter_value in {values_var}[1:]:")
         lines.append(f"            {mask_var} = {mask_var} | {df_var}[{col_var}].astype(str).str.endswith(str(_filter_value), na=False)")
         lines.append(f"        {df_var} = {df_var}[{mask_var}]")
+    elif operator in {"is_null", "is_empty", "null_or_empty", "not_null", "not_empty"}:
+        lines.extend(_null_empty_condition_lines(df_var, col_var, mask_var, operator))
+    elif operator in {"or", "any"} and _has_operator_dict(values):
+        lines.extend(_compound_condition_lines(df_var, col_var, mask_var, values))
+    else:
+        lines.append("        pass")
+    return lines
+
+
+def _normalize_filter_operator(value: Any) -> str:
+    text = re.sub(r"[\s-]+", "_", str(value or "eq").strip()).lower()
+    aliases = {
+        "=": "eq",
+        "==": "eq",
+        "!=": "ne",
+        "not in": "not_in",
+        "notin": "not_in",
+        "starts": "starts_with",
+        "startwith": "starts_with",
+        "startswith": "starts_with",
+        "starts_with_any": "starts_with",
+        "prefix": "starts_with",
+        "endswith": "ends_with",
+        "suffix": "ends_with",
+        "isnull": "is_null",
+        "is_null": "is_null",
+        "null": "is_null",
+        "none": "is_null",
+        "isempty": "is_empty",
+        "is_empty": "is_empty",
+        "empty": "is_empty",
+        "blank": "is_empty",
+        "null_or_empty": "null_or_empty",
+        "is_null_or_empty": "null_or_empty",
+        "notnull": "not_null",
+        "not_null": "not_null",
+        "notempty": "not_empty",
+        "not_empty": "not_empty",
+        "any": "any",
+        "or": "or",
+    }
+    return aliases.get(text, text)
+
+
+def _null_empty_condition_lines(df_var: str, col_var: str, mask_var: str, operator: str) -> list[str]:
+    series = f"{df_var}[{col_var}]"
+    if operator == "is_null":
+        return [f"        {df_var} = {df_var}[{series}.isna()]"]
+    if operator == "is_empty":
+        return [f"        {df_var} = {df_var}[{series}.astype(str).str.strip().eq('')]"]
+    if operator == "null_or_empty":
+        return [f"        {mask_var} = {series}.isna() | {series}.astype(str).str.strip().eq('')", f"        {df_var} = {df_var}[{mask_var}]"]
+    if operator == "not_null":
+        return [f"        {df_var} = {df_var}[{series}.notna()]"]
+    if operator == "not_empty":
+        return [f"        {df_var} = {df_var}[~{series}.astype(str).str.strip().eq('')]"]
+    return ["        pass"]
+
+
+def _has_operator_dict(values: list[Any]) -> bool:
+    return any(isinstance(item, dict) and (item.get("operator") or item.get("op")) for item in values)
+
+
+def _compound_condition_lines(df_var: str, col_var: str, mask_var: str, values: list[Any]) -> list[str]:
+    series = f"{df_var}[{col_var}]"
+    lines = [f"        {mask_var} = False"]
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        op = _normalize_filter_operator(item.get("operator") or item.get("op") or "eq")
+        raw_values = _as_values(item.get("values", item.get("value", [])))
+        if op == "is_null":
+            lines.append(f"        {mask_var} = {mask_var} | {series}.isna()")
+        elif op == "is_empty":
+            lines.append(f"        {mask_var} = {mask_var} | {series}.astype(str).str.strip().eq('')")
+        elif op == "null_or_empty":
+            lines.append(f"        {mask_var} = {mask_var} | {series}.isna() | {series}.astype(str).str.strip().eq('')")
+        elif op in {"eq", "in"} and raw_values:
+            lines.append(f"        {mask_var} = {mask_var} | {series}.isin({raw_values!r})")
+        elif op == "starts_with" and raw_values:
+            lines.append(f"        {mask_var} = {mask_var} | {series}.astype(str).str.startswith(str({raw_values[0]!r}), na=False)")
+            for raw_value in raw_values[1:]:
+                lines.append(f"        {mask_var} = {mask_var} | {series}.astype(str).str.startswith(str({raw_value!r}), na=False)")
+        elif op in {"contains", "like"} and raw_values:
+            lines.append(f"        {mask_var} = {mask_var} | {series}.astype(str).str.contains(str({raw_values[0]!r}), case=False, na=False, regex=False)")
+            for raw_value in raw_values[1:]:
+                lines.append(f"        {mask_var} = {mask_var} | {series}.astype(str).str.contains(str({raw_value!r}), case=False, na=False, regex=False)")
+    lines.append(f"        {df_var} = {df_var}[{mask_var}]")
     return lines
 
 
@@ -449,12 +570,16 @@ def _filter_conditions(filters: Any) -> list[dict[str, Any]]:
         if isinstance(condition, dict):
             operator = condition.get("operator", condition.get("op", "eq"))
             values = condition.get("values", condition.get("value", []))
+        elif isinstance(condition, list) and _has_operator_dict(condition):
+            operator = "or"
+            values = condition
         else:
             operator = "eq"
             values = condition
         normalized_values = _as_values(values)
-        if normalized_values:
-            result.append({"field": field_text, "operator": str(operator or "eq"), "values": normalized_values})
+        normalized_operator = _normalize_filter_operator(operator or "eq")
+        if normalized_values or normalized_operator in {"is_null", "is_empty", "null_or_empty", "not_null", "not_empty"}:
+            result.append({"field": field_text, "operator": normalized_operator, "values": normalized_values})
     return result
 
 

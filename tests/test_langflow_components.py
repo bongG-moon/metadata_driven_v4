@@ -751,6 +751,70 @@ def test_intent_and_pandas_variables_expose_selected_function_case_context():
     assert context["selected_steps"][0]["input_text"] == "RG 32G DDR4 FBGA 96 DDP"
 
 
+def test_multiple_function_cases_expose_multiple_helpers_and_dummy_runtime():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    pandas_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_pandas_variables_builder.py")
+    repair_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17a_pandas_repair_variables_builder.py")
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "request": {"question": "RG 32G DDR4 FBGA 96 DDP 제품 BG공정 생산량 알려줘"},
+        "runtime_sources": {
+            "production_data": [
+                {"TECH": "RG", "DEN": "32G", "MODE": "DDR4", "PKG_TYPE1": "FBGA", "PKG_TYPE2": "DDP", "LEAD": "96", "DEVICE": "DEV-RG", "PRODUCTION": 10},
+                {"TECH": "XX", "DEN": "16G", "MODE": "DDR5", "PKG_TYPE1": "BGA", "PKG_TYPE2": "SDP", "LEAD": "78", "DEVICE": "DEV-XX", "PRODUCTION": 99},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    normalized = intent_normalizer.normalize_intent_plan(
+        payload,
+        {
+            "intent_plan": {
+                "analysis_kind": "multi_function_case_demo",
+                "pandas_function_cases": [
+                    {
+                        "key": "product_token_match",
+                        "function_name": "match_product_tokens",
+                        "input_text": "RG 32G DDR4 FBGA 96 DDP",
+                        "source_alias": "production_data",
+                    },
+                    {
+                        "key": "sample_passthrough_demo",
+                        "function_name": "sample_passthrough_helper",
+                        "input_text": "format demo",
+                        "source_alias": "production_data",
+                    },
+                ],
+                "retrieval_jobs": [{"dataset_key": "production_today", "source_alias": "production_data"}],
+                "pandas_execution_plan": [{"step": "sum_production", "source_alias": "production_data"}],
+            }
+        },
+    )
+    variables = pandas_variables.build_variables(normalized)
+    context = json.loads(variables["function_case_context_json"])
+    helper_names = [item["function_name"] for item in context["available_helpers"]]
+
+    assert [step["function_name"] for step in normalized["intent_plan"]["pandas_execution_plan"][:2]] == ["match_product_tokens", "sample_passthrough_helper"]
+    assert helper_names == ["match_product_tokens", "sample_passthrough_helper"]
+    assert json.loads(repair_variables.build_variables(normalized)["function_case_context_json"])["available_helpers"][1]["function_name"] == "sample_passthrough_helper"
+
+    result = pandas_executor.execute_pandas_code(
+        normalized,
+        {
+            "code": (
+                "df = match_product_tokens('RG 32G DDR4 FBGA 96 DDP', sources['production_data'])\n"
+                "df = sample_passthrough_helper('format demo', df)\n"
+                "result = df[['DEVICE', 'PRODUCTION']]"
+            )
+        },
+    )
+
+    trace = result["trace"]["inspection"]["pandas_execution"]
+    assert result["data"]["rows"] == [{"DEVICE": "DEV-RG", "PRODUCTION": 10}]
+    assert trace["used_helpers"] == ["match_product_tokens", "sample_passthrough_helper"]
+    assert "def sample_passthrough_helper" in trace["effective_code_with_helpers"]
+
+
 def test_pandas_repair_variables_and_retry_selector_use_failed_execution_context():
     pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
     repair_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17a_pandas_repair_variables_builder.py")
@@ -774,6 +838,56 @@ def test_pandas_repair_variables_and_retry_selector_use_failed_execution_context
 
     assert selected["analysis"]["status"] == "ok"
     assert selected["trace"]["inspection"]["pandas_retry_selection"]["selected"] == "retry"
+
+
+def test_pandas_filter_preamble_handles_compound_null_empty_filters_and_repair_scope():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    repair_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17a_pandas_repair_variables_builder.py")
+    payload = {
+        "intent_plan": {
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "production",
+                    "source_alias": "production",
+                    "filters": {
+                        "MODE": {"operator": "starts_with_any", "value": ["LP"]},
+                        "PKG_TYPE1": {"operator": "in", "value": ["LFBGA", "TFBGA", "UFBGA", "VFBGA", "WFBGA"]},
+                        "MCP_NO": {"operator": "or", "value": [{"operator": "isNull"}, {"operator": "isEmpty"}]},
+                    },
+                }
+            ],
+            "pandas_execution_plan": [],
+        },
+        "runtime_sources": {
+            "production": [
+                {"MODE": "LPDDR5", "PKG1": "LFBGA", "MCP_NO": "", "DEVICE": "MOBILE-1", "PRODUCTION": 10},
+                {"MODE": "LPDDR5", "PKG1": "LFBGA", "MCP_NO": "MCP001", "DEVICE": "POP-1", "PRODUCTION": 99},
+                {"MODE": "DDR4", "PKG1": "FBGA", "MCP_NO": "", "DEVICE": "OTHER-1", "PRODUCTION": 88},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    bad_llm_code = "if True:\nresult = sources['production']"
+
+    failed = pandas_executor.execute_pandas_code(payload, {"code": bad_llm_code})
+    variables = repair_variables.build_variables(failed, "1")
+    error_context = json.loads(variables["error_context_json"])
+    generated_code = failed["trace"]["inspection"]["pandas_execution"]["generated_code"]
+
+    assert failed["analysis"]["status"] == "error"
+    assert "expected an indented block" in failed["analysis"]["error"]["message"]
+    assert variables["failed_code"] == bad_llm_code
+    assert "_filtered_source_1_production" in error_context["executed_code_with_preamble"]
+    assert error_context["repair_code_scope"].startswith("failed_code")
+    assert "if _filter_col_1_1:\n    _filter_col_1_2" not in generated_code
+    assert ".str.startswith" in generated_code
+    assert ".isna()" in generated_code
+    assert ".str.strip().eq('')" in generated_code
+
+    retry = pandas_executor.execute_pandas_code(failed, {"code": "result = sources['production'][['DEVICE', 'PRODUCTION']]"})
+
+    assert retry["analysis"]["status"] == "ok"
+    assert retry["data"]["rows"] == [{"DEVICE": "MOBILE-1", "PRODUCTION": 10}]
 
 
 def test_langflow_dummy_data_covers_representative_manufacturing_cases():

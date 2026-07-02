@@ -6,6 +6,8 @@
 
 공정/현장별로 임시로 강조해야 하는 해석 규칙이 있으면 아래 위치에 자연어로 입력한다.
 
+바로 복사해서 테스트할 수 있는 값은 `specialized_prompt_input_example_ko.md`에 있다.
+
 | 목적 | 입력 노드 | 입력 포트 | 연결 대상 |
 | --- | --- | --- | --- |
 | 의도 분석 LLM에 추가 지시 전달 | `02 의도 분석 변수 생성기` | `공정 특화 프롬프트` (`specialized_prompt_text`) | `02.specialized_prompt` -> `03 의도 분석 Prompt Template.specialized_prompt` |
@@ -43,7 +45,7 @@ PKG OUT은 제품별 생산실적 중 PKG 완료 조건을 우선 확인하고, 
 
 ## 3. 현재 지원하는 특화 함수
 
-현재 executor에서 제공하는 helper는 아래 1개다.
+현재 executor에서 제공하는 helper는 아래 2개다.
 
 ```text
 function_name: match_product_tokens
@@ -57,6 +59,19 @@ signature: match_product_tokens(input_text, frame, token_columns=None, output_or
 - `DA 16G GDDR6 180`
 
 처럼 제품 속성이 여러 컬럼에 나뉘어 있고, 사용자가 한 문장 token으로 제품을 말하는 경우에 사용한다.
+
+```text
+function_name: sample_passthrough_helper
+signature: sample_passthrough_helper(input_text, frame, note=None)
+```
+
+용도:
+
+- 여러 `pandas_function_cases`가 동시에 선택될 때 `function_case_context_json.available_helpers` 형식을 확인하기 위한 더미 helper다.
+- DataFrame을 변경하지 않고 copy를 반환한다.
+- 실제 운영 분석에서는 metadata가 명시적으로 선택한 경우에만 사용한다.
+
+Domain Authoring Flow에 넣을 raw text 예시는 `../domain_authoring_flow/pandas_function_cases_raw_text_input_example.md`에 있다.
 
 ## 4. 의도 분석 LLM이 출력해야 하는 형태
 
@@ -85,6 +100,29 @@ signature: match_product_tokens(input_text, frame, token_columns=None, output_or
 ```
 
 `source_alias`가 여러 개면 각 source에 대해 같은 `input_text`를 적용하도록 단계가 여러 개 생길 수 있다.
+
+특화 함수가 여러 개 필요하면 `pandas_function_cases` 배열을 사용한다.
+
+```json
+{
+  "intent_plan": {
+    "pandas_function_cases": [
+      {
+        "key": "product_token_match",
+        "function_name": "match_product_tokens",
+        "input_text": "RG 32G DDR4 FBGA 96 DDP",
+        "source_alias": "production_data"
+      },
+      {
+        "key": "sample_passthrough_demo",
+        "function_name": "sample_passthrough_helper",
+        "input_text": "format demo",
+        "source_alias": "production_data"
+      }
+    ]
+  }
+}
+```
 
 ## 5. pandas Prompt Template에서 사용하는 값
 

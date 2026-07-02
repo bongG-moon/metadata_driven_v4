@@ -9,6 +9,18 @@ from lfx.io import DataInput, DropdownInput, Output
 from lfx.schema.message import Message
 
 DEFAULT_MAX_ATTEMPTS = 1
+SUPPORTED_FUNCTION_HELPERS = {
+    "match_product_tokens": {
+        "function_name": "match_product_tokens",
+        "signature": "match_product_tokens(input_text, frame, token_columns=None, output_order=None)",
+        "rule": "제품 token matching은 이 helper를 호출해서 먼저 제품 row를 제한하고 후속 집계/조인을 수행한다.",
+    },
+    "sample_passthrough_helper": {
+        "function_name": "sample_passthrough_helper",
+        "signature": "sample_passthrough_helper(input_text, frame, note=None)",
+        "rule": "여러 특화 함수 전달 형식 확인용 더미 helper다. DataFrame을 변경하지 않고 copy를 반환한다.",
+    },
+}
 
 
 def build_repair_payload(payload_value: Any, max_attempts: Any = DEFAULT_MAX_ATTEMPTS) -> dict[str, Any]:
@@ -51,15 +63,21 @@ def _repair_context(payload: dict[str, Any]) -> dict[str, Any]:
     preview = {alias: rows[:5] for alias, rows in runtime_sources.items() if isinstance(rows, list)}
     pandas_trace = payload.get("trace", {}).get("inspection", {}).get("pandas_execution", {}) if isinstance(payload.get("trace"), dict) else {}
     analysis = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
+    failed_code = str(pandas_trace.get("llm_generated_code") or analysis.get("llm_generated_code") or "")
+    executed_code = str(pandas_trace.get("generated_code") or analysis.get("analysis_code") or "")
     return {
         "source_schema": schema,
         "source_preview": preview,
-        "failed_code": str(pandas_trace.get("generated_code") or analysis.get("analysis_code") or ""),
+        "failed_code": failed_code or executed_code,
         "error_context": {
             "analysis_error": deepcopy(analysis.get("error", {})),
             "analysis_errors": deepcopy(analysis.get("errors", [])),
             "repairable_errors": deepcopy(analysis.get("repairable_errors", [])),
             "trace_error": deepcopy(pandas_trace.get("error", {})),
+            "executed_code_with_preamble": executed_code,
+            "pandas_filter_preamble": str(pandas_trace.get("pandas_filter_preamble") or analysis.get("pandas_filter_preamble") or ""),
+            "pandas_filter_plan": deepcopy(pandas_trace.get("pandas_filter_plan", [])),
+            "repair_code_scope": "failed_code는 LLM이 생성한 원본 pandas 코드입니다. executor가 pandas_filter_preamble을 retry 실행 때 다시 자동으로 붙입니다.",
             "pandas_repair": deepcopy(payload.get("pandas_repair", {})),
         },
     }
@@ -96,6 +114,57 @@ def _pandas_errors(payload: dict[str, Any]) -> list[str]:
         elif value:
             errors.append(str(value))
     return list(dict.fromkeys(errors))
+
+
+def _function_case_context(payload: dict[str, Any]) -> dict[str, Any]:
+    plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
+    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
+    steps = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
+    selected_steps = [deepcopy(step) for step in steps if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case"]
+    selected_cases = _selected_function_cases(plan, case, selected_steps)
+    function_names = _selected_function_names(selected_cases, selected_steps)
+    text = json.dumps({"case": case, "steps": selected_steps, "cases": selected_cases}, ensure_ascii=False).lower()
+    if "match_product_tokens" not in function_names and ("match_product_tokens" in text or "product_token" in text or "제품 token" in text or "제품 토큰" in text):
+        function_names.append("match_product_tokens")
+    return {
+        "selected_case": deepcopy(case),
+        "selected_cases": selected_cases,
+        "selected_steps": selected_steps,
+        "available_helpers": [deepcopy(SUPPORTED_FUNCTION_HELPERS[name]) for name in function_names if name in SUPPORTED_FUNCTION_HELPERS],
+    }
+
+
+def _selected_function_cases(plan: dict[str, Any], case: dict[str, Any], selected_steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cases = []
+    if case:
+        cases.append(deepcopy(case))
+    for item in plan.get("pandas_function_cases", []) if isinstance(plan.get("pandas_function_cases"), list) else []:
+        if isinstance(item, dict) and item not in cases:
+            cases.append(deepcopy(item))
+    for item in plan.get("selected_function_cases", []) if isinstance(plan.get("selected_function_cases"), list) else []:
+        if isinstance(item, dict) and item not in cases:
+            cases.append(deepcopy(item))
+    for step in selected_steps:
+        item = {
+            "key": step.get("function_case_key", ""),
+            "function_name": step.get("function_name", ""),
+            "input_text": step.get("input_text", ""),
+            "source_alias": step.get("source_alias", ""),
+        }
+        if item not in cases:
+            cases.append(item)
+    return cases
+
+
+def _selected_function_names(selected_cases: list[dict[str, Any]], selected_steps: list[dict[str, Any]]) -> list[str]:
+    names = []
+    for item in [*selected_cases, *selected_steps]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("function_name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def _payload(value: Any) -> dict[str, Any]:

@@ -35,6 +35,7 @@ def _schema() -> dict[str, Any]:
         "intent_plan": {
             "analysis_kind": "string",
             "pandas_function_case": {},
+            "pandas_function_cases": [],
             "retrieval_jobs": [
                 {
                     "dataset_key": "string",

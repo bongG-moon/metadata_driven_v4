@@ -30,8 +30,10 @@
 특화 프롬프트와 특화 함수에 어떤 값을 넣어야 하는지는 `SPECIALIZED_INPUT_GUIDE.md`를 기준으로 확인한다.
 
 - 공정 특화 프롬프트: `02 의도 분석 변수 생성기.specialized_prompt_text`에 자연어 지시를 입력한다.
+- 복사용 특화 프롬프트 예시: `specialized_prompt_input_example_ko.md`
 - 특화 함수: 사용자가 pandas 노드에 직접 입력하지 않는다. 의도 분석 LLM이 `intent_plan.pandas_function_case`와 `pandas_execution_plan[].operation=apply_pandas_function_case`를 출력하면, `15 pandas 변수 생성기.function_case_context_json`을 통해 pandas Prompt Template으로 전달된다.
-- 현재 지원 helper는 `match_product_tokens(input_text, frame, token_columns=None, output_order=None)`이다.
+- Domain Authoring Flow용 function case raw text 예시: `../domain_authoring_flow/pandas_function_cases_raw_text_input_example.md`
+- 현재 지원 helper는 `match_product_tokens(input_text, frame, token_columns=None, output_order=None)`와 형식 확인용 `sample_passthrough_helper(input_text, frame, note=None)`이다.
 
 ## 2. 이전 결과 복원
 

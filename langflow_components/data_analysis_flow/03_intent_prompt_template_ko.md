@@ -25,8 +25,10 @@
 - 필수 파라미터가 아닌 조건을 `required_params`에 넣지 않는다.
 - 제품 속성 조건(TECH, DEN/DENSITY, MODE, PKG_TYPE1/PKG1, PKG_TYPE2/PKG2, LEAD, MCP_NO, DEVICE 등)은 `required_params`에 넣지 않는다. table catalog의 필수 조회 파라미터가 아니면 pandas filter 또는 pandas function case로 남긴다.
 - pandas 분석 계획에는 `filters`를 먼저 적용한 뒤 집계, 정렬, top/bottom, join 등을 수행한다는 순서를 드러낸다.
-- `pandas_function_cases` metadata가 있는 경우, 일반 filter/groupby로 안정적으로 표현하기 어려운 제품 속성 token 매칭은 `intent_plan.pandas_function_case`에 선택한 case를 남긴다.
+- `pandas_function_cases` metadata가 있는 경우, 일반 filter/groupby로 안정적으로 표현하기 어려운 제품 속성 token 매칭은 `intent_plan.pandas_function_case` 또는 복수 선택 시 `intent_plan.pandas_function_cases`에 선택한 case를 남긴다.
+- 특화 함수가 여러 개 필요하면 `intent_plan.pandas_function_cases` 배열에 여러 case를 넣고, `pandas_execution_plan`에도 각 case별 `operation=apply_pandas_function_case` 단계를 추가한다.
 - `RG 32G DDR4 FBGA 96 DDP`, `SP 16G DDR5 2ND X4 78 FCBGA SDP`, `DA 16G GDDR6 180`처럼 여러 제품 속성 token을 한 문장으로 말한 경우는 일반 column filter로 분해하지 말고 `match_product_tokens` function case를 선택한다.
+- `sample_passthrough_helper`는 다중 특화 함수 형식 확인용 더미 helper이므로 실제 분석에서는 선택하지 않는다. 테스트나 예시에서 명시적으로 요청된 경우에만 사용한다.
 - 제품 token 매칭 case를 선택하면 `pandas_execution_plan`의 첫 단계에 `operation=apply_pandas_function_case`, `function_case_key`, `function_name`, `input_text`, `source_alias`를 포함한다.
 - 제품 token case의 `input_text`에는 사용자가 입력한 제품 속성 token 전체만 담고, 날짜/공정/수량 표현은 넣지 않는다.
 - 제품 token case에서 `DA 16G GDDR6 180`의 `DA`는 공정 D/A가 아니라 제품 속성 token일 수 있다. 이런 경우 `input_text`에서 `DA`를 제거하거나 `OPER_NAME=D/A...` 필터를 추가하지 않는다.

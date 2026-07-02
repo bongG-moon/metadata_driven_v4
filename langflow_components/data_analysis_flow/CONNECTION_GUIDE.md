@@ -15,24 +15,26 @@
 | 5 | `01C MongoDB 메인 변수 로더.main_flow_filters` | `01D 메타데이터 후보 생성기.main_flow_filters` |
 | 6 | `01D 메타데이터 후보 생성기.metadata_candidates` | `02 의도 분석 변수 생성기.metadata_candidates_in` |
 | 7 | `00 분석 요청 로더.payload_out` | `02 의도 분석 변수 생성기.payload` |
-| 8 | optional `Text Input.message` | `02 의도 분석 변수 생성기.specialized_prompt_text` |
 | 9 | `02 의도 분석 변수 생성기.question` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.question` |
 | 10 | `02 의도 분석 변수 생성기.state_summary` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.state_summary` |
 | 11 | `02 의도 분석 변수 생성기.metadata_candidates` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.metadata_candidates` |
-| 12 | `02 의도 분석 변수 생성기.specialized_prompt` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.specialized_prompt` |
+| 12 | optional `Text Input.message` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.specialized_prompt` |
 | 13 | `02 의도 분석 변수 생성기.output_schema` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.output_schema` |
 | 14 | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
 | 15 | `00 분석 요청 로더.payload_out` | `04 의도 계획 정규화기.payload` |
 | 16 | `Langflow Agent/LLM.output` | `04 의도 계획 정규화기.llm_response` |
 
-`specialized_prompt_text`는 공정/현장 특화 지시가 있을 때만 연결한다. 없으면 비워 둔다.
+`03_intent_prompt_template_ko.md.specialized_prompt`는 공정/현장 특화 지시가 있을 때만 별도 `Text Input.message`에서 직접 연결한다. 없으면 비워 둔다.
 
 특화 프롬프트와 특화 함수에 어떤 값을 넣어야 하는지는 `SPECIALIZED_INPUT_GUIDE.md`를 기준으로 확인한다.
 
-- 공정 특화 프롬프트: `02 의도 분석 변수 생성기.specialized_prompt_text`에 자연어 지시를 입력한다.
+- 공정 특화 프롬프트: `Text Input.message`를 `03 의도 분석 Prompt Template.specialized_prompt`에 직접 연결한다.
 - 복사용 특화 프롬프트 예시: `specialized_prompt_input_example_ko.md`
-- 특화 함수: 사용자가 pandas 노드에 직접 입력하지 않는다. 의도 분석 LLM이 `intent_plan.pandas_function_case`와 `pandas_execution_plan[].operation=apply_pandas_function_case`를 출력하면, `15 pandas 변수 생성기.function_case_context_json`을 통해 pandas Prompt Template으로 전달된다.
-- Domain Authoring Flow용 function case raw text 예시: `../domain_authoring_flow/pandas_function_cases_raw_text_input_example.md`
+- Function Case 선택 정보: `15 pandas 변수 생성기.function_case_selection_json`을 `16 pandas Prompt Template.function_case_selection_json`에 연결한다.
+- 특화 함수 코드: 사용자가 pandas 실행 노드에 직접 입력하지 않는다. 실제 함수 정의 코드는 `function_case_helper_code_input_example.py` 내용을 `16 pandas Prompt Template.function_case_helper_code`에 붙여넣어 전달한다.
+- `16 pandas Prompt Template.function_case_helper_code` 수동 테스트용 복사 파일: `function_case_helper_code_input_example.py`
+- Domain Authoring Flow용 function case 등록 지시: repo root의 `domain_knowledge.txt` 맨 아래 `pandas function case 등록 규칙` 블록
+- `domain_knowledge.txt`의 등록 지시는 MongoDB에 저장할 helper 선택 metadata만 다룬다. 실제 helper 코드는 `function_case_helper_code_input_example.py`에 있고, 16번 prompt가 생성 pandas 코드에 포함해야 한다.
 - 현재 지원 helper는 `match_product_tokens(input_text, frame, token_columns=None, output_order=None)`와 형식 확인용 `sample_passthrough_helper(input_text, frame, note=None)`이다.
 
 ## 2. 이전 결과 복원
@@ -85,13 +87,16 @@ Live branch를 사용할 때 추가 연결:
 | 24 | `15 pandas 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.intent_plan_json` |
 | 25 | `15 pandas 변수 생성기.source_schema_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.source_schema_json` |
 | 26 | `15 pandas 변수 생성기.source_preview_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.source_preview_json` |
-| 27 | `15 pandas 변수 생성기.function_case_context_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_context_json` |
-| 28 | `15 pandas 변수 생성기.output_contract_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output_contract_json` |
-| 29 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 30 | `14 조회 페이로드 어댑터.payload_out` | `17 pandas 코드 실행기.payload` |
-| 31 | `Langflow Agent/LLM.output` | `17 pandas 코드 실행기.llm_response` |
+| 27 | `15 pandas 변수 생성기.function_case_selection_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_selection_json` |
+| 28 | `Text Input.message`에 `function_case_helper_code_input_example.py` 내용 붙여넣기 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_helper_code` |
+| 29 | `15 pandas 변수 생성기.output_contract_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output_contract_json` |
+| 30 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 31 | `14 조회 페이로드 어댑터.payload_out` | `17 pandas 코드 실행기.payload` |
+| 32 | `Langflow Agent/LLM.output` | `17 pandas 코드 실행기.llm_response` |
 
 재생성 경로를 쓰지 않으면 `17 pandas 코드 실행기.payload_out`을 바로 `23 MongoDB 결과 저장기.payload` 또는 `18 답변 변수 생성기.payload`로 연결한다.
+
+`15 pandas 변수 생성기.function_case_selection_json` 출력은 실제 함수 코드가 아니라 의도 분석 결과에 들어 있는 function case 선택 정보다. 이 출력은 16번 Prompt Template의 `function_case_selection_json` 입력에 연결한다. 특화 함수 코드는 별도로 16번 Prompt Template의 `function_case_helper_code` 입력값에 `function_case_helper_code_input_example.py` 내용으로 넣는다.
 
 ## 5. pandas 코드 재생성 선택 경로
 
@@ -99,21 +104,22 @@ pandas 실행 실패 시 오류 정보와 실패한 코드를 LLM에 넘겨 한 
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 32 | `17 pandas 코드 실행기.payload_out` | `17A pandas 재생성 변수 생성기.payload` |
-| 33 | `17A pandas 재생성 변수 생성기.repair_required` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.repair_required` |
-| 34 | `17A pandas 재생성 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.intent_plan_json` |
-| 35 | `17A pandas 재생성 변수 생성기.source_schema_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_schema_json` |
-| 36 | `17A pandas 재생성 변수 생성기.source_preview_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_preview_json` |
-| 37 | `17A pandas 재생성 변수 생성기.failed_code` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.failed_code` |
-| 38 | `17A pandas 재생성 변수 생성기.error_context_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.error_context_json` |
-| 39 | `17A pandas 재생성 변수 생성기.function_case_context_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_context_json` |
-| 40 | `17A pandas 재생성 변수 생성기.output_schema` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output_schema` |
-| 41 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 42 | `17 pandas 코드 실행기.payload_out` | `17R pandas 코드 재실행기.payload` |
-| 43 | `Langflow Agent/LLM.output` | `17R pandas 코드 재실행기.llm_response` |
-| 44 | `17 pandas 코드 실행기.payload_out` | `17C pandas 재생성 결과 선택기.original_payload` |
-| 45 | `17R pandas 코드 재실행기.payload_out` | `17C pandas 재생성 결과 선택기.retry_payload` |
-| 46 | `17C pandas 재생성 결과 선택기.payload_out` | `23 MongoDB 결과 저장기.payload` |
+| 33 | `17 pandas 코드 실행기.payload_out` | `17A pandas 재생성 변수 생성기.payload` |
+| 34 | `17A pandas 재생성 변수 생성기.repair_required` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.repair_required` |
+| 35 | `17A pandas 재생성 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.intent_plan_json` |
+| 36 | `17A pandas 재생성 변수 생성기.source_schema_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_schema_json` |
+| 37 | `17A pandas 재생성 변수 생성기.source_preview_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_preview_json` |
+| 38 | `17A pandas 재생성 변수 생성기.failed_code` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.failed_code` |
+| 39 | `17A pandas 재생성 변수 생성기.error_context_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.error_context_json` |
+| 40 | `17A pandas 재생성 변수 생성기.function_case_selection_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_selection_json` |
+| 41 | `Text Input.message`에 `function_case_helper_code_input_example.py` 내용 붙여넣기 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_helper_code` |
+| 42 | `17A pandas 재생성 변수 생성기.output_schema` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output_schema` |
+| 43 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 44 | `17 pandas 코드 실행기.payload_out` | `17R pandas 코드 재실행기.payload` |
+| 45 | `Langflow Agent/LLM.output` | `17R pandas 코드 재실행기.llm_response` |
+| 46 | `17 pandas 코드 실행기.payload_out` | `17C pandas 재생성 결과 선택기.original_payload` |
+| 47 | `17R pandas 코드 재실행기.payload_out` | `17C pandas 재생성 결과 선택기.retry_payload` |
+| 48 | `17C pandas 재생성 결과 선택기.payload_out` | `23 MongoDB 결과 저장기.payload` |
 
 재생성 LLM이 `{"code": ""}`를 반환하면 재실행 결과는 실패로 남고, `17C`는 원래 payload를 선택한다.
 
@@ -123,16 +129,18 @@ pandas 실행 실패 시 오류 정보와 실패한 코드를 LLM에 넘겨 한 
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 47 | `23 MongoDB 결과 저장기.payload_out` | `18 답변 변수 생성기.payload` |
-| 48 | `18 답변 변수 생성기.question` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.question` |
-| 49 | `18 답변 변수 생성기.result_summary_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.result_summary_json` |
-| 50 | `18 답변 변수 생성기.applied_scope_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.applied_scope_json` |
-| 51 | `18 답변 변수 생성기.warnings_errors_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.warnings_errors_json` |
-| 52 | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 53 | `23 MongoDB 결과 저장기.payload_out` | `20 답변 응답 생성기.payload` |
-| 54 | `Langflow Agent/LLM.output` | `20 답변 응답 생성기.answer_text` |
-| 55 | `20 답변 응답 생성기.payload_out` | `21 답변 메시지 어댑터.payload` |
-| 56 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
+| 49 | `23 MongoDB 결과 저장기.payload_out` | `18 답변 변수 생성기.payload` |
+| 50 | `18 답변 변수 생성기.question` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.question` |
+| 51 | `18 답변 변수 생성기.result_summary_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.result_summary_json` |
+| 52 | `18 답변 변수 생성기.applied_scope_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.applied_scope_json` |
+| 53 | `18 답변 변수 생성기.warnings_errors_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.warnings_errors_json` |
+| 54 | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 55 | `23 MongoDB 결과 저장기.payload_out` | `20 답변 응답 생성기.payload` |
+| 56 | `Langflow Agent/LLM.output` | `20 답변 응답 생성기.answer_text` |
+| 57 | `20 답변 응답 생성기.payload_out` | `21 답변 메시지 어댑터.payload` |
+| 58 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
+
+`21 답변 메시지 어댑터.download_base_url`에는 다운로드 링크를 만들 때 사용할 Base URL만 입력한다. 기본값은 `http://localhost:8765`이다.
 
 API 응답이 필요하면 다음을 추가한다.
 
@@ -141,22 +149,37 @@ API 응답이 필요하면 다음을 추가한다.
 | `20 답변 응답 생성기.payload_out` | `22 API 응답 생성기.payload` |
 | `22 API 응답 생성기.api_response` | downstream API/Data output |
 
-## 7. 수동 입력과 환경값
+## 7. Langflow Chat 데이터 다운로드 링크
+
+`23 MongoDB 결과 저장기`를 사용하면 `payload.data_refs`에 분석 결과와 사용 원본 source별 MongoDB 참조가 남는다. `21 답변 메시지 어댑터`는 이 참조를 읽어 Langflow Chat Markdown에 다운로드 화면 링크를 추가한다.
+
+- 기본 링크 base URL은 `http://localhost:8765`이다.
+- 운영/테스트 다운로드 화면 주소는 `21 답변 메시지 어댑터.download_base_url` 입력값으로 설정한다. 이 값은 링크 생성용 주소일 뿐, 데이터 저장/만료 정책을 바꾸지 않는다.
+- `23 MongoDB 결과 저장소.ttl_hours`에는 result store 데이터 보관 시간을 시간 단위로 입력한다. 이 값은 MongoDB에 저장되는 `expires_at`을 결정하므로, 데이터를 쓰는 23번 노드에서 설정한다. 기본값은 `24`이고, 참고 HTML 리포트 서버와 동일하게 최대 `168`시간으로 보정된다.
+- `23 MongoDB 결과 저장소`는 저장 문서에 `expires_at`을 남기고 `expires_at` 기준 MongoDB TTL 인덱스를 생성한다. MongoDB TTL monitor가 실제 만료 문서를 자동 삭제한다.
+- 로컬 다운로드 서버는 `python tools/data_ref_download_server.py`로 실행한다.
+- 링크는 CSV 파일을 직접 노출하지 않고 `download_ref` 토큰만 전달한다.
+- 데이터는 다운로드 서버에 저장되지 않는다. 실제 저장은 `23 MongoDB 결과 저장소`가 MongoDB result store에 수행하고, 로컬 다운로드 서버는 자신의 `.env`의 `MONGODB_URI`, `MONGODB_DATABASE`, `MONGODB_RESULT_COLLECTION`로 MongoDB를 읽어 CSV를 만들어 준다.
+- TTL monitor가 아직 삭제하지 않은 문서라도 `expires_at`이 지난 경우 로컬 다운로드 서버는 해당 `data_ref`를 다운로드 대상으로 제공하지 않는다.
+- 결과 CSV와 원본 CSV를 모두 제공하려면 `17/17C -> 23 -> 18/20 -> 21` 순서로 연결해야 한다.
+
+## 8. 수동 입력과 환경값
 
 - `00 분석 요청 로더`는 `reference_date`, `timezone`, `session_id` 입력 포트를 만들지 않는다. 기준일은 실행 시점 한국 기준 `YYYYMMDD`로 `request.reference_date`에 자동 저장한다.
-- `02 의도 분석 변수 생성기`는 `reference_date`, `timezone`을 별도 출력하지 않는다. Prompt에는 `state_summary.request_context.reference_date`만 전달한다.
+- `02 의도 분석 변수 생성기`는 `reference_date`, `timezone`, `specialized_prompt`를 별도 출력하지 않는다. 기준일은 `state_summary.request_context.reference_date`로 전달하고, 특화 프롬프트는 별도 Text Input에서 03 Prompt Template으로 직접 연결한다.
 - `05 MongoDB 이전 결과 로더`는 `data_ref` 입력 포트를 만들지 않는다. `payload.data.data_ref`, `payload.state.current_data.data_ref`, `payload.state.data_ref` 순서로 자동 탐색한다.
 - `07 조회 작업 라우터.retrieval_mode` 기본값은 `dummy`다. 실제 DB/API 조회만 `live`로 바꾼다.
+- 더미 데이터는 실행일 기준 한국 날짜의 오늘/어제/그제 rows와 기존 고정 검증일 rows를 함께 제공한다. 따라서 `00 분석 요청 로더`가 자동 생성한 오늘 날짜도 더미 조회에서 0건으로 떨어지지 않아야 한다.
 - `09 Oracle 조회기.oracle_config`가 비어 있으면 `.env`의 `ORACLE_CONFIG_JSON`을 사용한다. 값은 `{"PNT_RPT": {"user": "...", "password": "...", "dsn": "(DESCRIPTION=...)"}}` 형태 또는 TNS block 형태를 지원한다.
 - MongoDB 기본값은 `.env`의 `MONGODB_DATABASE=datagov`, `MONGODB_DOMAIN_COLLECTION=agent_v4_domain_items`, `MONGODB_TABLE_CATALOG_COLLECTION=agent_v4_table_catalog_items`, `MONGODB_MAIN_FLOW_FILTER_COLLECTION=agent_v4_main_flow_filters`, `MONGODB_RESULT_COLLECTION=agent_v4_result_store`를 사용한다.
 - `01A~01C status_filter` 기본값은 `active`다. 전체 문서를 읽어야 할 때만 `all`로 바꾼다.
 
-## 8. 구현 규칙
+## 9. 구현 규칙
 
 - Prompt와 LLM 호출은 Langflow 기본 `Prompt Template`, `Agent/LLM` 노드에 둔다.
 - custom component는 프롬프트 본문을 내장하지 않고 변수 생성, 정규화, 조회, 실행, 저장만 담당한다.
 - `required_params`만 조회 단계에 적용한다. 공정/제품/상태/장비/LOT 같은 분석 조건은 `filters`로 보존했다가 pandas 전처리에서 적용한다.
-- 제품 token 매칭이 필요한 복잡한 케이스는 `pandas_function_case.function_name=match_product_tokens`로 표현하고, pandas code는 `match_product_tokens(...)` helper를 사용한다. 세부 입력 예시는 `SPECIALIZED_INPUT_GUIDE.md`를 따른다.
+- 제품 token 매칭이 필요한 복잡한 케이스는 `pandas_function_case.function_name=match_product_tokens`로 표현하고, pandas code는 `match_product_tokens(...)` helper를 사용한다. 세부 입력 예시는 `SPECIALIZED_INPUT_GUIDE.md`와 `function_case_helper_code_input_example.py`를 따른다.
 - pandas code는 `result` 또는 `result_df`를 반드시 설정해야 한다.
 - pandas code는 import/open/eval/exec/file/network 접근을 사용하면 안 된다.
 - `runtime_sources`는 최종 API response에서 제거한다.

@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Metadata-driven manufacturing agent v4 reference runtime"
 requires-python = ">=3.10"
 dependencies = [
+  "pandas>=2.0",
   "pymongo>=4.0",
+  "requests>=2.31",
+  "streamlit>=1.37",
 ]
 
 [tool.pytest.ini_options]

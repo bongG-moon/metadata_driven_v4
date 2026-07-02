@@ -15,6 +15,7 @@ def build_api_response(payload_value: Any) -> dict[str, Any]:
         "message": payload.get("answer_message", ""),
         "request": payload.get("request", {}),
         "data": payload.get("data", {}),
+        "data_refs": payload.get("data_refs", []),
         "state": payload.get("state", {}),
         "trace": payload.get("trace", {}),
     }
@@ -25,6 +26,7 @@ def _payload(value: Any) -> dict[str, Any]:
     payload = deepcopy(data) if isinstance(data, dict) else {}
     payload.pop("runtime_sources", None)
     payload.pop("_runtime_rows_by_alias", None)
+    payload.pop("_runtime_result_rows", None)
     return payload
 
 

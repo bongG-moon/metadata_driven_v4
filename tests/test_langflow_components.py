@@ -11,7 +11,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENT_FILES = sorted((ROOT / "langflow_components").glob("*/*.py"))
+COMPONENT_FILES = sorted(
+    path
+    for path in (ROOT / "langflow_components").glob("*/*.py")
+    if not path.name.endswith("_input_example.py")
+)
 
 
 def install_lfx_test_stubs() -> None:
@@ -55,6 +59,25 @@ def install_lfx_test_stubs() -> None:
 
 
 install_lfx_test_stubs()
+
+
+def function_case_source(*function_names: str) -> str:
+    source = (
+        ROOT
+        / "langflow_components"
+        / "data_analysis_flow"
+        / "function_case_helper_code_input_example.py"
+    ).read_text(encoding="utf-8")
+    if not function_names:
+        return source
+    tree = ast.parse(source)
+    source_lines = source.splitlines()
+    blocks = []
+    requested = set(function_names)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in requested:
+            blocks.append("\n".join(source_lines[node.lineno - 1 : node.end_lineno]))
+    return "\n\n".join(blocks)
 
 
 def install_fake_pymongo(monkeypatch):
@@ -314,14 +337,17 @@ def test_analysis_request_loader_defaults_reference_date_to_korea_today():
     assert "session_id" not in input_names
 
 
-def test_intent_variables_builder_hides_date_context_ports():
+def test_intent_variables_builder_hides_date_context_and_direct_specialized_prompt_ports():
     intent_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "02_intent_variables_builder.py")
 
+    input_names = {item.kwargs.get("name") for item in intent_variables.IntentVariablesBuilder.inputs}
     output_names = {item.kwargs.get("name") for item in intent_variables.IntentVariablesBuilder.outputs}
 
-    assert output_names == {"question", "state_summary", "metadata_candidates", "specialized_prompt", "output_schema"}
+    assert output_names == {"question", "state_summary", "metadata_candidates", "output_schema"}
     assert "reference_date" not in output_names
     assert "timezone" not in output_names
+    assert "specialized_prompt" not in output_names
+    assert "specialized_prompt_text" not in input_names
 
 
 def test_langflow_dummy_data_covers_data_catalog_shapes():
@@ -430,6 +456,66 @@ def test_langflow_dummy_data_applies_required_params_and_preserves_pandas_filter
     assert production["pandas_filters"] == {"PKG_TYPE1": {"operator": "eq", "value": "LFBGA"}}
     assert production["source_execution"]["filters_applied_in_retriever"] is False
     assert {row["LOT_ID"] for row in hold["rows"]} == {"T1234567GEN1"}
+
+
+def test_langflow_dummy_data_covers_auto_korea_today_reference_date():
+    request_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "00_analysis_request_loader.py")
+    validator = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "06_retrieval_job_validator.py")
+    router = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "07_retrieval_job_router.py")
+    dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
+
+    request_payload = request_loader.build_request("오늘 생산량 알려줘")
+    reference_date = request_payload["request"]["reference_date"]
+    payload = {
+        "intent_plan": {
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "production_today",
+                    "source_alias": "production_data",
+                    "source_type": "oracle",
+                    "required_params": {"DATE": reference_date},
+                }
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    validated = validator.validate_retrieval_payload(payload)
+    routed = router.route_retrieval_jobs(validated, "dummy", "dummy")
+    retrieved = dummy.retrieve_dummy_data(routed)
+
+    assert routed["retrieval_job_bundle"]["live_source_retrieval"] is False
+    assert retrieved["status"] == "ok"
+    assert retrieved["source_results"][0]["row_count"] > 0
+    assert {row["WORK_DATE"] for row in retrieved["source_results"][0]["rows"]} == {reference_date}
+
+
+def test_representative_questions_have_answerable_dummy_data_coverage():
+    validator = load_module(ROOT / "tools" / "validate_representative_questions.py")
+    modules = validator.load_flow_modules()
+    results = {
+        int(case["id"]): validator.run_case(case, modules, "20260701")
+        for case in validator.representative_cases()
+    }
+
+    da_steps = {row["OPER_NAME"] for row in results[2]["preview_rows"]}
+    wb_steps = {row["OPER_NAME"] for row in results[5]["preview_rows"]}
+    hbm_wb_devices = {row["DEVICE"] for row in results[4]["preview_rows"]}
+    hbm_fcb_devices = {row["DEVICE"] for row in results[6]["preview_rows"]}
+
+    assert results[2]["row_count"] == 6
+    assert da_steps == {"D/A1", "D/A2", "D/A3", "D/A4", "D/A5", "D/A6"}
+    assert results[5]["row_count"] == 6
+    assert wb_steps == {"W/B1", "W/B2", "W/B3", "W/B4", "W/B5", "W/B6"}
+    assert results[4]["row_count"] == 1
+    assert hbm_wb_devices == {"DEV-HBM"}
+    assert results[6]["row_count"] == 1
+    assert hbm_fcb_devices == {"DEV-HBM"}
+    assert results[1]["preview_rows"][0]["MCP_NO"].startswith("L-267")
+    assert results[8]["preview_rows"][0]["DEVICE"] == "DEV-RG-DDR4"
+    assert results[9]["preview_rows"][0]["DEVICE"] == "DEV-SP-DDR5"
+    assert results[12]["preview_rows"][0]["MCP_NO"] == "L-218K8H"
+    assert results[13]["preview_rows"][0]["DEVICE"] == "DEV-DA-GDDR6"
 
 
 def test_data_analysis_langflow_dummy_path_reaches_api_response():
@@ -561,10 +647,97 @@ def test_intent_normalizer_parses_langflow_message_text_with_nested_json():
     assert not any(warning.get("type") == "missing_retrieval_jobs" for warning in normalized["trace"]["warnings"])
 
 
+def test_intent_normalizer_accepts_llm_json_with_literal_sql_newlines():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    payload = {"request": {"question": "어제 DA공정 차수별 생산량 알려줘"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    llm_response = types.SimpleNamespace(
+        text="""{
+  "intent_plan": {
+    "analysis_kind": "data_retrieval_and_analysis",
+    "retrieval_jobs": [
+      {
+        "dataset_key": "production",
+        "source_alias": "production_data",
+        "source_type": "oracle",
+        "source_config": {
+          "source_type": "oracle",
+          "db_key": "PNT_RPT",
+          "query_template": "SELECT *
+FROM PROD_TABLE
+WHERE WORK_DATE = {DATE}"
+        },
+        "required_params": {"DATE": "20260630"},
+        "filters": {"OPER_NAME": {"operator": "in", "value": ["D/A1", "D/A2"]}}
+      }
+    ],
+    "pandas_execution_plan": [{"operation": "group_by", "source_alias": "production_data"}],
+    "output_contract": {}
+  }
+}"""
+    )
+
+    normalized = intent_normalizer.normalize_intent_plan(payload, llm_response)
+
+    assert normalized["intent_plan"]["analysis_kind"] == "data_retrieval_and_analysis"
+    assert normalized["intent_plan"]["retrieval_jobs"][0]["source_config"]["query_template"].startswith("SELECT *")
+    assert normalized["trace"]["inspection"]["intent"]["retrieval_job_count"] == 1
+
+
+def test_intent_normalizer_recovers_intent_plan_when_metadata_refs_are_malformed():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    payload = {"request": {"question": "어제 DA공정 차수별 생산량 알려줘"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    llm_response = types.SimpleNamespace(
+        text="""{
+  "intent_plan": {
+    "analysis_kind": "data_retrieval_and_analysis",
+    "retrieval_jobs": [
+      {
+        "dataset_key": "production",
+        "source_alias": "production_data",
+        "source_type": "oracle",
+        "required_params": {"DATE": "20260630"},
+        "filters": {"OPER_NAME": {"operator": "in", "value": ["D/A1", "D/A2"]}}
+      }
+    ],
+    "pandas_execution_plan": [{"operation": "group_by", "source_alias": "production_data"}],
+    "output_contract": {}
+  },
+  "metadata_refs": [
+    {"section": "process_groups", "key": "DA"}],
+    {"section": "analysis_recipes", "key": "group_by_oper_name_for_process_sequence"}
+  ],
+  "trace": {"decision_reason": ["metadata_refs 문법이 깨져도 intent_plan은 복구한다."]}
+}"""
+    )
+
+    normalized = intent_normalizer.normalize_intent_plan(payload, llm_response)
+
+    assert normalized["intent_plan"]["analysis_kind"] == "data_retrieval_and_analysis"
+    assert normalized["intent_plan"]["retrieval_jobs"][0]["dataset_key"] == "production"
+    assert normalized["trace"]["inspection"]["intent"]["retrieval_job_count"] == 1
+    assert normalized["metadata_refs"] == []
+
+
 def test_pandas_executor_parses_langflow_message_text_json():
     pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
     payload = {"runtime_sources": {"production_data": [{"MODE": "LPDDR5", "PRODUCTION": 1000}]}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
     llm_response = types.SimpleNamespace(text='```json\n{"code": "df = sources[\'production_data\']\\nresult = df"}\n```')
+
+    result = pandas_executor.execute_pandas_code(payload, llm_response)
+
+    assert result["analysis"]["status"] == "ok"
+    assert result["data"]["rows"] == [{"MODE": "LPDDR5", "PRODUCTION": 1000}]
+
+
+def test_pandas_executor_accepts_llm_json_with_literal_code_newlines():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {"runtime_sources": {"production_data": [{"MODE": "LPDDR5", "PRODUCTION": 1000}]}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    llm_response = types.SimpleNamespace(
+        text="""{
+  "code": "df = sources['production_data']
+result = df"
+}"""
+    )
 
     result = pandas_executor.execute_pandas_code(payload, llm_response)
 
@@ -656,7 +829,7 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
     }
     helper_result = pandas_executor.execute_pandas_code(
         helper_payload,
-        {"code": "df = match_product_tokens('DA 16G GDDR6 180', sources['wip_data'])\nresult = df[['TECH', 'DEVICE', 'WIP']]"},
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('DA 16G GDDR6 180', sources['wip_data'])\nresult = df[['TECH', 'DEVICE', 'WIP']]"},
     )
 
     assert helper_result["analysis"]["status"] == "ok"
@@ -676,6 +849,63 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
     assert "def match_product_tokens" in helper_message
 
 
+def test_match_product_tokens_handles_org_x_lead_mcp_and_multiple_products():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "product_data": [
+                {"TECH": "RG", "DENSITY": "8G", "MODE": "DDR4", "ORG": "16", "LEAD": "96", "PKG1": "FCBGA", "PKG2": "SDP", "MCP_NO": "L-218K8H", "DEVICE": "RG-X16", "WIP": 10},
+                {"TECH": "CP", "DENSITY": "16G", "MODE": "DDR", "ORG": "8", "LEAD": "78", "PKG1": "FCBGA", "PKG2": "SDP", "MCP_NO": "L-216A1", "DEVICE": "CP-X8", "WIP": 20},
+                {"TECH": "CP", "DENSITY": "16G", "MODE": "DDR", "ORG": "16", "LEAD": "78", "PKG1": "VFBGA", "PKG2": "SDP", "MCP_NO": "A-663Z9", "DEVICE": "CP-F78-V", "WIP": 30},
+                {"TECH": "RG", "DENSITY": "8G", "MODE": "DDR4", "ORG": "16", "LEAD": "96", "PKG1": "VFBGA", "PKG2": "SDP", "MCP_NO": "A-777Z9", "DEVICE": "RG-F96-V", "WIP": 35},
+                {"TECH": "RG", "DENSITY": "8G", "MODE": "DDR4", "ORG": "8", "LEAD": "96", "PKG1": "FCBGA", "PKG2": "SDP", "MCP_NO": "L-999", "DEVICE": "RG-WRONG-ORG", "WIP": 40},
+                {"TECH": "CP", "DENSITY": "16G", "MODE": "DDR", "ORG": "8", "LEAD": "96", "PKG1": "FCBGA", "PKG2": "SDP", "MCP_NO": "L-000", "DEVICE": "CP-WRONG-LEAD", "WIP": 50},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    multi = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\n"
+                "df = match_product_tokens('RG 8G DDR4 x16 96 FCBGA SDP, CP 16G DDR x8 78 FCBGA SDP', sources['product_data'])\n"
+                "result = df[['DEVICE', 'ORG', 'LEAD']]"
+            )
+        },
+    )
+    fc78 = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('FC78', sources['product_data'])\nresult = df[['DEVICE', 'PKG1', 'LEAD']]"},
+    )
+    f78 = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('F78', sources['product_data'])\nresult = df[['DEVICE', 'PKG1', 'LEAD']]"},
+    )
+    fc96 = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('FC96', sources['product_data'])\nresult = df[['DEVICE', 'PKG1', 'LEAD']]"},
+    )
+    f96 = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('F96', sources['product_data'])\nresult = df[['DEVICE', 'PKG1', 'LEAD']]"},
+    )
+    mcp = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('L-218, L-216, A-663 제품 PKG 투입수량 알려줘', sources['product_data'])\nresult = df[['DEVICE', 'MCP_NO']]"},
+    )
+
+    assert multi["analysis"]["status"] == "ok"
+    assert [row["DEVICE"] for row in multi["data"]["rows"]] == ["RG-X16", "CP-X8"]
+    assert [row["DEVICE"] for row in fc78["data"]["rows"]] == ["CP-X8"]
+    assert [row["DEVICE"] for row in f78["data"]["rows"]] == ["CP-X8", "CP-F78-V"]
+    assert [row["DEVICE"] for row in fc96["data"]["rows"]] == ["RG-X16", "RG-WRONG-ORG", "CP-WRONG-LEAD"]
+    assert [row["DEVICE"] for row in f96["data"]["rows"]] == ["RG-X16", "RG-F96-V", "RG-WRONG-ORG", "CP-WRONG-LEAD"]
+    assert [row["MCP_NO"] for row in mcp["data"]["rows"]] == ["L-218K8H", "L-216A1", "A-663Z9"]
+
+
 def test_answer_message_adapter_skips_duplicate_result_table_when_answer_has_table():
     message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
     payload = {
@@ -693,6 +923,123 @@ def test_answer_message_adapter_skips_duplicate_result_table_when_answer_has_tab
 
     assert message.count("| OPER_NAME | wip_sum |") == 1
     assert "wip_sum_by_oper" in message
+
+
+def test_answer_message_adapter_adds_data_ref_download_links():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "완료했습니다.",
+        "data": {
+            "columns": ["DEVICE", "QTY"],
+            "rows": [{"DEVICE": "A", "QTY": 1}],
+            "row_count": 1,
+        },
+        "data_refs": [
+            {
+                "store": "mongodb",
+                "ref_id": "result:s1:abc",
+                "database": "datagov",
+                "collection_name": "agent_v4_result_store",
+                "path": "payload.result_rows",
+                "role": "analysis_result",
+                "label": "분석 결과 데이터",
+            },
+            {
+                "store": "mongodb",
+                "ref_id": "result:s1:abc",
+                "database": "datagov",
+                "collection_name": "agent_v4_result_store",
+                "path": "payload.runtime_sources.production_data",
+                "role": "source_rows",
+                "source_alias": "production_data",
+                "label": "사용 원본 데이터: production_data",
+            },
+        ],
+    }
+
+    message = message_adapter.build_message(payload, "http://localhost:8501")
+    input_names = {item.kwargs.get("name") for item in message_adapter.AnswerMessageAdapter.inputs}
+
+    assert "### 데이터 다운로드" in message
+    assert "분석 결과 데이터 CSV 다운로드" in message
+    assert "사용 원본 데이터: production_data CSV 다운로드" in message
+    assert "http://localhost:8501/?download_ref=" in message
+    assert "download_base_url" in input_names
+
+
+def test_answer_message_adapter_default_download_link_uses_standalone_server():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "완료했습니다.",
+        "data_refs": [
+            {
+                "store": "mongodb",
+                "ref_id": "result:s1:abc",
+                "collection_name": "agent_v4_result_store",
+                "path": "payload.result_rows",
+                "role": "analysis_result",
+            }
+        ],
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert "http://localhost:8765/?download_ref=" in message
+
+
+def test_pandas_executor_outputs_json_ready_numeric_rows():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {"runtime_sources": {}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+
+    result = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                "result = pd.DataFrame({"
+                "'DEVICE': ['DEV-A'], "
+                "'QTY': pd.Series([7], dtype='int64'), "
+                "'RATIO': pd.Series([1.5], dtype='float64'), "
+                "'EMPTY': [float('nan')]"
+                "})"
+            )
+        },
+    )
+
+    json.dumps(result["data"], ensure_ascii=False)
+    assert result["data"]["rows"] == [{"DEVICE": "DEV-A", "EMPTY": None, "QTY": 7, "RATIO": 1.5}]
+
+
+def test_answer_variables_accept_numpy_scalars_after_result_store(monkeypatch):
+    import numpy as np
+
+    mongo_store = install_fake_pymongo(monkeypatch)
+    set_v4_mongo_env(monkeypatch)
+    result_store = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "23_mongodb_result_store.py")
+    answer_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "18_answer_variables_builder.py")
+    payload = {
+        "request": {"session_id": "s1", "question": "수량 알려줘"},
+        "runtime_sources": {"production": [{"DEVICE": "DEV-A", "QTY": np.int64(7)}]},
+        "_runtime_result_rows": [{"DEVICE": "DEV-A", "QTY": np.int64(7), "RATIO": np.float64(1.5), "EMPTY": np.nan}],
+        "source_results": [{"source_alias": "production", "row_count": np.int64(1)}],
+        "analysis": {"status": "ok", "row_count": np.int64(1)},
+        "data": {
+            "columns": ["DEVICE", "QTY", "RATIO", "EMPTY"],
+            "rows": [{"DEVICE": "DEV-A", "QTY": np.int64(7), "RATIO": np.float64(1.5), "EMPTY": np.nan}],
+            "row_count": np.int64(1),
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {"pandas_execution": {"execution_result": {"row_count": np.int64(1)}}}},
+    }
+
+    stored = result_store.store_result(payload)
+    variables = answer_variables.build_variables(stored)
+    result_summary = json.loads(variables["result_summary_json"])
+    applied_scope = json.loads(variables["applied_scope_json"])
+    ref_id = stored["data"]["data_ref"]["ref_id"]
+
+    assert variables["question"] == "수량 알려줘"
+    assert result_summary["rows"][0] == {"DEVICE": "DEV-A", "EMPTY": None, "QTY": 7, "RATIO": 1.5}
+    assert applied_scope["pandas_execution"]["execution_result"]["row_count"] == 1
+    assert mongo_store["datagov"]["agent_v4_result_store"][ref_id]["payload"]["result_rows"][0]["QTY"] == 7
 
 
 def test_pandas_executor_uses_shared_namespace_for_comprehensions():
@@ -745,7 +1092,7 @@ def test_intent_and_pandas_variables_expose_selected_function_case_context():
 
     assert normalized["intent_plan"]["pandas_execution_plan"][0]["operation"] == "apply_pandas_function_case"
     variables = pandas_variables.build_variables(normalized)
-    context = json.loads(variables["function_case_context_json"])
+    context = json.loads(variables["function_case_selection_json"])
 
     assert context["available_helpers"][0]["function_name"] == "match_product_tokens"
     assert context["selected_steps"][0]["input_text"] == "RG 32G DDR4 FBGA 96 DDP"
@@ -791,17 +1138,19 @@ def test_multiple_function_cases_expose_multiple_helpers_and_dummy_runtime():
         },
     )
     variables = pandas_variables.build_variables(normalized)
-    context = json.loads(variables["function_case_context_json"])
+    context = json.loads(variables["function_case_selection_json"])
     helper_names = [item["function_name"] for item in context["available_helpers"]]
 
     assert [step["function_name"] for step in normalized["intent_plan"]["pandas_execution_plan"][:2]] == ["match_product_tokens", "sample_passthrough_helper"]
     assert helper_names == ["match_product_tokens", "sample_passthrough_helper"]
-    assert json.loads(repair_variables.build_variables(normalized)["function_case_context_json"])["available_helpers"][1]["function_name"] == "sample_passthrough_helper"
+    assert json.loads(repair_variables.build_variables(normalized)["function_case_selection_json"])["available_helpers"][1]["function_name"] == "sample_passthrough_helper"
 
     result = pandas_executor.execute_pandas_code(
         normalized,
         {
             "code": (
+                function_case_source("match_product_tokens", "sample_passthrough_helper")
+                + "\n\n"
                 "df = match_product_tokens('RG 32G DDR4 FBGA 96 DDP', sources['production_data'])\n"
                 "df = sample_passthrough_helper('format demo', df)\n"
                 "result = df[['DEVICE', 'PRODUCTION']]"
@@ -813,6 +1162,34 @@ def test_multiple_function_cases_expose_multiple_helpers_and_dummy_runtime():
     assert result["data"]["rows"] == [{"DEVICE": "DEV-RG", "PRODUCTION": 10}]
     assert trace["used_helpers"] == ["match_product_tokens", "sample_passthrough_helper"]
     assert "def sample_passthrough_helper" in trace["effective_code_with_helpers"]
+
+
+def test_specialized_function_examples_match_runtime_and_domain_authoring_contracts():
+    removed_domain_md = (
+        ROOT
+        / "langflow_components"
+        / "domain_authoring_flow"
+        / "pandas_function_cases_raw_text_input_example.md"
+    )
+    removed_context_json = (
+        ROOT
+        / "langflow_components"
+        / "data_analysis_flow"
+        / "function_case_context_json_input_example.json"
+    )
+    domain_text = (ROOT / "domain_knowledge.txt").read_text(encoding="utf-8")
+    helper_code = function_case_source()
+
+    assert not removed_domain_md.exists()
+    assert not removed_context_json.exists()
+    assert "pandas function case 등록 규칙" in domain_text
+    assert "section은 pandas_function_cases이고 key는 product_token_match" in domain_text
+    assert "function_name은 match_product_tokens" in domain_text
+    assert "section은 pandas_function_cases이고 key는 sample_passthrough_demo" in domain_text
+
+    assert "def match_product_tokens" in helper_code
+    assert "def sample_passthrough_helper" in helper_code
+    assert "source_code_lines" not in helper_code
 
 
 def test_pandas_repair_variables_and_retry_selector_use_failed_execution_context():
@@ -951,7 +1328,7 @@ def test_data_analysis_split_mongodb_metadata_loaders_use_v4_env_defaults(monkey
 
 
 def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
-    install_fake_pymongo(monkeypatch)
+    mongo_store = install_fake_pymongo(monkeypatch)
     set_v4_mongo_env(monkeypatch)
     result_store = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "23_mongodb_result_store.py")
     result_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "05_mongodb_result_loader.py")
@@ -966,8 +1343,9 @@ def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
         "trace": {"warnings": [], "errors": [], "inspection": {}},
     }
 
-    stored = result_store.store_result(payload)
+    stored = result_store.store_result(payload, ttl_hours="3")
     data_ref = stored["data"]["data_ref"]
+    ref_id = data_ref["ref_id"]
     restored = result_loader.load_previous_result(
         {
             "request": {"session_id": "s1", "question": "이전 결과 다시 보여줘"},
@@ -976,11 +1354,52 @@ def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
         }
     )
 
-    assert data_ref.startswith("result:s1:")
+    assert ref_id.startswith("result:s1:")
+    assert data_ref["role"] == "analysis_result"
+    assert data_ref["path"] == "payload.result_rows"
+    assert stored["data_refs"][0] == data_ref
+    assert stored["data_refs"][1]["role"] == "source_rows"
+    assert stored["data_refs"][1]["source_alias"] == "wip_data"
     assert stored["trace"]["inspection"]["result_store"]["collection_name"] == "agent_v4_result_store"
+    assert stored["trace"]["inspection"]["result_store"]["ttl_hours"] == 3
+    assert "expires_at" in stored["trace"]["inspection"]["result_store"]
+    result_doc = mongo_store["datagov"]["agent_v4_result_store"][ref_id]
+    assert result_doc["ttl_hours"] == 3
+    assert isinstance(result_doc["expires_at"], datetime)
+    assert result_doc["expires_at"] > datetime.now(timezone.utc)
     assert restored["trace"]["inspection"]["result_loader"]["status"] == "ok"
     assert restored["runtime_sources"]["wip_data"][0]["WIP"] == 120
     assert restored["data"]["data_ref"] == data_ref
+
+    data_ref_store = load_module(ROOT / "web_app" / "data_ref_store.py")
+    result_rows = data_ref_store.load_data_ref_rows(data_ref, "mongodb://fake")
+    source_rows = data_ref_store.load_data_ref_rows(stored["data_refs"][1], "mongodb://fake")
+    assert result_rows["rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 120}]
+    assert source_rows["rows"] == [{"OPER_NAME": "D/A1", "WIP": 120}]
+
+
+def test_data_analysis_mongodb_result_store_has_ttl_input():
+    result_store = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "23_mongodb_result_store.py")
+
+    input_names = {item.kwargs.get("name") for item in result_store.MongoDBResultStore.inputs}
+
+    assert "ttl_hours" in input_names
+
+
+def test_data_ref_store_rejects_expired_document():
+    data_ref_store = load_module(ROOT / "web_app" / "data_ref_store.py")
+
+    loaded = data_ref_store.rows_from_data_ref_document(
+        {
+            "expires_at": datetime.now(timezone.utc) - timedelta(hours=1),
+            "payload": {"result_rows": [{"DEVICE": "DEV-A"}]},
+        },
+        path="payload.result_rows",
+    )
+
+    assert loaded["ok"] is False
+    assert loaded["expired"] is True
+    assert loaded["rows"] == []
 
 
 def test_mongodb_previous_result_loader_uses_payload_data_ref_only():
@@ -1141,7 +1560,8 @@ def test_langflow_prompt_templates_only_expose_valid_variables():
         "intent_plan_json",
         "source_schema_json",
         "source_preview_json",
-        "function_case_context_json",
+        "function_case_helper_code",
+        "function_case_selection_json",
         "repair_required",
         "failed_code",
         "error_context_json",
@@ -1159,6 +1579,100 @@ def test_langflow_prompt_templates_only_expose_valid_variables():
         }
         assert variables <= allowed, f"{path.name} exposes invalid Langflow variables: {variables - allowed}"
         assert "" not in variables
+
+
+def test_langflow_prompt_templates_keep_domain_specific_examples_out_of_generic_prompts():
+    prompt_text_by_path = {
+        path: path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "langflow_components").glob("*/*prompt_template_ko.md"))
+    }
+    specialized_prompt = (
+        ROOT
+        / "langflow_components"
+        / "data_analysis_flow"
+        / "specialized_prompt_input_example_ko.md"
+    ).read_text(encoding="utf-8")
+    moved_to_specialized_prompt_terms = [
+        "match_product_tokens",
+        "sample_passthrough_helper",
+        "RG 32G DDR4 FBGA 96 DDP",
+        "DA 16G GDDR6 180",
+        "PKG OUT",
+        "BOH",
+        "현시간 기준 재공",
+        "x16",
+        "X8",
+        "L-218",
+        "A-663",
+    ]
+    generic_prompt_blocklist = moved_to_specialized_prompt_terms + [
+        "POP",
+        "MOBILE",
+        "HBM",
+        "D/A",
+        "wip_today",
+        "PNT_RPT",
+        "OPER_NAME",
+        "WORK_DATE",
+    ]
+
+    for term in generic_prompt_blocklist:
+        for path, text in prompt_text_by_path.items():
+            assert term not in text, f"{path.name} contains domain-specific example: {term}"
+
+    for term in moved_to_specialized_prompt_terms:
+        assert term in specialized_prompt
+
+
+def test_prompt_variable_builder_output_order_matches_prompt_input_order():
+    import re
+
+    prompt_to_builder = [
+        ("data_analysis_flow/03_intent_prompt_template_ko.md", "data_analysis_flow/02_intent_variables_builder.py"),
+        ("data_analysis_flow/16_pandas_prompt_template_ko.md", "data_analysis_flow/15_pandas_variables_builder.py"),
+        ("data_analysis_flow/17b_pandas_repair_prompt_template_ko.md", "data_analysis_flow/17a_pandas_repair_variables_builder.py"),
+        ("data_analysis_flow/19_answer_prompt_template_ko.md", "data_analysis_flow/18_answer_variables_builder.py"),
+        ("domain_authoring_flow/01_text_refinement_prompt_template_ko.md", "domain_authoring_flow/01_domain_text_refinement_variables_builder.py"),
+        ("domain_authoring_flow/03_authoring_prompt_template_ko.md", "domain_authoring_flow/03_domain_authoring_variables_builder.py"),
+        ("domain_authoring_flow/06_review_prompt_template_ko.md", "domain_authoring_flow/06_domain_review_variables_builder.py"),
+        ("table_catalog_authoring_flow/01_text_refinement_prompt_template_ko.md", "table_catalog_authoring_flow/01_table_catalog_text_refinement_variables_builder.py"),
+        ("table_catalog_authoring_flow/03_authoring_prompt_template_ko.md", "table_catalog_authoring_flow/03_table_catalog_authoring_variables_builder.py"),
+        ("table_catalog_authoring_flow/06_review_prompt_template_ko.md", "table_catalog_authoring_flow/06_table_catalog_review_variables_builder.py"),
+        ("main_flow_filters_authoring_flow/01_text_refinement_prompt_template_ko.md", "main_flow_filters_authoring_flow/01_main_flow_filter_text_refinement_variables_builder.py"),
+        ("main_flow_filters_authoring_flow/03_authoring_prompt_template_ko.md", "main_flow_filters_authoring_flow/03_main_flow_filter_authoring_variables_builder.py"),
+        ("main_flow_filters_authoring_flow/06_review_prompt_template_ko.md", "main_flow_filters_authoring_flow/06_main_flow_filter_review_variables_builder.py"),
+    ]
+    manual_prompt_variables = {
+        "data_analysis_flow/03_intent_prompt_template_ko.md": {"specialized_prompt"},
+        "data_analysis_flow/16_pandas_prompt_template_ko.md": {"function_case_helper_code"},
+        "data_analysis_flow/17b_pandas_repair_prompt_template_ko.md": {"function_case_helper_code"},
+    }
+
+    for prompt_relpath, builder_relpath in prompt_to_builder:
+        prompt_path = ROOT / "langflow_components" / prompt_relpath
+        builder_path = ROOT / "langflow_components" / builder_relpath
+        prompt_variables = []
+        for match in re.finditer(r"(?<!\{)\{([^{}\r\n]+)\}(?!\})", prompt_path.read_text(encoding="utf-8")):
+            variable_name = match.group(1)
+            if variable_name not in prompt_variables:
+                prompt_variables.append(variable_name)
+
+        module = load_module(builder_path)
+        component_classes = [
+            value
+            for value in vars(module).values()
+            if isinstance(value, type) and value.__module__ == module.__name__ and hasattr(value, "outputs")
+        ]
+        assert len(component_classes) == 1, builder_path.name
+        output_names = [item.kwargs.get("name") for item in component_classes[0].outputs]
+
+        expected_output_names = [
+            name
+            for name in prompt_variables
+            if name not in manual_prompt_variables.get(prompt_relpath, set())
+        ]
+
+        assert output_names == expected_output_names, f"{builder_path.name} output order must match {prompt_path.name} input order"
 
 
 def test_variable_builders_do_not_expose_redundant_variables_output():
@@ -1537,3 +2051,36 @@ def test_langflow_writer_non_dry_run_requires_explicit_mongo_config(monkeypatch)
 
     assert result["write_result"]["success"] is False
     assert result["write_result"]["errors"][0]["type"] == "missing_mongo_config"
+
+
+def test_metadata_authoring_api_adapters_emit_structured_api_message():
+    adapter_specs = [
+        (
+            ROOT / "langflow_components" / "domain_authoring_flow" / "09_domain_authoring_api_adapter.py",
+            "domain",
+        ),
+        (
+            ROOT / "langflow_components" / "table_catalog_authoring_flow" / "09_table_catalog_authoring_api_adapter.py",
+            "table_catalog",
+        ),
+        (
+            ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "09_main_flow_filter_authoring_api_adapter.py",
+            "main_flow_filter",
+        ),
+    ]
+    for path, metadata_type in adapter_specs:
+        module = load_module(path)
+        wrapped = module.build_api_payload({"message": "저장했습니다.", "success": True})
+
+        assert wrapped["api_response"]["response_type"] == "metadata_authoring"
+        assert wrapped["api_response"]["metadata_type"] == metadata_type
+        assert wrapped["api_response"]["message"] == "저장했습니다."
+
+        component_classes = [
+            value
+            for value in vars(module).values()
+            if isinstance(value, type) and value.__module__ == module.__name__ and hasattr(value, "outputs")
+        ]
+        assert len(component_classes) == 1
+        output_names = [item.kwargs.get("name") for item in component_classes[0].outputs]
+        assert output_names == ["api_payload", "api_message"]

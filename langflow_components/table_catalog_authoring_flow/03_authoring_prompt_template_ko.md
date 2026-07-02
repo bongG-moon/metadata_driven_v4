@@ -18,21 +18,21 @@
 {{
   "items": [
     {{
-      "dataset_key": "wip_today",
+      "dataset_key": "dataset_key",
       "status": "active",
       "payload": {{
-        "display_name": "WIP Today",
-        "dataset_family": "wip",
+        "display_name": "데이터셋 표시명",
+        "dataset_family": "dataset_family",
         "source_type": "oracle",
         "source_config": {{
           "source_type": "oracle",
-          "db_key": "PNT_RPT",
+          "db_key": "DB_KEY",
           "query_template": "SELECT ... 원문 전체 ..."
         }},
-        "required_params": ["DATE"],
-        "required_param_mappings": {{"DATE": ["WORK_DATE"]}},
-        "filter_mappings": {{"OPER_NAME": ["OPER_NAME"]}},
-        "standard_column_aliases": {{"DEN": ["DENSITY"]}}
+        "required_params": ["STANDARD_PARAM"],
+        "required_param_mappings": {{"STANDARD_PARAM": ["SOURCE_COLUMN"]}},
+        "filter_mappings": {{"STANDARD_FILTER": ["SOURCE_FILTER_COLUMN"]}},
+        "standard_column_aliases": {{"STANDARD_COLUMN": ["SOURCE_COLUMN_ALIAS"]}}
       }}
     }}
   ],

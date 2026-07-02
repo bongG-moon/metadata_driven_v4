@@ -9,18 +9,6 @@ from lfx.io import DataInput, DropdownInput, Output
 from lfx.schema.message import Message
 
 DEFAULT_MAX_ATTEMPTS = 1
-SUPPORTED_FUNCTION_HELPERS = {
-    "match_product_tokens": {
-        "function_name": "match_product_tokens",
-        "signature": "match_product_tokens(input_text, frame, token_columns=None, output_order=None)",
-        "rule": "제품 token matching은 이 helper를 호출해서 먼저 제품 row를 제한하고 후속 집계/조인을 수행한다.",
-    },
-    "sample_passthrough_helper": {
-        "function_name": "sample_passthrough_helper",
-        "signature": "sample_passthrough_helper(input_text, frame, note=None)",
-        "rule": "여러 특화 함수 전달 형식 확인용 더미 helper다. DataFrame을 변경하지 않고 copy를 반환한다.",
-    },
-}
 
 
 def build_repair_payload(payload_value: Any, max_attempts: Any = DEFAULT_MAX_ATTEMPTS) -> dict[str, Any]:
@@ -52,7 +40,7 @@ def build_variables(payload_value: Any, max_attempts: Any = DEFAULT_MAX_ATTEMPTS
         "source_preview_json": json.dumps(context["source_preview"], ensure_ascii=False, indent=2),
         "failed_code": context["failed_code"],
         "error_context_json": json.dumps(context["error_context"], ensure_ascii=False, indent=2),
-        "function_case_context_json": json.dumps(_function_case_context(payload), ensure_ascii=False, indent=2),
+        "function_case_selection_json": json.dumps(_function_case_selection(payload), ensure_ascii=False, indent=2),
         "output_schema": json.dumps({"code": "수정된 pandas code. 반드시 result 또는 result_df를 설정한다."}, ensure_ascii=False, indent=2),
     }
 
@@ -83,22 +71,40 @@ def _repair_context(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _function_case_context(payload: dict[str, Any]) -> dict[str, Any]:
+def _function_case_selection(payload: dict[str, Any]) -> dict[str, Any]:
     plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
     case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
     steps = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
     selected_steps = [deepcopy(step) for step in steps if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case"]
-    text = json.dumps({"case": case, "steps": selected_steps}, ensure_ascii=False).lower()
+    selected_cases = _selected_function_cases(plan, case, selected_steps)
+    return {
+        "selected_case": deepcopy(case),
+        "selected_cases": selected_cases,
+        "selected_steps": selected_steps,
+        "available_helpers": _helpers_from_selected_cases(selected_cases),
+    }
+
+
+def _helpers_from_selected_cases(selected_cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     helpers = []
-    if "match_product_tokens" in text or "product_token" in text or "제품 token" in text or "제품 토큰" in text:
-        helpers.append(
-            {
-                "function_name": "match_product_tokens",
-                "signature": "match_product_tokens(input_text, frame, token_columns=None, output_order=None)",
-                "rule": "제품 token matching은 이 helper를 호출해서 먼저 제품 row를 제한한 뒤 후속 집계/조인을 수행한다.",
-            }
-        )
-    return {"selected_case": case, "selected_steps": selected_steps, "available_helpers": helpers}
+    for item in selected_cases:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("function_name") or "").strip()
+        if not name or any(helper.get("function_name") == name for helper in helpers):
+            continue
+        helper = {"function_name": name}
+        for key in (
+            "signature",
+            "description",
+            "rule",
+            "usage_rule",
+            "default_token_columns",
+        ):
+            if item.get(key) not in (None, "", [], {}):
+                helper[key] = deepcopy(item.get(key))
+        helpers.append(helper)
+    return helpers
 
 
 def _pandas_errors(payload: dict[str, Any]) -> list[str]:
@@ -114,24 +120,6 @@ def _pandas_errors(payload: dict[str, Any]) -> list[str]:
         elif value:
             errors.append(str(value))
     return list(dict.fromkeys(errors))
-
-
-def _function_case_context(payload: dict[str, Any]) -> dict[str, Any]:
-    plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
-    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
-    steps = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
-    selected_steps = [deepcopy(step) for step in steps if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case"]
-    selected_cases = _selected_function_cases(plan, case, selected_steps)
-    function_names = _selected_function_names(selected_cases, selected_steps)
-    text = json.dumps({"case": case, "steps": selected_steps, "cases": selected_cases}, ensure_ascii=False).lower()
-    if "match_product_tokens" not in function_names and ("match_product_tokens" in text or "product_token" in text or "제품 token" in text or "제품 토큰" in text):
-        function_names.append("match_product_tokens")
-    return {
-        "selected_case": deepcopy(case),
-        "selected_cases": selected_cases,
-        "selected_steps": selected_steps,
-        "available_helpers": [deepcopy(SUPPORTED_FUNCTION_HELPERS[name]) for name in function_names if name in SUPPORTED_FUNCTION_HELPERS],
-    }
 
 
 def _selected_function_cases(plan: dict[str, Any], case: dict[str, Any], selected_steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -156,17 +144,6 @@ def _selected_function_cases(plan: dict[str, Any], case: dict[str, Any], selecte
     return cases
 
 
-def _selected_function_names(selected_cases: list[dict[str, Any]], selected_steps: list[dict[str, Any]]) -> list[str]:
-    names = []
-    for item in [*selected_cases, *selected_steps]:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("function_name") or "").strip()
-        if name and name not in names:
-            names.append(name)
-    return names
-
-
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}
@@ -181,7 +158,7 @@ def _int(value: Any, default: int) -> int:
 
 class PandasRepairVariablesBuilder(Component):
     display_name = "17A pandas 재생성 변수 생성기"
-    description = "pandas 실행 실패 시 LLM 재생성 Prompt Template에 전달할 오류/코드/source 변수를 만듭니다."
+    description = "pandas 실행 실패 시 LLM 재생성 Prompt Template에 전달할 오류/코드/source 변수를 만듭니다. function case 선택 정보는 17B Prompt Template에 연결하고, 실제 함수 코드는 별도 입력으로 넣습니다."
     inputs = [
         DataInput(name="payload", display_name="실패/성공 페이로드", required=True),
         DropdownInput(name="max_attempts", display_name="최대 재생성 횟수", options=["0", "1", "2"], value="1", advanced=True),
@@ -193,7 +170,7 @@ class PandasRepairVariablesBuilder(Component):
         Output(name="source_preview_json", display_name="소스 미리보기 JSON", method="build_source_preview_json", types=["Message"], group_outputs=True),
         Output(name="failed_code", display_name="실패 pandas 코드", method="build_failed_code", types=["Message"], group_outputs=True),
         Output(name="error_context_json", display_name="오류 컨텍스트 JSON", method="build_error_context_json", types=["Message"], group_outputs=True),
-        Output(name="function_case_context_json", display_name="특화 함수 컨텍스트 JSON", method="build_function_case_context_json", types=["Message"], group_outputs=True),
+        Output(name="function_case_selection_json", display_name="Function Case 선택 정보 JSON", method="build_function_case_selection_json", types=["Message"], group_outputs=True),
         Output(name="output_schema", display_name="출력 스키마 JSON", method="build_output_schema", types=["Message"], group_outputs=True),
     ]
 
@@ -218,8 +195,8 @@ class PandasRepairVariablesBuilder(Component):
     def build_error_context_json(self) -> Message:
         return Message(text=self._variables()["error_context_json"])
 
-    def build_function_case_context_json(self) -> Message:
-        return Message(text=self._variables()["function_case_context_json"])
+    def build_function_case_selection_json(self) -> Message:
+        return Message(text=self._variables()["function_case_selection_json"])
 
     def build_output_schema(self) -> Message:
         return Message(text=self._variables()["output_schema"])

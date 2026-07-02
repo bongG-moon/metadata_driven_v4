@@ -5,6 +5,8 @@ import json
 import re
 import traceback
 from copy import deepcopy
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
@@ -12,82 +14,6 @@ from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 FORBIDDEN_NAMES = {"open", "exec", "eval", "__import__", "compile", "input"}
-RUNTIME_HELPER_SOURCES = {
-    "match_product_tokens": """# 표시용: 실제 실행 시 executor namespace에서 제공되는 helper입니다.
-# re 모듈과 pandas DataFrame은 executor가 이미 제공합니다.
-def match_product_tokens(input_text, frame, token_columns=None, output_order=None):
-    if not hasattr(frame, "copy"):
-        return frame
-    result = frame.copy()
-    if result.empty:
-        return result
-    columns = _available_token_columns(result, token_columns)
-    tokens = _product_tokens(input_text)
-    if not columns or not tokens:
-        return result
-    mask = None
-    for token in tokens:
-        token_mask = None
-        normalized_token = _normalize_token(token)
-        for column in columns:
-            values = result[column].map(_normalize_token)
-            current = values.str.contains(normalized_token, na=False, regex=False) | values.map(
-                lambda value: bool(value) and (normalized_token in value or value in normalized_token)
-            )
-            token_mask = current if token_mask is None else (token_mask | current)
-        mask = token_mask if mask is None else (mask & token_mask)
-    filtered = result if mask is None else result[mask].copy()
-    ordered_columns = [column for column in _as_list(output_order) if column in filtered.columns]
-    if ordered_columns:
-        rest = [column for column in filtered.columns if column not in ordered_columns]
-        filtered = filtered[ordered_columns + rest]
-    return filtered
-
-
-def _available_token_columns(frame, token_columns=None):
-    candidates = _as_list(token_columns) or [
-        "TECH", "DEN", "DENSITY", "MODE", "PKG_TYPE1", "PKG1", "PKG_TYPE2", "PKG2",
-        "LEAD", "MCP_NO", "MCP NO", "DEVICE", "DEVICE_DESC", "TSV_DIE_TYP",
-        "TSV_DIE_TYPE", "ORG", "FAMILY",
-    ]
-    return [str(column) for column in candidates if str(column) in frame.columns]
-
-
-def _product_tokens(value):
-    text = str(value or "").upper()
-    raw_tokens = re.findall(r"[A-Z0-9]+(?:[-_/][A-Z0-9]+)*", text)
-    stopwords = {
-        "PRODUCT", "DEVICE", "PKG", "WIP", "INPUT", "OUTPUT", "OUT", "PRODUCTION",
-        "TODAY", "YESTERDAY", "WB", "FCB", "BG", "SBM",
-    }
-    tokens = []
-    for token in raw_tokens:
-        cleaned = token.strip("-_/")
-        if cleaned and cleaned not in stopwords and cleaned not in tokens:
-            tokens.append(cleaned)
-    return tokens
-
-
-def _normalize_token(value):
-    return re.sub(r"[^A-Z0-9]+", "", str(value if value is not None else "").upper())
-
-
-def _as_list(value):
-    if isinstance(value, list):
-        return value
-    if isinstance(value, tuple):
-        return list(value)
-    if value in (None, "", {}, []):
-        return []
-    return [value]
-""",
-    "sample_passthrough_helper": """# 표시용: 여러 특화 함수 전달 형식을 확인하기 위한 더미 helper입니다.
-def sample_passthrough_helper(input_text, frame, note=None):
-    if hasattr(frame, "copy"):
-        return frame.copy()
-    return frame
-""",
-}
 
 
 def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]:
@@ -116,7 +42,9 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "dict": dict,
             "enumerate": enumerate,
             "float": float,
+            "hasattr": hasattr,
             "int": int,
+            "isinstance": isinstance,
             "len": len,
             "list": list,
             "max": max,
@@ -135,14 +63,13 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "sources": sources,
             "result": None,
             "result_df": None,
-            "match_product_tokens": match_product_tokens,
-            "sample_passthrough_helper": sample_passthrough_helper,
         }
         exec(compile(code, "<pandas_code>", "exec"), exec_ns, exec_ns)
         result = exec_ns.get("result")
         if result is None:
             result = exec_ns.get("result_df")
         rows, columns = _result_to_rows(result)
+        next_payload["_runtime_result_rows"] = rows
         next_payload["analysis"] = {
             "status": "ok",
             "row_count": len(rows),
@@ -199,9 +126,36 @@ def _result_to_rows(result: Any) -> tuple[list[dict[str, Any]], list[str]]:
         rows = [result]
     else:
         rows = [{"result": result}]
-    rows = [row if isinstance(row, dict) else {"value": row} for row in rows]
+    rows = [_json_ready(row if isinstance(row, dict) else {"value": row}) for row in rows]
     columns = sorted({column for row in rows for column in row})
     return rows, columns
+
+
+def _json_ready(value: Any) -> Any:
+    if value is None or type(value) in (str, int, bool):
+        return value
+    if type(value) is float:
+        return None if value != value or value in (float("inf"), -float("inf")) else value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return _json_ready(item())
+        except Exception:
+            pass
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item_value) for key, item_value in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_ready(item_value) for item_value in value]
+    try:
+        if value != value:
+            return None
+    except Exception:
+        pass
+    return str(value)
 
 
 def _analysis_error(
@@ -246,133 +200,30 @@ def _analysis_error(
 
 
 def _runtime_helper_trace(code: str) -> dict[str, Any]:
-    helper_names = _used_runtime_helpers(code)
-    helper_sources = [{"function_name": name, "source": RUNTIME_HELPER_SOURCES[name]} for name in helper_names]
+    helper_names = _used_inline_helpers(code)
     return {
         "used_helpers": helper_names,
-        "helper_sources": helper_sources,
-        "effective_code_with_helpers": _effective_code_with_helpers(code, helper_sources),
+        "helper_sources": [],
+        "effective_code_with_helpers": str(code or "").strip(),
     }
 
 
-def _used_runtime_helpers(code: str) -> list[str]:
-    used: list[str] = []
+def _used_inline_helpers(code: str) -> list[str]:
     try:
         tree = ast.parse(code or "")
     except SyntaxError:
-        tree = None
-    if tree is not None:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in RUNTIME_HELPER_SOURCES:
-                if node.func.id not in used:
-                    used.append(node.func.id)
-    for name in RUNTIME_HELPER_SOURCES:
-        if name not in used and re.search(rf"\b{re.escape(name)}\s*\(", code or ""):
-            used.append(name)
-    return used
-
-
-def _effective_code_with_helpers(code: str, helper_sources: list[dict[str, Any]]) -> str:
-    cleaned_code = str(code or "").strip()
-    if not helper_sources:
-        return cleaned_code
-    blocks = ["# ===== 런타임 helper 정의(표시용) ====="]
-    blocks.extend(str(item.get("source") or "").strip() for item in helper_sources if item.get("source"))
-    blocks.append("# ===== 실제 실행 pandas 코드 =====")
-    blocks.append(cleaned_code)
-    return "\n\n".join(block for block in blocks if block)
-
-
-def match_product_tokens(input_text: Any, frame: Any, token_columns: Any = None, output_order: Any = None) -> Any:
-    if not hasattr(frame, "copy"):
-        return frame
-    result = frame.copy()
-    if result.empty:
-        return result
-    columns = _available_token_columns(result, token_columns)
-    tokens = _product_tokens(input_text)
-    if not columns or not tokens:
-        return result
-    mask = None
-    for token in tokens:
-        token_mask = None
-        normalized_token = _normalize_token(token)
-        for column in columns:
-            values = result[column].map(_normalize_token)
-            current = values.str.contains(normalized_token, na=False, regex=False) | values.map(lambda value: bool(value) and (normalized_token in value or value in normalized_token))
-            token_mask = current if token_mask is None else (token_mask | current)
-        mask = token_mask if mask is None else (mask & token_mask)
-    if mask is None:
-        filtered = result
-    else:
-        filtered = result[mask].copy()
-    ordered_columns = [column for column in _as_list(output_order) if column in filtered.columns]
-    if ordered_columns:
-        rest = [column for column in filtered.columns if column not in ordered_columns]
-        filtered = filtered[ordered_columns + rest]
-    return filtered
-
-
-def sample_passthrough_helper(input_text: Any, frame: Any, note: Any = None) -> Any:
-    if hasattr(frame, "copy"):
-        return frame.copy()
-    return frame
-
-
-def _available_token_columns(frame: Any, token_columns: Any = None) -> list[str]:
-    candidates = _as_list(token_columns) or [
-        "TECH",
-        "DEN",
-        "DENSITY",
-        "MODE",
-        "PKG_TYPE1",
-        "PKG1",
-        "PKG_TYPE2",
-        "PKG2",
-        "LEAD",
-        "MCP_NO",
-        "MCP NO",
-        "DEVICE",
-        "DEVICE_DESC",
-        "TSV_DIE_TYP",
-        "TSV_DIE_TYPE",
-        "ORG",
-        "FAMILY",
+        return []
+    top_level_functions = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")
     ]
-    return [str(column) for column in candidates if str(column) in frame.columns]
-
-
-def _product_tokens(value: Any) -> list[str]:
-    text = str(value or "").upper()
-    raw_tokens = re.findall(r"[A-Z0-9]+(?:[-_/][A-Z0-9]+)*", text)
-    stopwords = {
-        "PRODUCT",
-        "DEVICE",
-        "PKG",
-        "WIP",
-        "INPUT",
-        "OUTPUT",
-        "OUT",
-        "PRODUCTION",
-        "TODAY",
-        "YESTERDAY",
-        "WB",
-        "FCB",
-        "BG",
-        "SBM",
-    }
-    tokens = []
-    for token in raw_tokens:
-        cleaned = token.strip("-_/")
-        if not cleaned or cleaned in stopwords:
-            continue
-        if cleaned not in tokens:
-            tokens.append(cleaned)
-    return tokens
-
-
-def _normalize_token(value: Any) -> str:
-    return re.sub(r"[^A-Z0-9]+", "", str(value if value is not None else "").upper())
+    used: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in top_level_functions:
+            if node.func.id not in used:
+                used.append(node.func.id)
+    return used
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -633,7 +484,10 @@ def _json(value: Any) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except Exception:
-        return {}
+        try:
+            parsed = json.loads(text, strict=False)
+        except Exception:
+            return {}
     return parsed if isinstance(parsed, dict) else {}
 
 

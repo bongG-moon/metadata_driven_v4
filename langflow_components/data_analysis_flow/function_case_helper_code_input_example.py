@@ -1,0 +1,198 @@
+def match_product_tokens(input_text, frame, token_columns=None, output_order=None):
+    # 원본 DataFrame을 변경하지 않기 위해 copy본에서 필터링을 수행한다.
+    result = frame.copy()
+    if result.empty:
+        return result
+
+    # 비교 안정성을 위해 값에서 영문/숫자만 남기고 대문자로 정규화한다.
+    def _norm(value):
+        text = str('' if value is None else value).upper()
+        return ''.join(ch for ch in text if ('A' <= ch <= 'Z') or ('0' <= ch <= '9'))
+
+    # 컬럼명은 PKG_TYPE1, MCP NO처럼 표기 차이가 있어도 같은 key로 비교한다.
+    def _col_key(value):
+        text = str(value).upper()
+        chars = []
+        prev_sep = False
+        for ch in text:
+            if ('A' <= ch <= 'Z') or ('0' <= ch <= '9'):
+                chars.append(ch)
+                prev_sep = False
+            elif not prev_sep:
+                chars.append('_')
+                prev_sep = True
+        return ''.join(chars).strip('_')
+
+    # 사용자 입력 문장에서 제품 식별에 필요한 token만 추출한다.
+    # 공정/수량/일자처럼 제품 속성이 아닌 흔한 단어는 stopwords로 제거한다.
+    def _tokens(value):
+        stopwords = {'PRODUCT', 'DEVICE', 'PKG', 'WIP', 'INPUT', 'OUTPUT', 'OUT', 'PRODUCTION', 'TODAY', 'YESTERDAY', 'WB', 'FCB', 'BG', 'SBM'}
+        raw_items = []
+        current = ''
+        for ch in str(value or '').upper():
+            if ('A' <= ch <= 'Z') or ('0' <= ch <= '9') or ch in '-_/':
+                current += ch
+            else:
+                if current:
+                    raw_items.append(current)
+                    current = ''
+        if current:
+            raw_items.append(current)
+        result_tokens = []
+        for item in raw_items:
+            cleaned = item.strip('-_/')
+            if cleaned and cleaned not in stopwords and cleaned not in result_tokens:
+                result_tokens.append(cleaned)
+        return result_tokens
+
+    # 표준 제품 속성 역할과 실제 데이터 컬럼 alias를 연결한다.
+    role_aliases = {
+        'TECH': {'TECH'},
+        'DEN': {'DEN', 'DENSITY'},
+        'MODE': {'MODE'},
+        'PKG1': {'PKG_TYPE1', 'PKG1', 'PKG_TYP1'},
+        'PKG2': {'PKG_TYPE2', 'PKG2', 'PKG_TYP2'},
+        'LEAD': {'LEAD'},
+        'MCP_NO': {'MCP_NO', 'MCPNO', 'MCP_SALES_NO', 'MCP_SALE_CD', 'MCPSALENO'},
+        'DEVICE': {'DEVICE'},
+        'DEVICE_DESC': {'DEVICE_DESC'},
+        'TSV_DIE_TYP': {'TSV_DIE_TYP', 'TSV_DIE_TYPE'},
+        'ORG': {'ORG', 'ORGANIZ_CD'},
+        'FAMILY': {'FAMILY'},
+    }
+
+    # token_columns가 주어지면 해당 컬럼만 사용하고, 없으면 알려진 제품 속성 컬럼만 자동 선택한다.
+    requested = token_columns if token_columns not in (None, '', [], {}) else []
+    if requested and not isinstance(requested, (list, tuple, set)):
+        requested = [requested]
+    known_aliases = {alias for aliases in role_aliases.values() for alias in aliases}
+    columns = [str(column) for column in requested if str(column) in result.columns] if requested else [str(column) for column in result.columns if _col_key(column) in known_aliases]
+    groups = [_tokens(part) for part in str(input_text or '').split(',')]
+    groups = [group for group in groups if group]
+    if not columns or not groups:
+        return result
+
+    # 컬럼별 값을 미리 정규화해 token 매칭을 반복해도 같은 전처리를 다시 하지 않게 한다.
+    normalized_values = {column: result[column].map(_norm) for column in columns}
+    columns_by_role = {role: [] for role in role_aliases}
+    columns_by_role['ALL'] = list(columns)
+    alias_to_role = {alias: role for role, aliases in role_aliases.items() for alias in aliases}
+    for column in columns:
+        role = alias_to_role.get(_col_key(column))
+        if role:
+            columns_by_role[role].append(column)
+
+    def _has_rows(mask):
+        return mask is not None and bool(mask.any())
+
+    # 지정한 역할군의 컬럼들에서 token을 exact/contains/bidirectional 방식으로 찾는다.
+    def _match(roles, token, mode):
+        selected_columns = []
+        for role in roles:
+            for column in columns_by_role.get(role, []):
+                if column not in selected_columns:
+                    selected_columns.append(column)
+        combined = None
+        for column in selected_columns:
+            values = normalized_values[column]
+            if mode == 'exact':
+                current = values == token
+            elif mode == 'contains':
+                current = values.str.contains(token, na=False, regex=False)
+            else:
+                current = values.str.contains(token, na=False, regex=False) | values.map(lambda value: bool(value) and value in token)
+            combined = current if combined is None else (combined | current)
+        return combined
+
+    # token 모양을 보고 우선 매칭할 제품 속성 역할을 선택한다.
+    # 예: 96 -> LEAD, 16G -> DEN, DDR4 -> MODE, FCBGA -> PKG1.
+    def _preferred(token):
+        if token.isdigit():
+            return ['LEAD'], 'exact'
+        if token.endswith('G') and token[:-1].isdigit():
+            return ['DEN'], 'contains_bidirectional'
+        if 'DDR' in token or token.startswith('LP'):
+            return ['MODE'], 'contains_bidirectional'
+        if token.endswith('BGA') or token in {'FBGA', 'FCBGA', 'VFBGA', 'UFBGA', 'LFBGA', 'TFBGA', 'WFBGA'}:
+            return ['PKG1'], 'contains_bidirectional'
+        if token in {'SDP', 'DDP', 'QDP', 'ODP'}:
+            return ['PKG2'], 'contains_bidirectional'
+        if token.isalpha() and len(token) <= 3:
+            return ['TECH', 'FAMILY'], 'contains_bidirectional'
+        return [], 'contains_bidirectional'
+
+    # token 하나를 DataFrame mask로 변환한다.
+    # 특수 규칙은 여기서 처리한다.
+    def _token_mask(raw_token):
+        raw_text = str(raw_token or '').strip().upper()
+        token = _norm(raw_text)
+        if not token:
+            return None
+
+        # FC78, FC96: PKG1은 FCBGA이고 LEAD는 숫자 부분이다.
+        if token.startswith('FC') and token[2:].isdigit():
+            pkg_mask = _match(['PKG1'], 'FCBGA', 'contains')
+            lead_mask = _match(['LEAD'], token[2:], 'exact')
+            return None if pkg_mask is None or lead_mask is None else (pkg_mask & lead_mask)
+
+        # F78, F96: FCBGA/VFBGA/UFBGA 등 package 종류를 특정하지 않고 LEAD만 적용한다.
+        if token.startswith('F') and token[1:].isdigit():
+            return _match(['LEAD'], token[1:], 'exact')
+
+        # L-218, A-663: MCP_NO 앞부분만 입력해도 포함 조건으로 매칭한다.
+        if raw_text.startswith('A-') or raw_text.startswith('L-'):
+            return _match(['MCP_NO'], token, 'contains')
+
+        # x16, X8: 우선 ORG 컬럼에서 x를 제거한 숫자로 매칭한다.
+        if token.startswith('X') and token[1:].isdigit():
+            org_mask = _match(['ORG'], token[1:], 'exact')
+            if _has_rows(org_mask):
+                return org_mask
+
+        # token 형태별 우선 역할에서 먼저 찾고, 실패하면 전체 제품 속성 컬럼으로 fallback한다.
+        roles, mode = _preferred(token)
+        preferred_mask = _match(roles, token, mode) if roles else None
+        if _has_rows(preferred_mask):
+            return preferred_mask
+        matched = _match(['ALL'], token, 'contains_bidirectional')
+        if _has_rows(matched):
+            return matched
+
+        # 컬럼과 직접 매칭되지 않았지만 token 안에 X가 있으면 X를 제거하고 다시 매칭한다.
+        if 'X' in token:
+            without_x = token.replace('X', '')
+            if without_x:
+                org_mask = _match(['ORG'], without_x, 'exact')
+                if _has_rows(org_mask):
+                    return org_mask
+                return _match(['ALL'], without_x, 'contains_bidirectional')
+        return matched
+
+    # 콤마로 나뉜 제품 묶음은 OR로 결합하고, 한 제품 안의 token들은 AND로 결합한다.
+    final_mask = None
+    for group in groups:
+        group_mask = None
+        for token in group:
+            current = _token_mask(token)
+            if current is None:
+                continue
+            group_mask = current if group_mask is None else (group_mask & current)
+        if group_mask is not None:
+            final_mask = group_mask if final_mask is None else (final_mask | group_mask)
+
+    filtered = result if final_mask is None else result[final_mask].copy()
+
+    # 필요하면 결과 컬럼 순서를 호출자가 지정한 순서로 정리한다.
+    ordered_columns = output_order if output_order not in (None, '', [], {}) else []
+    if ordered_columns and not isinstance(ordered_columns, (list, tuple, set)):
+        ordered_columns = [ordered_columns]
+    ordered_columns = [column for column in ordered_columns if column in filtered.columns]
+    if ordered_columns:
+        rest = [column for column in filtered.columns if column not in ordered_columns]
+        filtered = filtered[ordered_columns + rest]
+    return filtered
+
+def sample_passthrough_helper(input_text, frame, note=None):
+    # 여러 helper를 동시에 넣는 형식을 검증하기 위한 더미 helper다.
+    # 실제 분석 로직은 수행하지 않고 DataFrame copy만 반환한다.
+    return frame.copy()

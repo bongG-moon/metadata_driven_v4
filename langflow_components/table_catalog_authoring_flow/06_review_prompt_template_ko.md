@@ -15,7 +15,7 @@
   "supplement_requests": [],
   "item_reviews": [
     {{
-      "key": "wip_today",
+      "key": "dataset_key",
       "ready_to_save": true,
       "warnings": [],
       "errors": []

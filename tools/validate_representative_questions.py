@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.util
 import json
 import os
@@ -69,7 +70,7 @@ def main() -> int:
 
 def run_llm_case(case: dict[str, Any], modules: dict[str, Any], metadata_candidates: dict[str, Any], llm_config: dict[str, Any], reference_date: str) -> dict[str, Any]:
     payload = build_validation_request(case["question"], modules, reference_date)
-    intent_vars = modules["intent_vars"].build_variables(payload, metadata_candidates)
+    intent_vars = with_specialized_prompt(modules["intent_vars"].build_variables(payload, metadata_candidates))
     intent_prompt = render_prompt(FLOW / "03_intent_prompt_template_ko.md", intent_vars)
     intent_response = call_llm(intent_prompt, llm_config)
     payload = modules["intent"].normalize_intent_plan(payload, intent_response)
@@ -80,12 +81,14 @@ def run_llm_case(case: dict[str, Any], modules: dict[str, Any], metadata_candida
     payload = modules["adapter"].build_retrieval_payload(payload)
 
     pandas_vars = modules["pandas_vars"].build_variables(payload)
+    pandas_vars = with_specialized_function_context(pandas_vars)
     pandas_prompt = render_prompt(FLOW / "16_pandas_prompt_template_ko.md", pandas_vars)
     pandas_response = call_llm(pandas_prompt, llm_config)
     first_payload = modules["executor"].execute_pandas_code(payload, pandas_response)
     selected_payload = first_payload
     if first_payload.get("analysis", {}).get("status") != "ok":
         repair_vars = modules["repair_vars"].build_variables(first_payload)
+        repair_vars = with_specialized_function_context(repair_vars)
         repair_prompt = render_prompt(FLOW / "17b_pandas_repair_prompt_template_ko.md", repair_vars)
         repair_response = call_llm(repair_prompt, llm_config)
         retry_payload = modules["executor"].execute_pandas_code(first_payload, repair_response)
@@ -103,9 +106,52 @@ def run_case(case: dict[str, Any], modules: dict[str, Any], reference_date: str)
     payload = modules["merger"].merge_source_retrieval_payloads(payload, dummy_result)
     payload = modules["adapter"].build_retrieval_payload(payload)
     pandas_vars = modules["pandas_vars"].build_variables(payload)
-    payload = modules["executor"].execute_pandas_code(payload, {"code": case["pandas_code"]})
+    pandas_vars = with_specialized_function_context(pandas_vars)
+    pandas_code = inline_helper_source(case["pandas_code"]) if case.get("requires_helper") else case["pandas_code"]
+    payload = modules["executor"].execute_pandas_code(payload, {"code": pandas_code})
 
     return summarize_validation_result(case, payload, pandas_vars, strict_columns=True)
+
+
+def with_specialized_function_context(pandas_vars: dict[str, Any]) -> dict[str, Any]:
+    next_vars = deepcopy(pandas_vars)
+    next_vars.setdefault("function_case_helper_code", "")
+    selection = json.loads(pandas_vars.get("function_case_selection_json") or "{}")
+    if "match_product_tokens" not in json.dumps(selection, ensure_ascii=False):
+        return next_vars
+    next_vars["function_case_selection_json"] = json.dumps(selection, ensure_ascii=False, indent=2)
+    next_vars["function_case_helper_code"] = function_case_source()
+    return next_vars
+
+
+def with_specialized_prompt(intent_vars: dict[str, Any]) -> dict[str, Any]:
+    next_vars = deepcopy(intent_vars)
+    if "specialized_prompt" in next_vars:
+        return next_vars
+    prompt_file = os.getenv("VALIDATION_SPECIALIZED_PROMPT_FILE", "").strip()
+    path = Path(prompt_file) if prompt_file else FLOW / "specialized_prompt_input_example_ko.md"
+    if path.exists():
+        next_vars["specialized_prompt"] = path.read_text(encoding="utf-8")
+    else:
+        next_vars["specialized_prompt"] = ""
+    return next_vars
+
+
+def inline_helper_source(pandas_code: str) -> str:
+    source = function_case_source("match_product_tokens")
+    return source + "\n\n" + pandas_code if source else pandas_code
+
+
+def function_case_source(function_name: str = "") -> str:
+    source = (FLOW / "function_case_helper_code_input_example.py").read_text(encoding="utf-8")
+    if not function_name:
+        return source
+    tree = ast.parse(source)
+    source_lines = source.splitlines()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == function_name:
+            return "\n".join(source_lines[node.lineno - 1 : node.end_lineno])
+    return ""
 
 
 def build_validation_request(question: str, modules: dict[str, Any], reference_date: str) -> dict[str, Any]:
@@ -130,7 +176,14 @@ def summarize_validation_result(case: dict[str, Any], payload: dict[str, Any], p
                 errors.append(f"missing column: {column}")
             else:
                 warnings.append(f"missing expected fixture column: {column}")
-    if case.get("requires_helper") and "match_product_tokens" not in pandas_vars["function_case_context_json"]:
+    function_case_text = json.dumps(
+        {
+            "selection": pandas_vars.get("function_case_selection_json", ""),
+            "helper_code": pandas_vars.get("function_case_helper_code", ""),
+        },
+        ensure_ascii=False,
+    )
+    if case.get("requires_helper") and "match_product_tokens" not in function_case_text:
         errors.append("missing match_product_tokens function case context")
 
     pandas_trace = payload.get("trace", {}).get("inspection", {}).get("pandas_execution", {})
@@ -142,7 +195,7 @@ def summarize_validation_result(case: dict[str, Any], payload: dict[str, Any], p
         "retrieval_job_count": len(payload.get("intent_plan", {}).get("retrieval_jobs", [])),
         "row_count": payload.get("analysis", {}).get("row_count", 0),
         "columns": payload.get("analysis", {}).get("columns", []),
-        "preview_rows": payload.get("analysis", {}).get("rows", [])[:5],
+        "preview_rows": payload.get("analysis", {}).get("rows", [])[:10],
         "intent_plan": payload.get("intent_plan", {}),
         "source_results": [
             {

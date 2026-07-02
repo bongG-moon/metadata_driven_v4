@@ -174,8 +174,60 @@ def _json(value: Any) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except Exception:
-        return {}
+        try:
+            parsed = json.loads(text, strict=False)
+        except Exception:
+            parsed = _partial_intent_plan(text)
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _partial_intent_plan(text: str) -> dict[str, Any]:
+    plan_text = _extract_json_value(text, "intent_plan")
+    if not plan_text:
+        return {}
+    try:
+        plan = json.loads(plan_text)
+    except Exception:
+        try:
+            plan = json.loads(plan_text, strict=False)
+        except Exception:
+            return {}
+    return {"intent_plan": plan} if isinstance(plan, dict) else {}
+
+
+def _extract_json_value(text: str, key: str) -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:', text)
+    if not match:
+        return ""
+    start = match.end()
+    while start < len(text) and text[start].isspace():
+        start += 1
+    if start >= len(text) or text[start] not in "{[":
+        return ""
+    opener = text[start]
+    closer = "}" if opener == "{" else "]"
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return ""
 
 
 def _text_value(value: Any) -> str:

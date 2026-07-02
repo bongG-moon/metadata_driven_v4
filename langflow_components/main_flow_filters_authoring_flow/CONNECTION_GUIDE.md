@@ -14,8 +14,8 @@
 | 6 | `00 Main Flow Filter Authoring Request Loader.payload_out` | `02 Main Flow Filter Text Refinement Normalizer.payload` |
 | 7 | `Langflow Agent/LLM.output` | `02 Main Flow Filter Text Refinement Normalizer.llm_response` |
 | 8 | `02 Main Flow Filter Text Refinement Normalizer.payload_out` | `03 Main Flow Filter Authoring Variables Builder.payload` |
-| 9 | `03 Main Flow Filter Authoring Variables Builder.refined_text` | `Langflow Prompt Template: 03_authoring_prompt_template_ko.md.refined_text` |
-| 10 | `03 Main Flow Filter Authoring Variables Builder.existing_metadata_summary` | `Langflow Prompt Template: 03_authoring_prompt_template_ko.md.existing_metadata_summary` |
+| 9 | `03 Main Flow Filter Authoring Variables Builder.existing_metadata_summary` | `Langflow Prompt Template: 03_authoring_prompt_template_ko.md.existing_metadata_summary` |
+| 10 | `03 Main Flow Filter Authoring Variables Builder.refined_text` | `Langflow Prompt Template: 03_authoring_prompt_template_ko.md.refined_text` |
 | 11 | `Langflow Prompt Template: 03_authoring_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
 | 12 | `02 Main Flow Filter Text Refinement Normalizer.payload_out` | `04 Main Flow Filter Authoring Result Normalizer.payload` |
 | 13 | `Langflow Agent/LLM.output` | `04 Main Flow Filter Authoring Result Normalizer.llm_response` |
@@ -25,15 +25,17 @@
 | 17 | `Langflow Prompt Template: 06_review_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
 | 18 | `05 Main Flow Filter Similarity Checker.payload_out` | `07 Main Flow Filter Review Writer.payload` |
 | 19 | `Langflow Agent/LLM.output` | `07 Main Flow Filter Review Writer.review_response` |
-| 20 | `07 Main Flow Filter Review Writer.payload_out` | `08 Main Flow Filter Authoring Response Builder.payload` |
-| 21 | `08 Main Flow Filter Authoring Response Builder.message` | `Chat Output.message` |
+| 20 | `07 메인 플로우 필터 검수/저장 처리기.payload_out` | `08 메인 플로우 필터 등록 응답 생성기.payload` |
+| 21 | `08 메인 플로우 필터 등록 응답 생성기.api_response` | `09 메인 플로우 필터 등록 API 연결 어댑터.api_response` |
+| 22 | `09 메인 플로우 필터 등록 API 연결 어댑터.api_message` | `Chat Output.message` |
 
 ## Optional Connections
 
 | From node.output | To node.input | When to use |
 | --- | --- | --- |
 | `00 Main Flow Filter Existing Items Loader.existing_items` | `05 Main Flow Filter Similarity Checker.existing_items` | 중복 검사를 명시적으로 연결하고 싶을 때 사용한다. 2번 연결을 했다면 payload에 기존 항목이 포함되므로 필수는 아니다. |
-| `08 Main Flow Filter Authoring Response Builder.api_response` | downstream API/Data output | Web/API에서 구조화 응답을 받을 때 사용한다. |
+| `09 메인 플로우 필터 등록 API 연결 어댑터.api_payload` | downstream Data Output | Data Output 노드를 별도로 둘 때 구조화 API 응답을 그대로 전달한다. |
+| `08 메인 플로우 필터 등록 응답 생성기.message` | `Chat Output.message` | Playground에서 사람이 읽는 저장 결과만 확인할 때 사용한다. Web/Run API 연결은 09번 노드를 권장한다. |
 
 ## Fixed/Manual Inputs
 

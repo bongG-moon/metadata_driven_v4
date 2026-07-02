@@ -16,14 +16,14 @@
 {{
   "items": [
     {{
-      "filter_key": "DATE",
+      "filter_key": "STANDARD_FILTER_KEY",
       "status": "active",
       "payload": {{
-        "display_name": "기준일",
-        "aliases": ["날짜", "일자", "오늘", "금일"],
-        "column_candidates": ["DATE", "WORK_DATE"],
-        "semantic_role": "date",
-        "value_type": "date",
+        "display_name": "필터 표시명",
+        "aliases": ["사용자 표현"],
+        "column_candidates": ["후보 컬럼명"],
+        "semantic_role": "filter_semantic_role",
+        "value_type": "string",
         "value_shape": "scalar",
         "operator": "eq"
       }}

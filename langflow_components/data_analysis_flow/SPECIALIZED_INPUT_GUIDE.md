@@ -2,6 +2,12 @@
 
 이 파일은 Langflow에서 특화 프롬프트와 특화 함수 값을 어디에 넣어야 하는지 설명한다.
 
+문서 역할:
+
+- `SPECIALIZED_INPUT_GUIDE.md`: Langflow 화면에서 어디에 무엇을 연결/입력하는지 설명한다.
+- `function_case_helper_code_input_example.py`: `16 pandas Prompt Template.function_case_helper_code`에 바로 붙여넣을 수 있는 helper 함수 코드다.
+- `../../domain_knowledge.txt`: MongoDB에 저장할 function case 선택 metadata 등록용 자연어 지시가 맨 아래에 포함되어 있다.
+
 ## 1. 공정 특화 프롬프트 입력 위치
 
 공정/현장별로 임시로 강조해야 하는 해석 규칙이 있으면 아래 위치에 자연어로 입력한다.
@@ -10,7 +16,7 @@
 
 | 목적 | 입력 노드 | 입력 포트 | 연결 대상 |
 | --- | --- | --- | --- |
-| 의도 분석 LLM에 추가 지시 전달 | `02 의도 분석 변수 생성기` | `공정 특화 프롬프트` (`specialized_prompt_text`) | `02.specialized_prompt` -> `03 의도 분석 Prompt Template.specialized_prompt` |
+| 의도 분석 LLM에 추가 지시 전달 | `Text Input` | `message` | `03 의도 분석 Prompt Template.specialized_prompt` |
 
 입력하지 않아도 된다. 비워두면 기본 metadata와 공통 prompt만 사용한다.
 
@@ -32,6 +38,7 @@ PKG OUT은 제품별 생산실적 중 PKG 완료 조건을 우선 확인하고, 
 ## 2. 특화 함수 값은 어디에 넣는가
 
 특화 함수는 Langflow 화면에서 pandas 코드 생성 노드에 직접 입력하는 값이 아니다.
+또한 실제 함수 구현이나 함수 시그니처를 MongoDB metadata로 저장하지 않는다. `pandas_function_cases` metadata에는 helper 선택 규칙과 helper 이름만 저장한다.
 
 정상 흐름은 아래 순서다.
 
@@ -40,12 +47,14 @@ PKG OUT은 제품별 생산실적 중 PKG 완료 조건을 우선 확인하고, 
 3. `01d 메타데이터 후보 생성기`가 의도 분석 LLM에 후보로 전달한다.
 4. `03 의도 분석 Prompt Template`이 필요한 경우 `intent_plan.pandas_function_case`를 출력하게 한다.
 5. `04 의도 계획 정규화기`가 `pandas_execution_plan` 첫 단계에 `apply_pandas_function_case`를 보강한다.
-6. `15 pandas 변수 생성기`가 선택된 함수만 `function_case_context_json`으로 pandas Prompt Template에 전달한다.
-7. `17 pandas 코드 실행기`가 실제 helper를 제공하고, 실행 trace에 helper 포함 실행 코드를 남긴다.
+6. `15 pandas 변수 생성기.function_case_selection_json`은 의도 분석 결과에 들어 있는 function case 선택 정보를 `16 pandas Prompt Template.function_case_selection_json`에 전달한다.
+7. 실제 특화 함수 코드는 `function_case_helper_code_input_example.py` 내용을 `16 pandas Prompt Template.function_case_helper_code`에 직접 넣는다.
+8. `16 pandas Prompt Template`은 선택 정보의 `selected_steps`와 helper 함수 코드를 함께 보고 생성 pandas 코드 상단에 필요한 함수 정의를 포함한다.
+9. `17 pandas 코드 실행기`는 생성된 pandas 코드만 공통 실행기로 실행한다. 특화 helper를 namespace로 제공하지 않는다.
 
 ## 3. 현재 지원하는 특화 함수
 
-현재 executor에서 제공하는 helper는 아래 2개다.
+16번 prompt에 붙여넣을 helper 함수 코드 예시는 `function_case_helper_code_input_example.py`에 있다. 이 파일에는 JSON wrapper 없이 실제 함수 정의만 들어 있다.
 
 ```text
 function_name: match_product_tokens
@@ -60,6 +69,15 @@ signature: match_product_tokens(input_text, frame, token_columns=None, output_or
 
 처럼 제품 속성이 여러 컬럼에 나뉘어 있고, 사용자가 한 문장 token으로 제품을 말하는 경우에 사용한다.
 
+추가 매칭 규칙:
+
+- 콤마로 여러 제품이 들어오면 제품별 token 묶음을 나누고, 제품 묶음끼리는 OR로 결합한다.
+- `x16`, `X8`처럼 ORG 앞에 x/X가 붙은 경우 먼저 원문을 매칭하고, 매칭되지 않으면 x/X를 제거해 ORG 값과 매칭한다.
+- `FC78`, `FC96`처럼 `FC+숫자` 형태는 `PKG_TYPE1/PKG1=FCBGA`와 `LEAD=해당 숫자`로 해석한다.
+- `F78`, `F96`처럼 `F+숫자` 형태는 `LEAD=해당 숫자`로만 해석하고 package type 조건은 추가하지 않는다.
+- `L-218`, `A-663`처럼 A-/L-로 시작하는 MCP_NO 부분 입력은 MCP_NO 포함 조건으로 매칭한다.
+- `RG/CP`, `16G`, `DDR4`, `FCBGA`, `SDP`, `96`처럼 명확한 token은 각각 TECH/FAMILY, DEN/DENSITY, MODE, PKG_TYPE1/PKG1, PKG_TYPE2/PKG2, LEAD를 우선 매칭한다.
+
 ```text
 function_name: sample_passthrough_helper
 signature: sample_passthrough_helper(input_text, frame, note=None)
@@ -67,11 +85,11 @@ signature: sample_passthrough_helper(input_text, frame, note=None)
 
 용도:
 
-- 여러 `pandas_function_cases`가 동시에 선택될 때 `function_case_context_json.available_helpers` 형식을 확인하기 위한 더미 helper다.
+- 여러 `pandas_function_cases`가 동시에 선택될 때 helper 함수 코드를 여러 개 전달하는 형식을 확인하기 위한 더미 helper다.
 - DataFrame을 변경하지 않고 copy를 반환한다.
 - 실제 운영 분석에서는 metadata가 명시적으로 선택한 경우에만 사용한다.
 
-Domain Authoring Flow에 넣을 raw text 예시는 `../domain_authoring_flow/pandas_function_cases_raw_text_input_example.md`에 있다.
+Domain Authoring Flow에 넣을 raw text는 repo root의 `domain_knowledge.txt` 맨 아래 `pandas function case 등록 규칙` 블록에 포함되어 있다. 이 블록은 helper 구현이 아니라 metadata 등록용 선택 규칙만 담는다.
 
 ## 4. 의도 분석 LLM이 출력해야 하는 형태
 
@@ -126,12 +144,16 @@ Domain Authoring Flow에 넣을 raw text 예시는 `../domain_authoring_flow/pan
 
 ## 5. pandas Prompt Template에서 사용하는 값
 
-`15 pandas 변수 생성기.function_case_context_json`을 `16 pandas Prompt Template.function_case_context_json`에 연결한다.
+`15 pandas 변수 생성기.function_case_selection_json`은 `16 pandas Prompt Template.function_case_selection_json`에 연결한다. 이 값에는 어떤 helper를 어떤 `input_text`, `source_alias`로 호출해야 하는지가 들어 있다.
 
-pandas LLM은 이 값 안의 `available_helpers`에 `match_product_tokens`가 있을 때만 아래처럼 helper를 호출한다.
+`function_case_helper_code_input_example.py` 내용을 그대로 복사해서 `16 pandas Prompt Template.function_case_helper_code` 변수 값으로 붙여넣는다.
+
+특화 함수 코드는 16번에 붙여넣는 `function_case_helper_code`에만 둔다. 15번 출력에는 실제 함수 코드를 넣지 않는다.
+
+pandas LLM은 `function_case_selection_json.selected_steps`가 `match_product_tokens`를 선택하고, `function_case_helper_code`에 해당 helper 함수 정의가 있을 때 아래처럼 helper를 호출한다.
 
 ```python
 df = match_product_tokens("RG 32G DDR4 FBGA 96 DDP", sources["production_data"])
 ```
 
-helper 구현은 LLM이 생성하지 않는다. executor가 제공한다. 다만 `21 답변 메시지 어댑터`는 검증을 위해 helper 구현과 실제 실행 pandas 코드를 함께 표시한다.
+helper 구현은 executor가 제공하지 않는다. `function_case_helper_code_input_example.py`의 함수 정의를 16번 prompt에 넣고, LLM이 그 함수 정의를 생성 pandas 코드 상단에 포함해야 한다.

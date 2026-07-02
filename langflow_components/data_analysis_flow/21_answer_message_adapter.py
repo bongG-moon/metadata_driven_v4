@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 from copy import deepcopy
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DataInput, Output
+from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.message import Message
 
 TABLE_PREVIEW_LIMIT = 20
 CELL_TEXT_LIMIT = 120
 VALUE_TEXT_LIMIT = 900
+DEFAULT_DOWNLOAD_BASE_URL = "http://localhost:8765"
 
 
-def build_message(payload_value: Any) -> str:
+def build_message(payload_value: Any, download_base_url: Any = "") -> str:
     payload = _payload(payload_value)
     if not payload:
         return ""
@@ -30,6 +32,7 @@ def build_message(payload_value: Any) -> str:
         _intent_section(payload),
         _retrieval_section(payload),
         _pandas_section(payload),
+        _download_links_section(payload, download_base_url),
         _notice_section(payload),
     ):
         if section:
@@ -198,6 +201,60 @@ def _notice_section(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _download_links_section(payload: dict[str, Any], download_base_url: Any = "") -> str:
+    refs = _downloadable_data_refs(payload)
+    if not refs:
+        return ""
+    lines = ["### 데이터 다운로드"]
+    for ref in refs[:12]:
+        label = _download_label(ref)
+        url = _download_url(ref, download_base_url)
+        lines.append(f"- [{_escape_markdown_tilde(label)}]({url})")
+    lines.append("- 링크는 MongoDB result store의 `data_ref`를 웹 다운로드 화면으로 여는 용도입니다.")
+    return "\n".join(lines)
+
+
+def _downloadable_data_refs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for ref in _list_value(payload.get("data_refs")):
+        if isinstance(ref, dict):
+            _append_ref(refs, ref)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    data_ref = data.get("data_ref")
+    if isinstance(data_ref, dict):
+        _append_ref(refs, data_ref)
+    return refs
+
+
+def _append_ref(refs: list[dict[str, Any]], ref: dict[str, Any]) -> None:
+    ref_id = str(ref.get("ref_id") or "").strip()
+    if not ref_id:
+        return
+    signature = "|".join(str(ref.get(key) or "") for key in ("ref_id", "path", "role", "source_alias"))
+    if any("|".join(str(existing.get(key) or "") for key in ("ref_id", "path", "role", "source_alias")) == signature for existing in refs):
+        return
+    refs.append(ref)
+
+
+def _download_label(ref: dict[str, Any]) -> str:
+    label = str(ref.get("label") or "").strip()
+    if label:
+        return label + " CSV 다운로드"
+    role = str(ref.get("role") or "").strip()
+    alias = str(ref.get("source_alias") or ref.get("dataset_key") or "").strip()
+    if role == "source_rows" and alias:
+        return f"사용 원본 데이터 {alias} CSV 다운로드"
+    if role == "analysis_result":
+        return "분석 결과 데이터 CSV 다운로드"
+    return "저장 데이터 CSV 다운로드"
+
+
+def _download_url(ref: dict[str, Any], download_base_url: Any = "") -> str:
+    base_url = str(download_base_url or "").strip() or DEFAULT_DOWNLOAD_BASE_URL
+    token = base64.urlsafe_b64encode(json.dumps(ref, ensure_ascii=False, default=str).encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{base_url.rstrip('/')}/?download_ref={token}"
+
+
 def _inspection(payload: dict[str, Any]) -> dict[str, Any]:
     trace = payload.get("trace") if isinstance(payload.get("trace"), dict) else {}
     inspection = trace.get("inspection")
@@ -316,8 +373,17 @@ def _truncate(text: str, limit: int) -> str:
 class AnswerMessageAdapter(Component):
     display_name = "21 답변 메시지 어댑터"
     description = "최종 답변, 결과 테이블, 의도 분석, 데이터 조회, pandas 코드를 채팅 출력용 메시지로 변환합니다."
-    inputs = [DataInput(name="payload", display_name="페이로드", required=True)]
+    inputs = [
+        DataInput(name="payload", display_name="페이로드", required=True),
+        MessageTextInput(
+            name="download_base_url",
+            display_name="다운로드 링크 Base URL",
+            value=DEFAULT_DOWNLOAD_BASE_URL,
+            required=False,
+            advanced=True,
+        ),
+    ]
     outputs = [Output(name="message", display_name="메시지", method="build_output_message", types=["Message"])]
 
     def build_output_message(self) -> Message:
-        return Message(text=build_message(getattr(self, "payload", None)))
+        return Message(text=build_message(getattr(self, "payload", None), getattr(self, "download_base_url", "")))

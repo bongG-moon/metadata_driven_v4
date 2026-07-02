@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from importlib import import_module
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
 from lfx.io import DataInput, Output
 from lfx.schema.data import Data
+
+KOREA_ZONE_NAME = "Asia/Seoul"
 
 
 PRODUCTS = [
@@ -19,7 +23,7 @@ PRODUCTS = [
         "PKG2": "POP",
         "LEAD": "200",
         "MCP_NO": "MCP001",
-        "TSV_DIE_TYP": "8Hi",
+        "TSV_DIE_TYP": "",
         "DEVICE": "DEV001",
         "DEVICE_DESC": "LPDDR5 sample",
     },
@@ -191,11 +195,14 @@ def _skipped(source_type: str, reason: str) -> dict[str, Any]:
 
 
 def _rows_for_dataset(dataset_key: str) -> list[dict[str, Any]]:
+    today = _korea_today()
+    yesterday = _date_delta(today, -1)
+    two_days_ago = _date_delta(today, -2)
     rows = {
-        "production_today": _production_rows(["20260701"]),
-        "production": _production_rows(["20260630", "20260627", "20260624"]),
-        "wip_today": _wip_rows(["20260701"]),
-        "wip": _wip_rows(["20260630", "20260626", "20260624", "20260623"]),
+        "production_today": _production_rows(_unique_dates([today, "20260701"])),
+        "production": _production_rows(_unique_dates([yesterday, "20260701", "20260630", "20260627", "20260624"])),
+        "wip_today": _wip_rows(_unique_dates([today, "20260701"])),
+        "wip": _wip_rows(_unique_dates([yesterday, two_days_ago, "20260701", "20260630", "20260626", "20260624", "20260623"])),
         "target": _target_rows(),
         "equipment_assign": _equipment_assign_rows(),
         "equipment_status": _equipment_assign_rows(),
@@ -204,6 +211,35 @@ def _rows_for_dataset(dataset_key: str) -> list[dict[str, Any]]:
         "hold_history": _hold_history_rows(),
     }.get(dataset_key, [])
     return deepcopy(rows)
+
+
+def _korea_today() -> str:
+    return datetime.now(_korea_timezone()).strftime("%Y%m%d")
+
+
+def _korea_timezone():
+    try:
+        zoneinfo = import_module("zoneinfo")
+        return zoneinfo.ZoneInfo(KOREA_ZONE_NAME)
+    except Exception:
+        return timezone(timedelta(hours=9), "KST")
+
+
+def _date_delta(date_text: str, days: int) -> str:
+    try:
+        base = datetime.strptime(str(date_text), "%Y%m%d")
+    except Exception:
+        base = datetime.now(_korea_timezone())
+    return (base + timedelta(days=days)).strftime("%Y%m%d")
+
+
+def _unique_dates(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _production_rows(work_dates: list[str]) -> list[dict[str, Any]]:
@@ -229,9 +265,11 @@ def _wip_rows(work_dates: list[str]) -> list[dict[str, Any]]:
 
 
 def _production_processes_for_product(product_index: int) -> list[str]:
-    common = ["INPUT", "D/A1", "D/A2", "W/B1", "W/B2", "FCB1", "FCB/H", "B/G1", "SBM"]
+    da_steps = ["D/A1", "D/A2", "D/A3", "D/A4", "D/A5", "D/A6"]
+    wb_steps = ["W/B1", "W/B2", "W/B3", "W/B4", "W/B5", "W/B6"]
+    common = ["INPUT", *da_steps, "D/S1", *wb_steps, "FCB1", "FCB/H", "B/G1", "SBM"]
     if product_index == 1:
-        return ["INPUT", "W/B1", "W/B2", "FCB1", "FCB2", "FCB/H"]
+        return ["INPUT", *wb_steps, "FCB1", "FCB2", "FCB/H"]
     if product_index == 3:
         return ["INPUT", "D/A1", "B/G1", "B/G2"]
     if product_index == 4:
@@ -246,9 +284,11 @@ def _production_processes_for_product(product_index: int) -> list[str]:
 
 
 def _wip_processes_for_product(product_index: int) -> list[str]:
-    common = ["D/A1", "D/A2", "W/B1", "W/B2", "FCB1", "FCB/H", "B/G1", "D/S1"]
+    da_steps = ["D/A1", "D/A2", "D/A3", "D/A4", "D/A5", "D/A6"]
+    wb_steps = ["W/B1", "W/B2", "W/B3", "W/B4", "W/B5", "W/B6"]
+    common = [*da_steps, "D/S1", *wb_steps, "FCB1", "FCB/H", "B/G1"]
     if product_index == 1:
-        return ["W/B1", "W/B2", "FCB1", "FCB2", "FCB/H"]
+        return [*wb_steps, "FCB1", "FCB2", "FCB/H"]
     if product_index == 3:
         return ["B/G1", "B/G2"]
     if product_index == 4:

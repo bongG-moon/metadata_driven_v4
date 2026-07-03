@@ -31,6 +31,8 @@
 - 실패한 코드와 `function_case_selection_json.selected_steps`에 실제로 필요한 helper만 사용한다.
 - `function_case_helper_code`에는 사용할 수 있는 helper 함수 정의 코드만 들어 있다.
 - helper가 선택된 조건을 일반 column filter로 임의 대체하지 않는다. helper 함수 정의를 포함하고 선택된 `input_text`, `source_alias`를 보존해 호출한다.
+- 실패 코드가 `record_step` 또는 `record_function_case_result`를 사용했다면 retry 코드에서도 같은 목적의 기록을 유지한다.
+- 단계형 분석에서 답변 기준이 되는 중간 결과가 명확하다면 `record_step("key", dataframe_or_value, description="설명", role="basis")`로 compact하게 기록한다.
 - 최종 결과는 반드시 `result` 또는 `result_df` 변수에 넣는다.
 - 없는 column을 임의로 만들지 않는다.
 

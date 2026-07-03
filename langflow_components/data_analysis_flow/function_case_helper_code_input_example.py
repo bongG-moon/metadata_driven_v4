@@ -194,9 +194,18 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
     if ordered_columns:
         rest = [column for column in filtered.columns if column not in ordered_columns]
         filtered = filtered[ordered_columns + rest]
+    try:
+        record_function_case_result('match_product_tokens', input_text, filtered, '제품 속성 token 매칭 결과')
+    except Exception:
+        pass
     return filtered
 
 def sample_passthrough_helper(input_text, frame, note=None):
     # 여러 helper를 동시에 넣는 형식을 검증하기 위한 더미 helper다.
     # 실제 분석 로직은 수행하지 않고 DataFrame copy만 반환한다.
-    return frame.copy()
+    result = frame.copy()
+    try:
+        record_function_case_result('sample_passthrough_helper', input_text, result, str(note or '더미 helper 통과 결과'))
+    except Exception:
+        pass
+    return result

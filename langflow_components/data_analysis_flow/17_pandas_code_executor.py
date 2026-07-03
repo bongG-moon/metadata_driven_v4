@@ -38,6 +38,7 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
 
         sources = {alias: pd.DataFrame(rows) for alias, rows in next_payload.get("runtime_sources", {}).items()}
         safe_builtins = {
+            "Exception": Exception,
             "all": all,
             "any": any,
             "bool": bool,
@@ -59,18 +60,31 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "sum": sum,
             "tuple": tuple,
         }
+        step_outputs: list[dict[str, Any]] = []
+        function_case_results: list[dict[str, Any]] = []
+
+        def record_step(key: Any, value: Any, description: Any = "", role: Any = "") -> Any:
+            step_outputs.append(_recorded_output(key, value, description, role))
+            return value
+
+        def record_function_case_result(function_name: Any, input_text: Any, result_value: Any, description: Any = "") -> Any:
+            function_case_results.append(_recorded_function_case(function_name, input_text, result_value, description))
+            return result_value
+
         exec_ns: dict[str, Any] = {
             "__builtins__": safe_builtins,
             "pd": pd,
             "sources": sources,
             "result": None,
             "result_df": None,
+            "record_step": record_step,
+            "record_function_case_result": record_function_case_result,
         }
         exec(compile(code, "<pandas_code>", "exec"), exec_ns, exec_ns)
         result = exec_ns.get("result")
         if result is None:
             result = exec_ns.get("result_df")
-        rows, columns = _result_to_rows(result)
+        rows, columns = _result_to_rows(result, next_payload)
         next_payload["_full_result_rows"] = rows
         next_payload["analysis"] = {
             "status": "ok",
@@ -82,6 +96,8 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "pandas_filter_preamble": filter_preamble,
             "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
             "used_helpers": helper_trace["used_helpers"],
+            "step_outputs": step_outputs,
+            "function_case_results": function_case_results,
         }
         next_payload["data"] = {"columns": columns, "rows": rows[:RESULT_PREVIEW_LIMIT], "row_count": len(rows), "data_ref": ""}
         next_payload.setdefault("trace", {}).setdefault("inspection", {})["pandas_execution"] = {
@@ -95,6 +111,8 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "helper_sources": helper_trace["helper_sources"],
             "pandas_filter_plan": filter_plan,
             "execution_result": {"row_count": len(rows), "columns": columns, "preview_rows": rows[:TRACE_PREVIEW_LIMIT]},
+            "step_outputs": step_outputs,
+            "function_case_results": function_case_results,
             "error": None,
         }
         return next_payload
@@ -117,20 +135,166 @@ def _guard_code(code: str) -> str:
     return ""
 
 
-def _result_to_rows(result: Any) -> tuple[list[dict[str, Any]], list[str]]:
+def _result_to_rows(result: Any, payload: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     if result is None:
         return [], []
+    source_columns: list[str] = []
     if hasattr(result, "to_dict"):
-        rows = result.to_dict(orient="records")
+        source_columns = [str(column) for column in getattr(result, "columns", [])]
+        try:
+            rows = result.to_dict(orient="records")
+        except TypeError:
+            converted = result.to_dict()
+            rows = converted if isinstance(converted, list) else [converted]
     elif isinstance(result, list):
         rows = result
     elif isinstance(result, dict):
         rows = [result]
     else:
-        rows = [{"result": result}]
+        row = _scalar_result_row(result, payload)
+        return [row], list(row)
     rows = [_json_ready(row if isinstance(row, dict) else {"value": row}) for row in rows]
-    columns = sorted({column for row in rows for column in row})
+    if len(rows) == 1 and len(rows[0]) == 1 and next(iter(rows[0].keys()), "") in {"result", "value"}:
+        value = next(iter(rows[0].values()))
+        row = _scalar_result_row(value, payload)
+        return [row], list(row)
+    columns = _ordered_columns(rows, source_columns)
     return rows, columns
+
+
+def _ordered_columns(rows: list[dict[str, Any]], preferred: list[str] | None = None) -> list[str]:
+    columns: list[str] = []
+    for column in preferred or []:
+        text = str(column)
+        if text and text not in columns and any(text in row for row in rows):
+            columns.append(text)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for column in row:
+            text = str(column)
+            if text and text not in columns:
+                columns.append(text)
+    return columns
+
+
+def _scalar_result_row(value: Any, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    row = _scalar_context_row(payload)
+    metric_label = _scalar_metric_label(payload)
+    row[metric_label] = _json_ready(value)
+    if len(row) == 1:
+        return {"지표": metric_label, "값": _json_ready(value)}
+    return row
+
+
+def _scalar_context_row(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = payload if isinstance(payload, dict) else {}
+    plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
+    jobs = plan.get("retrieval_jobs") if isinstance(plan.get("retrieval_jobs"), list) else []
+    row: dict[str, Any] = {}
+    if not jobs:
+        return row
+    job = jobs[0] if isinstance(jobs[0], dict) else {}
+    params = job.get("required_params") if isinstance(job.get("required_params"), dict) else {}
+    filters = job.get("filters") if isinstance(job.get("filters"), dict) else {}
+    date_value = params.get("DATE") or params.get("WORK_DATE") or params.get("date")
+    if date_value not in (None, "", [], {}):
+        row["기준일"] = _json_ready(date_value)
+    for field, label in (
+        ("OPER_NAME", "공정"),
+        ("MCP_NO", "MCP NO"),
+        ("DEVICE", "Device"),
+    ):
+        value = _filter_display_value(filters.get(field))
+        if value not in (None, "", [], {}):
+            row[label] = _json_ready(value)
+    return row
+
+
+def _filter_display_value(condition: Any) -> Any:
+    if not isinstance(condition, dict):
+        return condition
+    if "value" in condition:
+        return condition.get("value")
+    if "values" in condition:
+        values = condition.get("values")
+        if isinstance(values, list):
+            return ", ".join(str(value) for value in values)
+        return values
+    return condition
+
+
+def _scalar_metric_label(payload: dict[str, Any] | None = None) -> str:
+    payload = payload if isinstance(payload, dict) else {}
+    request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+    plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
+    output_contract = plan.get("output_contract") if isinstance(plan.get("output_contract"), dict) else {}
+    metric_name = str(output_contract.get("metric") or output_contract.get("measure") or output_contract.get("value_name") or "").strip()
+    if metric_name:
+        return metric_name
+    text = " ".join(
+        str(item or "")
+        for item in (
+            request.get("question"),
+            plan.get("analysis_kind"),
+            output_contract.get("description"),
+            output_contract.get("title"),
+        )
+    ).upper()
+    if any(token in text for token in ("INPUT", "투입")):
+        return "INPUT 수량"
+    if any(token in text for token in ("WIP", "재공")):
+        return "재공 수량"
+    if any(token in text for token in ("PRODUCTION", "OUTPUT", "OUT", "생산", "실적")):
+        return "생산 실적"
+    return "결과값"
+
+
+def _recorded_output(key: Any, value: Any, description: Any = "", role: Any = "") -> dict[str, Any]:
+    rows, columns, row_count = _preview_rows_columns_count(value)
+    return _json_ready(
+        {
+            "key": str(key or ""),
+            "description": str(description or ""),
+            "role": str(role or ""),
+            "row_count": row_count,
+            "columns": columns,
+            "preview_rows": rows[:TRACE_PREVIEW_LIMIT],
+        }
+    )
+
+
+def _recorded_function_case(function_name: Any, input_text: Any, result_value: Any, description: Any = "") -> dict[str, Any]:
+    rows, columns, row_count = _preview_rows_columns_count(result_value)
+    return _json_ready(
+        {
+            "function_name": str(function_name or ""),
+            "input_text": str(input_text or ""),
+            "description": str(description or ""),
+            "matched_count": row_count,
+            "columns": columns,
+            "preview_rows": rows[:TRACE_PREVIEW_LIMIT],
+        }
+    )
+
+
+def _preview_rows_columns_count(value: Any) -> tuple[list[dict[str, Any]], list[str], int]:
+    if hasattr(value, "head") and hasattr(value, "to_dict"):
+        try:
+            row_count = len(value)
+        except Exception:
+            row_count = 0
+        try:
+            preview_value = value.head(TRACE_PREVIEW_LIMIT)
+            rows = preview_value.to_dict(orient="records")
+            columns = [str(column) for column in getattr(value, "columns", [])]
+            if not columns:
+                columns = sorted({column for row in rows for column in row})
+            return [_json_ready(row if isinstance(row, dict) else {"value": row}) for row in rows], columns, int(row_count)
+        except Exception:
+            pass
+    rows, columns = _result_to_rows(value)
+    return rows[:TRACE_PREVIEW_LIMIT], columns, len(rows)
 
 
 def _json_ready(value: Any) -> Any:
@@ -184,6 +348,8 @@ def _analysis_error(
         "pandas_filter_preamble": filter_preamble,
         "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
         "used_helpers": helper_trace["used_helpers"],
+        "step_outputs": [],
+        "function_case_results": [],
     }
     payload.setdefault("trace", {}).setdefault("errors", []).append({"type": error_type, "message": message})
     payload.setdefault("trace", {}).setdefault("inspection", {})["pandas_execution"] = {
@@ -196,6 +362,8 @@ def _analysis_error(
         "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
         "used_helpers": helper_trace["used_helpers"],
         "helper_sources": helper_trace["helper_sources"],
+        "step_outputs": [],
+        "function_case_results": [],
         "error": {"type": error_type, "message": message, "traceback_summary": tb[:1000]},
     }
     return payload

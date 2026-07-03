@@ -16,6 +16,7 @@ def build_variables(payload_value: Any) -> dict[str, Any]:
         "question": payload.get("request", {}).get("question", ""),
         "result_summary_json": _json_dumps(payload.get("data", {})),
         "applied_scope_json": _json_dumps(_compact_applied_scope(payload)),
+        "answer_context_json": _json_dumps(_answer_context(payload)),
         "warnings_errors_json": _json_dumps({"warnings": payload.get("trace", {}).get("warnings", []), "errors": payload.get("trace", {}).get("errors", [])}),
     }
 
@@ -106,6 +107,30 @@ def _compact_result_store(result_store: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _answer_context(payload: dict[str, Any]) -> dict[str, Any]:
+    analysis = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
+    pandas_execution = _dict(_dict(payload.get("trace")).get("inspection")).get("pandas_execution")
+    pandas_execution = _dict(pandas_execution)
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    step_outputs = _list(analysis.get("step_outputs")) or _list(pandas_execution.get("step_outputs"))
+    function_case_results = _list(analysis.get("function_case_results")) or _list(pandas_execution.get("function_case_results"))
+    return {
+        "number_display_policy": {
+            "under_10000": "comma_full_number",
+            "gte_10000": "k_unit",
+            "display_only": True,
+        },
+        "result_shape": _omit_empty(
+            {
+                "row_count": data.get("row_count", analysis.get("row_count")),
+                "columns": data.get("columns") or analysis.get("columns"),
+            }
+        ),
+        "step_outputs": deepcopy(step_outputs),
+        "function_case_results": deepcopy(function_case_results),
+    }
+
+
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -167,6 +192,7 @@ class AnswerVariablesBuilder(Component):
         Output(name="question", display_name="사용자 질문", method="build_question", types=["Message"], group_outputs=True),
         Output(name="result_summary_json", display_name="결과 요약 JSON", method="build_result_summary", types=["Message"], group_outputs=True),
         Output(name="applied_scope_json", display_name="적용 범위 JSON", method="build_applied_scope", types=["Message"], group_outputs=True),
+        Output(name="answer_context_json", display_name="답변 컨텍스트 JSON", method="build_answer_context", types=["Message"], group_outputs=True),
         Output(name="warnings_errors_json", display_name="경고/오류 JSON", method="build_warnings_errors", types=["Message"], group_outputs=True),
     ]
 
@@ -178,6 +204,9 @@ class AnswerVariablesBuilder(Component):
 
     def build_applied_scope(self) -> Message:
         return Message(text=build_variables(getattr(self, "payload", None))["applied_scope_json"])
+
+    def build_answer_context(self) -> Message:
+        return Message(text=build_variables(getattr(self, "payload", None))["answer_context_json"])
 
     def build_warnings_errors(self) -> Message:
         return Message(text=build_variables(getattr(self, "payload", None))["warnings_errors_json"])

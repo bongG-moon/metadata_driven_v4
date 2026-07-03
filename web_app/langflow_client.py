@@ -342,7 +342,8 @@ def normalize_query_response(api_response: Any) -> dict[str, Any]:
     analysis = _query_analysis(payload, data, developer)
     warnings = _unique_values([*_as_list(payload.get("warnings")), *_as_list(analysis.get("warnings"))])
     errors = _unique_values([*_as_list(payload.get("errors")), *_as_list(analysis.get("errors"))])
-    answer = _first_text(payload, ["answer_message", "message", "response", "answer", "text", "content"])
+    plain_answer = _first_text(payload, ["answer_message", "response", "answer", "text", "content"])
+    answer = _first_text(payload, ["display_message", "formatted_message", "chat_message", "message"]) or plain_answer
     if not answer:
         answer = _extract_text_anywhere(api_response)
     if not answer:
@@ -358,6 +359,8 @@ def normalize_query_response(api_response: Any) -> dict[str, Any]:
         "direct_response_ready": direct_response_ready,
         "message_only": bool(answer and not structured_payload),
         "answer_message": answer,
+        "plain_answer_message": plain_answer,
+        "display_message": answer,
         "message": answer,
         "data": data,
         "applied_scope": applied_scope,

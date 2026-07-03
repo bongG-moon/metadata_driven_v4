@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pandas as pd
+
 from web_app.data_ref_store import DEFAULT_RESULT_COLLECTION
 from web_app.langflow_client import (
     LangflowSettings,
@@ -10,6 +12,7 @@ from web_app.langflow_client import (
 )
 from web_app.metadata_store import DEFAULT_COLLECTIONS
 from web_app.session_state_store import DEFAULT_SESSION_COLLECTION
+from web_app.ui_helpers import display_table_frame
 
 
 def test_web_defaults_use_v4_collections() -> None:
@@ -72,6 +75,28 @@ def test_normalize_query_response_accepts_v4_data_analysis_payload() -> None:
     assert result["data"]["row_count"] == 1
     assert result["data"]["rows"][0]["DEVICE"] == "DEV-A"
     assert result["response_type"] == "data_analysis"
+
+
+def test_normalize_query_response_prefers_display_message_for_web() -> None:
+    result = normalize_query_response(
+        {
+            "api_response": {
+                "response_type": "data_analysis",
+                "status": "ok",
+                "answer_message": "상위 제품은 DEV-A입니다.",
+                "display_message": "### 답변\n상위 제품은 DEV-A입니다.\n\n### 결과 테이블\n| DEVICE | 값 |\n| --- | ---: |\n| DEV-A | 12K |",
+                "data": {
+                    "columns": ["DEVICE", "값"],
+                    "rows": [{"DEVICE": "DEV-A", "값": 12000}],
+                    "row_count": 1,
+                },
+            }
+        }
+    )
+
+    assert result["answer_message"].startswith("### 답변")
+    assert result["display_message"] == result["answer_message"]
+    assert result["plain_answer_message"] == "상위 제품은 DEV-A입니다."
 
 
 def test_normalize_query_response_derives_pandas_developer_info_from_trace() -> None:
@@ -143,6 +168,19 @@ def test_web_intent_summary_uses_plural_pandas_function_cases() -> None:
     assert "pandas 함수 케이스 `product_token_match`" in text
     assert "match_product_tokens" in text
     assert "RG 32G DDR4 FBGA 96 DDP" in text
+
+
+def test_web_display_table_uses_auto_k_number_policy() -> None:
+    frame = pd.DataFrame(
+        [
+            {"DEVICE": "DEV-A", "WIP": 9850, "PRODUCTION": 12400},
+        ]
+    )
+
+    displayed = display_table_frame(frame, "auto_k")
+
+    assert displayed.loc[0, "재공수량"] == "9,850"
+    assert displayed.loc[0, "생산량"] == "12.4K"
 
 
 def test_normalize_authoring_response_accepts_v4_trace_preview_items() -> None:

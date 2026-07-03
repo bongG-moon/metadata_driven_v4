@@ -418,7 +418,7 @@ def settings_sidebar() -> dict[str, Any]:
     sync_query_flag(DEVELOPER_MODE_QUERY_KEY, developer_mode)
     number_format_label = st.sidebar.selectbox(
         "표 수량 표시",
-        ["천단위 구분", "K 단위"],
+        ["자동(K 기준)", "전체 숫자"],
         index=0,
         key="table_number_format_label",
     )
@@ -434,7 +434,7 @@ def settings_sidebar() -> dict[str, Any]:
     return {
         "page": page,
         "developer_mode": developer_mode,
-        "number_mode": "k" if number_format_label == "K 단위" else "comma",
+        "number_mode": "auto_k" if number_format_label == "자동(K 기준)" else "comma",
         "api_ready": configured["query"],
         "api_settings": api_settings,
         "active_scope_slot": active_scope_slot,
@@ -519,7 +519,7 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
         render_compact_json(ref, max_height=320)
 
     api_settings = LangflowSettings.from_env()
-    loaded = load_web_data_ref_rows(ref, {"api_settings": api_settings, "number_mode": "comma"})
+    loaded = load_web_data_ref_rows(ref, {"api_settings": api_settings, "number_mode": "auto_k"})
     rows = loaded.get("rows") if isinstance(loaded.get("rows"), list) else []
     if not loaded.get("ok") or not rows:
         render_inline_status("조회 불가", loaded.get("message") or "저장된 row가 없습니다.", tone="warning")
@@ -530,7 +530,7 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
     row_count = int_or_zero(loaded.get("row_count")) or len(frame)
     st.caption(f"데이터 {row_count:,}행 · {len(frame.columns):,}컬럼")
     st.dataframe(
-        display_table_frame(frame, "comma"),
+        display_table_frame(frame, "auto_k"),
         hide_index=True,
         width="stretch",
         height=chat_dataframe_height(len(frame), DATA_REF_TABLE_MAX_HEIGHT),
@@ -556,7 +556,8 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
 
 def render_assistant_chat_message(message: dict[str, Any], message_index: int, settings: dict[str, Any]) -> None:
     result = message.get("result") if isinstance(message.get("result"), dict) else {}
-    st.markdown(format_answer_markdown_text(result.get("answer_message") or message.get("content") or "응답 메시지가 없습니다."))
+    answer_text = result.get("display_message") or result.get("answer_message") or message.get("content") or "응답 메시지가 없습니다."
+    st.markdown(format_answer_markdown_text(answer_text))
     if result.get("message_only"):
         if settings.get("developer_mode"):
             render_chat_developer_details(result, message_index, settings)
@@ -581,13 +582,14 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
             caption += " · data_ref에서 전체 행을 불러왔습니다."
         elif result_rows_are_preview(data):
             caption += f" · 화면 표시 {len(frame):,}행"
-        st.caption(caption)
-        st.dataframe(
-            display_table_frame(frame, settings.get("number_mode", "comma")),
-            hide_index=True,
-            width="stretch",
-            height=chat_dataframe_height(len(frame), CHAT_RESULT_TABLE_MAX_HEIGHT),
-        )
+        if not answer_message_has_result_table(answer_text):
+            st.caption(caption)
+            st.dataframe(
+                display_table_frame(frame, settings.get("number_mode", "comma")),
+                hide_index=True,
+                width="stretch",
+                height=chat_dataframe_height(len(frame), CHAT_RESULT_TABLE_MAX_HEIGHT),
+            )
         st.download_button(
             "결과 데이터 CSV 다운로드",
             data=dataframe_csv_bytes(frame),
@@ -602,6 +604,11 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
     render_chat_metadata(result)
     if settings.get("developer_mode"):
         render_chat_developer_details(result, message_index, settings)
+
+
+def answer_message_has_result_table(text: Any) -> bool:
+    value = str(text or "")
+    return "### 결과 테이블" in value or ("| " in value and "\n| ---" in value)
 
 
 def render_chat_metadata(result: dict[str, Any]) -> None:

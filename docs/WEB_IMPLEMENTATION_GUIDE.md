@@ -133,7 +133,8 @@ Web/API backend는 router flow 하나만 호출한다. Router flow 안에서 `05
 
 parallel:
 19 Answer Response Builder
--> 21 API Response Builder
+-> 21 Answer Message Adapter
+-> 22 API Response Builder
 -> API/Data Output
 ```
 
@@ -144,7 +145,8 @@ Web에서 중요한 차이:
 - `metadata_route.target_dataset`은 dataset 설명/쿼리/활용 예시 같은 metadata QA에서만 쓰는 대상 포인터다. 일반 분석 질문에서 조회할 dataset 목록은 intent plan이 별도로 결정한다.
 - 사용자는 dataset key를 몰라도 된다. `생산량 데이터 조회 쿼리 알려줘` 같은 표현은 `domain_items.quantity_terms`의 alias와 dataset mapping을 통해 대표 dataset으로 해석한다.
 - `20 Answer Response Builder`의 `payload_out`이 답변, 표, 적용 scope, next `state`를 만들며, `analysis.data_ref`를 `data.data_ref`와 `state.current_data.data_ref`로 이어받는다.
-- `21 Answer Message Adapter`는 Langflow Playground/Chat Output용 Markdown message만 만든다. Web API의 표준 JSON으로 파싱하지 않는다.
+- `21 Answer Message Adapter`는 Langflow Playground/Chat Output용 Markdown message를 만든다. Web에서도 같은 표시 형식을 쓰려면 `21.message`를 `22 API Response Builder.display_message`에 연결한다.
+- `22 API Response Builder`는 표준 JSON 응답을 만들며, `display_message`가 연결된 경우 `message/display_message`에 21번 markdown을 포함하고 `answer_message`에는 LLM의 원문 답변을 유지한다.
 - Web backend는 선택된 subflow의 API response output을 표준 query response로 사용한다.
 - Langflow Run API가 text/message 포트만 반환하는 운영 방식이면 API message의 JSON 문자열을 파싱한다.
 - `12` node는 새 비즈니스 로직을 만들지 않고 `10.payload_out`의 projection만 수행한다.

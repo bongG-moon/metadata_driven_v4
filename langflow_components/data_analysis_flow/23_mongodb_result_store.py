@@ -167,6 +167,8 @@ def _compact_analysis_for_store(value: Any) -> dict[str, Any]:
         "llm_generated_code",
         "pandas_filter_preamble",
         "used_helpers",
+        "step_outputs",
+        "function_case_results",
         "error",
     )
     return {key: deepcopy(analysis[key]) for key in keep_keys if key in analysis and key != "rows"}

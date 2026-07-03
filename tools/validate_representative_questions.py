@@ -338,7 +338,7 @@ def representative_cases() -> list[dict[str, Any]]:
                 "wip = sources['wip_data'].groupby(keys, as_index=False)['WIP'].sum().rename(columns={'WIP': 'TOTAL_WIP'})\n"
                 "result = inp.merge(wip, on=keys, how='inner')\n"
                 "result['WIP_PER_INPUT'] = result['TOTAL_WIP'] / result['INPUT_QTY']\n"
-                "result = result.sort_values(['TOTAL_WIP', 'WIP_PER_INPUT'], ascending=[False, False]).head(5)"
+                "result = result.sort_values(['WIP_PER_INPUT', 'TOTAL_WIP'], ascending=[False, False]).head(5)"
             ),
             ["INPUT_QTY", "TOTAL_WIP", "WIP_PER_INPUT", "DEVICE"],
         ),

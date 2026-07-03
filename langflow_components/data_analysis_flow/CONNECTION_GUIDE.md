@@ -133,20 +133,25 @@ pandas 실행 실패 시 오류 정보와 실패한 코드를 LLM에 넘겨 한 
 | 49 | `18 답변 변수 생성기.question` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.question` |
 | 50 | `18 답변 변수 생성기.result_summary_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.result_summary_json` |
 | 51 | `18 답변 변수 생성기.applied_scope_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.applied_scope_json` |
-| 52 | `18 답변 변수 생성기.warnings_errors_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.warnings_errors_json` |
-| 53 | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 54 | `23 MongoDB 결과 저장기.payload_out` | `20 답변 응답 생성기.payload` |
-| 55 | `Langflow Agent/LLM.output` | `20 답변 응답 생성기.answer_text` |
-| 56 | `20 답변 응답 생성기.payload_out` | `21 답변 메시지 어댑터.payload` |
-| 57 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
+| 52 | `18 답변 변수 생성기.answer_context_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.answer_context_json` |
+| 53 | `Text Input: 답변 특화 지침.text` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.domain_answer_guidance` |
+| 54 | `18 답변 변수 생성기.warnings_errors_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.warnings_errors_json` |
+| 55 | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 56 | `23 MongoDB 결과 저장기.payload_out` | `20 답변 응답 생성기.payload` |
+| 57 | `Langflow Agent/LLM.output` | `20 답변 응답 생성기.answer_text` |
+| 58 | `20 답변 응답 생성기.payload_out` | `21 답변 메시지 어댑터.payload` |
+| 59 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
 
 `21 답변 메시지 어댑터.download_base_url`에는 다운로드 링크를 만들 때 사용할 Base URL만 입력한다. 기본값은 `http://localhost:8765`이다.
+`21 답변 메시지 어댑터.include_diagnostics`는 기본값 `false`를 권장한다. Langflow Playground에서 의도 분석, 데이터 조회, pandas 코드까지 함께 검증해야 할 때만 `true`로 바꾼다.
+`Text Input: 답변 특화 지침`에는 `answer_domain_guidance_input_example_ko.md`의 내용을 복사해 넣을 수 있다. 공통 답변 Prompt Template에는 특정 제품 token/helper 규칙을 직접 넣지 않는다.
 
 API 응답이 필요하면 다음을 추가한다.
 
 | From node.output | To node.input |
 | --- | --- |
 | `20 답변 응답 생성기.payload_out` | `22 API 응답 생성기.payload` |
+| `21 답변 메시지 어댑터.message` | `22 API 응답 생성기.display_message` |
 | `22 API 응답 생성기.api_response` | downstream API/Data output |
 
 ## 7. Langflow Chat 데이터 다운로드 링크

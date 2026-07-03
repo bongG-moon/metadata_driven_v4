@@ -164,3 +164,17 @@ df = match_product_tokens("RG 32G DDR4 FBGA 96 DDP", sources["production_data"])
 ```
 
 helper 구현은 executor가 제공하지 않는다. `function_case_helper_code_input_example.py`의 함수 정의를 16번 prompt에 넣고, LLM이 그 함수 정의를 생성 pandas 코드 상단에 포함해야 한다.
+
+## 6. 답변 특화 지침 입력 위치
+
+답변 생성에서만 필요한 도메인별 표현 규칙은 공통 `19_answer_prompt_template_ko.md`에 직접 쓰지 않는다.
+Langflow Text Input을 하나 만들고 아래처럼 연결한다.
+
+| 목적 | 입력 노드 | 입력 포트 | 연결 대상 |
+| --- | --- | --- | --- |
+| 답변 LLM에 도메인 특화 표현 규칙 전달 | `Text Input` | `message` | `19 답변 Prompt Template.domain_answer_guidance` |
+
+바로 복사해서 테스트할 수 있는 값은 `answer_domain_guidance_input_example_ko.md`에 있다.
+
+예를 들어 제품 token 매칭 결과를 어떻게 설명할지, 장비 ASSIGN 단계형 분석을 어떤 순서로 말할지는 이 Text Input에 넣는다.
+공통 답변 prompt에는 특정 helper 이름이나 특정 제품 token 규칙을 추가하지 않는다.

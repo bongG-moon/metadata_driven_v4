@@ -27,7 +27,31 @@ QUANTITY_COLUMN_HINTS = (
     "BALANCE",
     "DIE",
     "WF",
+    "값",
+    "생산",
+    "재공",
+    "투입",
 )
+DISPLAY_COLUMN_LABELS = {
+    "OPER_NAME": "공정",
+    "OPER_NM": "공정",
+    "TOTAL_PRODUCTION": "생산량",
+    "PRODUCTION": "생산량",
+    "PKG_OUT_QTY": "PKG OUT 실적",
+    "INPUT_QTY": "투입수량",
+    "TOTAL_WIP": "재공수량",
+    "BOH_WIP": "아침재공",
+    "WIP": "재공수량",
+    "WIP_PER_INPUT": "투입 대비 WIP",
+    "ASSIGN_QTY": "ASSIGN 대수",
+    "ASSIGN_COUNT": "ASSIGN 대수",
+    "wip_sum": "WIP 합계",
+    "production_sum": "생산량",
+    "input_sum": "투입수량",
+    "MCP_NO": "MCP NO",
+    "WORK_DATE": "기준일",
+    "WORK_DT": "기준일",
+}
 
 
 def json_text(value: Any) -> str:
@@ -97,7 +121,7 @@ def chat_dataframe_height(row_count: int, max_height: int = TABLE_MAX_HEIGHT) ->
     return chat_table_height(clean_count, max_height)
 
 
-def display_table_frame(frame: pd.DataFrame, number_mode: str = "comma") -> pd.DataFrame:
+def display_table_frame(frame: pd.DataFrame, number_mode: str = "auto_k") -> pd.DataFrame:
     if frame.empty:
         return frame
     result = frame.copy()
@@ -105,7 +129,34 @@ def display_table_frame(frame: pd.DataFrame, number_mode: str = "comma") -> pd.D
         if not _looks_quantity_column(column):
             continue
         result[column] = result[column].map(lambda value: _format_number(value, number_mode))
+    result = result.rename(columns={column: DISPLAY_COLUMN_LABELS.get(str(column), str(column)) for column in result.columns})
+    result = _order_display_columns(result)
     return result
+
+
+def _order_display_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    priority = [
+        "기준일",
+        "공정",
+        "TECH",
+        "DEN",
+        "MODE",
+        "ORG",
+        "PKG_TYPE1",
+        "PKG_TYPE2",
+        "LEAD",
+        "MCP NO",
+        "DEVICE",
+        "지표",
+        "값",
+        "생산량",
+        "재공수량",
+        "아침재공",
+        "투입수량",
+    ]
+    ordered = [column for column in priority if column in frame.columns]
+    ordered.extend(column for column in frame.columns if column not in ordered)
+    return frame[ordered] if ordered else frame
 
 
 def _looks_quantity_column(column: Any) -> bool:
@@ -122,8 +173,9 @@ def _format_number(value: Any, mode: str) -> Any:
         return value
     if number != number:
         return value
-    if mode == "k" and abs(number) >= 1000:
-        return f"{number / 1000:.1f}K"
+    if mode in {"auto_k", "k"} and abs(number) >= 10000:
+        k_value = number / 1000
+        return f"{int(k_value):,}K" if float(k_value).is_integer() else f"{k_value:,.1f}K"
     if float(number).is_integer():
         return f"{int(number):,}"
     return f"{number:,.1f}"

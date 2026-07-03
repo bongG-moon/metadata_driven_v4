@@ -788,7 +788,7 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     answer_prompt_vars = answer_variables.build_variables(payload)
     assert "wip_sum" in answer_prompt_vars["result_summary_json"]
     payload = answer_builder.build_answer_response(payload, "D/A1 공정의 WIP 합계는 120입니다.")
-    playground_message = message_adapter.build_message(payload)
+    playground_message = message_adapter.build_message(payload, "", True)
     response = api_builder.build_api_response(payload)
 
     assert response["status"] == "ok"
@@ -807,7 +807,7 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     assert "pandas 필터" in playground_message
     assert "### pandas 코드/실행" in playground_message
     assert "df = sources['wip_data']" in playground_message
-    assert "| OPER_NAME | wip_sum |" in playground_message
+    assert "| 공정 | WIP 합계 |" in playground_message
 
 
 def test_answer_message_adapter_result_table_uses_ten_row_preview():
@@ -827,6 +827,48 @@ def test_answer_message_adapter_result_table_uses_ten_row_preview():
     assert "| 9 |" in message
     assert "| 10 |" not in message
     assert "총 12건 중 10건을 표시했습니다." in message
+
+
+def test_answer_message_adapter_formats_numbers_and_shows_recorded_outputs():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "현재 재공 기준 분석 결과입니다.",
+        "analysis": {
+            "status": "ok",
+            "step_outputs": [
+                {
+                    "key": "top_wip_product",
+                    "description": "현재 재공이 가장 많은 제품",
+                    "row_count": 1,
+                    "columns": ["DEVICE", "WIP"],
+                    "preview_rows": [{"DEVICE": "DEV-A", "WIP": 12000}],
+                }
+            ],
+            "function_case_results": [
+                {
+                    "function_name": "sample_helper",
+                    "input_text": "DEV-A",
+                    "description": "특화 함수 결과",
+                    "matched_count": 1,
+                    "columns": ["DEVICE", "WIP"],
+                    "preview_rows": [{"DEVICE": "DEV-A", "WIP": 12000}],
+                }
+            ],
+        },
+        "data": {
+            "columns": ["DEVICE", "WIP", "ASSIGN_COUNT"],
+            "rows": [{"DEVICE": "DEV-A", "WIP": 12000, "ASSIGN_COUNT": 9850}],
+            "row_count": 1,
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert "### 분석 과정 요약" in message
+    assert "### 분석 근거" in message
+    assert "12K" in message
+    assert "9,850" in message
 
 
 def test_intent_normalizer_parses_langflow_message_text_with_nested_json():
@@ -1066,9 +1108,13 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
 
     message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
     helper_message = message_adapter.build_message(helper_result)
-    assert "사용 helper" in helper_message
-    assert "실제 실행 pandas 코드" in helper_message
-    assert "def match_product_tokens" in helper_message
+    assert "### 제품/조건 매핑 결과" in helper_message
+    assert "DA 16G GDDR6 180" in helper_message
+    assert "def match_product_tokens" not in helper_message
+    helper_diagnostic_message = message_adapter.build_message(helper_result, "", True)
+    assert "사용 helper" in helper_diagnostic_message
+    assert "실제 실행 pandas 코드" in helper_diagnostic_message
+    assert "def match_product_tokens" in helper_diagnostic_message
 
 
 def test_match_product_tokens_handles_org_x_lead_mcp_and_multiple_products():
@@ -1141,7 +1187,7 @@ def test_answer_message_adapter_skips_duplicate_result_table_when_answer_has_tab
         "trace": {"warnings": [], "errors": [], "inspection": {}},
     }
 
-    message = message_adapter.build_message(payload)
+    message = message_adapter.build_message(payload, "", True)
 
     assert message.count("| OPER_NAME | wip_sum |") == 1
     assert "wip_sum_by_oper" in message
@@ -1209,6 +1255,22 @@ def test_answer_message_adapter_default_download_link_uses_standalone_server():
     assert "http://localhost:8765/?download_ref=" in message
 
 
+def test_api_response_builder_uses_chat_display_message_when_connected():
+    api_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "22_api_response_builder.py")
+    payload = {
+        "answer_message": "단순 답변입니다.",
+        "analysis": {"status": "ok"},
+        "data": {"columns": ["지표", "값"], "rows": [{"지표": "생산 실적", "값": 650}], "row_count": 1},
+    }
+
+    response = api_builder.build_api_response(payload, "### 답변\n상세 답변입니다.\n\n### 결과 테이블\n| 지표 | 값 |\n| --- | ---: |\n| 생산 실적 | 650 |")
+
+    assert response["status"] == "ok"
+    assert response["answer_message"] == "단순 답변입니다."
+    assert response["display_message"].startswith("### 답변")
+    assert response["message"] == response["display_message"]
+
+
 def test_pandas_executor_outputs_json_ready_numeric_rows():
     pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
     payload = {"runtime_sources": {}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
@@ -1233,6 +1295,21 @@ def test_pandas_executor_outputs_json_ready_numeric_rows():
     assert "_runtime_result_rows" not in result
 
 
+def test_pandas_executor_wraps_scalar_result_with_meaningful_columns():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "request": {"question": "전일 L-218K8H 제품의 SBM공정에서 생산 실적 알려줘"},
+        "runtime_sources": {},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    result = pandas_executor.execute_pandas_code(payload, {"code": "result = 650"})
+
+    assert result["data"]["columns"] == ["지표", "값"]
+    assert result["data"]["rows"] == [{"지표": "생산 실적", "값": 650}]
+    assert result["analysis"]["columns"] == ["지표", "값"]
+
+
 def test_pandas_executor_trace_preview_is_compact_but_full_rows_are_kept():
     pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
     payload = {"runtime_sources": {}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
@@ -1247,6 +1324,42 @@ def test_pandas_executor_trace_preview_is_compact_but_full_rows_are_kept():
     assert len(result["_full_result_rows"]) == 12
     assert len(result["data"]["rows"]) == 12
     assert len(trace_rows) == 5
+
+
+def test_pandas_executor_records_step_and_function_case_outputs():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "production_data": [
+                {"DEVICE": "DEV-A", "WIP": 12000, "PRODUCTION": 7},
+                {"DEVICE": "DEV-B", "WIP": 3000, "PRODUCTION": 3},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    result = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                "df = sources['production_data'].copy()\n"
+                "top = df.sort_values('WIP', ascending=False).head(1)\n"
+                "record_step('top_wip_product', top, description='현재 재공이 가장 많은 제품', role='basis')\n"
+                "record_function_case_result('sample_helper', 'DEV-A', top, description='helper 결과')\n"
+                "result = top[['DEVICE', 'WIP']]"
+            )
+        },
+    )
+
+    step_outputs = result["analysis"]["step_outputs"]
+    function_case_results = result["analysis"]["function_case_results"]
+
+    assert result["analysis"]["status"] == "ok"
+    assert step_outputs[0]["key"] == "top_wip_product"
+    assert step_outputs[0]["preview_rows"][0]["DEVICE"] == "DEV-A"
+    assert function_case_results[0]["function_name"] == "sample_helper"
+    assert function_case_results[0]["matched_count"] == 1
+    assert result["trace"]["inspection"]["pandas_execution"]["step_outputs"] == step_outputs
 
 
 def test_answer_variables_accept_numpy_scalars_after_result_store(monkeypatch):
@@ -1286,12 +1399,15 @@ def test_answer_variables_accept_numpy_scalars_after_result_store(monkeypatch):
     variables = answer_variables.build_variables(stored)
     result_summary = json.loads(variables["result_summary_json"])
     applied_scope = json.loads(variables["applied_scope_json"])
+    answer_context = json.loads(variables["answer_context_json"])
     ref_id = stored["data"]["data_ref"]["ref_id"]
 
     assert variables["question"] == "수량 알려줘"
     assert result_summary["rows"][0] == {"DEVICE": "DEV-A", "EMPTY": None, "QTY": 7, "RATIO": 1.5}
     assert applied_scope["pandas_execution"]["row_count"] == 1
     assert applied_scope["pandas_execution"]["used_helpers"] == ["match_product_tokens"]
+    assert answer_context["number_display_policy"]["gte_10000"] == "k_unit"
+    assert answer_context["result_shape"]["row_count"] == 1
     assert "generated_code" not in variables["applied_scope_json"]
     assert "effective_code_with_helpers" not in variables["applied_scope_json"]
     assert "helper_sources" not in variables["applied_scope_json"]
@@ -2054,6 +2170,8 @@ def test_langflow_prompt_templates_only_expose_valid_variables():
         "output_contract_json",
         "result_summary_json",
         "applied_scope_json",
+        "answer_context_json",
+        "domain_answer_guidance",
         "warnings_errors_json",
     }
     prompt_files = sorted((ROOT / "langflow_components").glob("*/*prompt_template_ko.md"))
@@ -2130,9 +2248,10 @@ def test_prompt_variable_builder_output_order_matches_prompt_input_order():
     ]
     manual_prompt_variables = {
         "data_analysis_flow/03_intent_prompt_template_ko.md": {"specialized_prompt"},
-        "data_analysis_flow/16_pandas_prompt_template_ko.md": {"function_case_helper_code"},
-        "data_analysis_flow/17b_pandas_repair_prompt_template_ko.md": {"function_case_helper_code"},
-    }
+            "data_analysis_flow/16_pandas_prompt_template_ko.md": {"function_case_helper_code"},
+            "data_analysis_flow/17b_pandas_repair_prompt_template_ko.md": {"function_case_helper_code"},
+            "data_analysis_flow/19_answer_prompt_template_ko.md": {"domain_answer_guidance"},
+        }
 
     for prompt_relpath, builder_relpath in prompt_to_builder:
         prompt_path = ROOT / "langflow_components" / prompt_relpath

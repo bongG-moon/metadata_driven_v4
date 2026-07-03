@@ -6,6 +6,7 @@ import json
 import sys
 import uuid
 from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -903,8 +904,8 @@ def intent_plan_summary_lines(intent: dict[str, Any]) -> list[str]:
     datasets = _string_values(intent.get("datasets"))
     if datasets:
         lines.append(f"- 계획에서 사용하는 데이터셋은 {_inline_list(datasets)}입니다.")
-    function_case = intent.get("pandas_function_case") if isinstance(intent.get("pandas_function_case"), dict) else {}
-    if function_case:
+    function_cases = _intent_function_cases(intent)
+    for function_case in function_cases:
         case_key = _clean_text(function_case.get("key"))
         function_name = _clean_text(function_case.get("function_name"))
         input_text = _clean_text(function_case.get("input_text"))
@@ -950,6 +951,30 @@ def intent_plan_summary_lines(intent: dict[str, Any]) -> list[str]:
     if not lines:
         lines.append("- 실행 계획 정보가 포함되어 있지만 요약할 수 있는 표준 항목은 없습니다. 원본 JSON을 확인하세요.")
     return lines
+
+
+def _intent_function_cases(intent: dict[str, Any]) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    multiple = intent.get("pandas_function_cases")
+    if isinstance(multiple, list):
+        cases.extend(deepcopy(item) for item in multiple if isinstance(item, dict))
+    single = intent.get("pandas_function_case")
+    if isinstance(single, dict):
+        cases.append(deepcopy(single))
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in cases:
+        marker = (
+            _clean_text(item.get("function_name")),
+            _clean_text(item.get("key") or item.get("function_case_key")),
+            _clean_text(item.get("input_text")),
+            _clean_text(item.get("source_alias")),
+        )
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(item)
+    return deduped
 
 
 def pandas_analysis_summary_lines(analysis: dict[str, Any]) -> list[str]:

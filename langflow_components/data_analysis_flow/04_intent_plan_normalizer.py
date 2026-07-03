@@ -9,16 +9,27 @@ from lfx.custom.custom_component.component import Component
 from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
+
 def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, Any]:
     payload = _payload(payload_value)
     parsed = _json(llm_response)
     plan = parsed.get("intent_plan") if isinstance(parsed.get("intent_plan"), dict) else parsed
     retrieval_jobs = plan.get("retrieval_jobs") if isinstance(plan.get("retrieval_jobs"), list) else []
     pandas_plan = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
-    pandas_plan = _ensure_function_case_step(plan, pandas_plan, retrieval_jobs)
+    function_cases = _function_case_items(plan, retrieval_jobs)
+    pandas_plan = _ensure_function_case_steps(function_cases, pandas_plan, retrieval_jobs)
+
+    normalized_plan = deepcopy(plan)
+    normalized_plan.pop("pandas_function_case", None)
+    normalized_plan.pop("selected_function_cases", None)
+    normalized_plan["retrieval_jobs"] = retrieval_jobs
+    normalized_plan["pandas_execution_plan"] = pandas_plan
+    if function_cases:
+        normalized_plan["pandas_function_cases"] = function_cases
+    else:
+        normalized_plan.pop("pandas_function_cases", None)
+
     next_payload = deepcopy(payload)
-    normalized_plan = {**plan, "retrieval_jobs": retrieval_jobs, "pandas_execution_plan": pandas_plan}
-    normalized_plan["selected_function_cases"] = _selected_function_cases(normalized_plan)
     next_payload["intent_plan"] = normalized_plan
     next_payload["metadata_refs"] = parsed.get("metadata_refs", plan.get("metadata_refs", [])) if isinstance(parsed.get("metadata_refs", plan.get("metadata_refs", [])), list) else []
     next_payload.setdefault("trace", {}).setdefault("inspection", {})["intent"] = {
@@ -34,57 +45,65 @@ def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, An
     return next_payload
 
 
-def _ensure_function_case_step(plan: dict[str, Any], pandas_plan: list[Any], retrieval_jobs: list[dict[str, Any]]) -> list[Any]:
-    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
-    function_name = str(case.get("function_name") or "").strip()
-    case_key = str(case.get("key") or case.get("case_key") or case.get("function_case_key") or "").strip()
-    if not function_name and not case_key:
-        return pandas_plan
-    for step in pandas_plan:
-        if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case":
-            return pandas_plan
+def _function_case_items(plan: dict[str, Any], retrieval_jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    single = plan.get("pandas_function_case")
+    if isinstance(single, dict) and single:
+        items.append(deepcopy(single))
+    elif isinstance(single, list):
+        items.extend(deepcopy(item) for item in single if isinstance(item, dict) and item)
+    multiple = plan.get("pandas_function_cases")
+    if isinstance(multiple, dict) and multiple:
+        items.append(deepcopy(multiple))
+    elif isinstance(multiple, list):
+        items.extend(deepcopy(item) for item in multiple if isinstance(item, dict) and item)
+    return _dedupe_cases([_normalize_case(item, retrieval_jobs) for item in items])
+
+
+def _normalize_case(item: dict[str, Any], retrieval_jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    case = deepcopy(item)
+    if case.get("function_case_key") and not case.get("key"):
+        case["key"] = case.get("function_case_key")
+    if case.get("case_key") and not case.get("key"):
+        case["key"] = case.get("case_key")
+    case.pop("case_key", None)
+    case.pop("function_case_key", None)
     source_alias = str(case.get("source_alias") or "").strip()
     if not source_alias and retrieval_jobs:
         source_alias = str(retrieval_jobs[0].get("source_alias") or retrieval_jobs[0].get("dataset_key") or "").strip()
-    step = {
-        "step": "특화 함수 적용",
-        "operation": "apply_pandas_function_case",
-        "function_case_key": case_key,
-        "function_name": function_name,
-        "input_text": str(case.get("input_text") or ""),
-        "source_alias": source_alias,
-    }
-    return [step, *pandas_plan]
+    if source_alias:
+        case["source_alias"] = source_alias
+    if "input_text" in case:
+        case["input_text"] = str(case.get("input_text") or "")
+    return case
 
 
-def _selected_function_cases(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    cases = []
-    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
-    if case:
-        cases.append(deepcopy(case))
-    for step in plan.get("pandas_execution_plan", []) if isinstance(plan.get("pandas_execution_plan"), list) else []:
-        if not isinstance(step, dict) or str(step.get("operation") or "") != "apply_pandas_function_case":
+def _dedupe_cases(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in items:
+        function_name = str(item.get("function_name") or "").strip()
+        case_key = str(item.get("key") or "").strip()
+        input_text = str(item.get("input_text") or "").strip()
+        source_alias = str(item.get("source_alias") or "").strip()
+        if not function_name and not case_key:
             continue
-        item = {
-            "key": step.get("function_case_key", ""),
-            "function_name": step.get("function_name", ""),
-            "input_text": step.get("input_text", ""),
-            "source_alias": step.get("source_alias", ""),
-        }
-        if item not in cases:
-            cases.append(item)
-    return cases
+        marker = (function_name, case_key, input_text, source_alias)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(item)
+    return deduped
 
 
-def _ensure_function_case_step(plan: dict[str, Any], pandas_plan: list[Any], retrieval_jobs: list[dict[str, Any]]) -> list[Any]:
-    cases = _function_case_items(plan)
-    if not cases:
+def _ensure_function_case_steps(function_cases: list[dict[str, Any]], pandas_plan: list[Any], retrieval_jobs: list[dict[str, Any]]) -> list[Any]:
+    if not function_cases:
         return pandas_plan
     existing_steps = [step for step in pandas_plan if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case"]
     steps_to_add = []
-    for case in cases:
+    for case in function_cases:
         function_name = str(case.get("function_name") or "").strip()
-        case_key = str(case.get("key") or case.get("case_key") or case.get("function_case_key") or "").strip()
+        case_key = str(case.get("key") or "").strip()
         if not function_name and not case_key:
             continue
         source_alias = str(case.get("source_alias") or "").strip()
@@ -120,41 +139,6 @@ def _has_function_case_step(steps: list[Any], function_name: str, case_key: str,
             continue
         return True
     return False
-
-
-def _selected_function_cases(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    cases = []
-    for case in _function_case_items(plan):
-        cases.append(deepcopy(case))
-    for step in plan.get("pandas_execution_plan", []) if isinstance(plan.get("pandas_execution_plan"), list) else []:
-        if not isinstance(step, dict) or str(step.get("operation") or "") != "apply_pandas_function_case":
-            continue
-        item = {
-            "key": step.get("function_case_key", ""),
-            "function_name": step.get("function_name", ""),
-            "input_text": step.get("input_text", ""),
-            "source_alias": step.get("source_alias", ""),
-        }
-        if item not in cases:
-            cases.append(item)
-    return cases
-
-
-def _function_case_items(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    single = plan.get("pandas_function_case")
-    if isinstance(single, dict) and single:
-        items.append(deepcopy(single))
-    elif isinstance(single, list):
-        items.extend(deepcopy(item) for item in single if isinstance(item, dict) and item)
-    multiple = plan.get("pandas_function_cases")
-    if isinstance(multiple, list):
-        items.extend(deepcopy(item) for item in multiple if isinstance(item, dict) and item)
-    deduped: list[dict[str, Any]] = []
-    for item in items:
-        if item not in deduped:
-            deduped.append(item)
-    return deduped
 
 
 def _payload(value: Any) -> dict[str, Any]:

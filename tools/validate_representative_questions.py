@@ -418,11 +418,13 @@ def product_case(
     required_columns: list[str],
 ) -> dict[str, Any]:
     item = case(case_id, question, analysis_kind, retrieval_jobs, pandas_code, required_columns)
-    item["intent_response"]["intent_plan"]["pandas_function_case"] = {
-        "key": "product_token_match",
-        "function_name": "match_product_tokens",
-        "input_text": product_text,
-    }
+    item["intent_response"]["intent_plan"]["pandas_function_cases"] = [
+        {
+            "key": "product_token_match",
+            "function_name": "match_product_tokens",
+            "input_text": product_text,
+        }
+    ]
     item["requires_helper"] = True
     return item
 

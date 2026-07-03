@@ -13,7 +13,7 @@ from lfx.schema.data import Data
 
 
 GOODOCS_SYSTEM_COLUMNS = {"ROW_INDEX", "LastUser", "LastTime", "LastEditType", "FirstUser", "FirstTime", "ROW_ID"}
-PREVIEW_LIMIT = 20
+PREVIEW_LIMIT = 5
 
 
 class Goodocs:

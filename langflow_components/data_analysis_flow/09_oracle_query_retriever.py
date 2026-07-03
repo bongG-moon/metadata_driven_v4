@@ -19,7 +19,7 @@ from lfx.schema.data import Data
 
 
 SINGLE_ORACLE_CONFIG_KEY = "__single_oracle_config__"
-PREVIEW_LIMIT = 20
+PREVIEW_LIMIT = 5
 
 
 def retrieve_oracle_data(payload_value: Any, oracle_config: Any = "", fetch_limit: Any = "") -> dict[str, Any]:

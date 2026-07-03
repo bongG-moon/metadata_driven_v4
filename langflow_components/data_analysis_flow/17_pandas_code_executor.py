@@ -14,6 +14,8 @@ from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 FORBIDDEN_NAMES = {"open", "exec", "eval", "__import__", "compile", "input"}
+RESULT_PREVIEW_LIMIT = 50
+TRACE_PREVIEW_LIMIT = 5
 
 
 def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]:
@@ -69,19 +71,19 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
         if result is None:
             result = exec_ns.get("result_df")
         rows, columns = _result_to_rows(result)
-        next_payload["_runtime_result_rows"] = rows
+        next_payload["_full_result_rows"] = rows
         next_payload["analysis"] = {
             "status": "ok",
             "row_count": len(rows),
             "columns": columns,
-            "rows": rows[:50],
+            "rows": rows[:RESULT_PREVIEW_LIMIT],
             "analysis_code": code,
             "llm_generated_code": llm_code,
             "pandas_filter_preamble": filter_preamble,
             "effective_code_with_helpers": helper_trace["effective_code_with_helpers"],
             "used_helpers": helper_trace["used_helpers"],
         }
-        next_payload["data"] = {"columns": columns, "rows": rows[:50], "row_count": len(rows), "data_ref": ""}
+        next_payload["data"] = {"columns": columns, "rows": rows[:RESULT_PREVIEW_LIMIT], "row_count": len(rows), "data_ref": ""}
         next_payload.setdefault("trace", {}).setdefault("inspection", {})["pandas_execution"] = {
             "stage": "17_pandas_code_executor",
             "status": "ok",
@@ -92,7 +94,7 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
             "used_helpers": helper_trace["used_helpers"],
             "helper_sources": helper_trace["helper_sources"],
             "pandas_filter_plan": filter_plan,
-            "execution_result": {"row_count": len(rows), "columns": columns, "preview_rows": rows[:20]},
+            "execution_result": {"row_count": len(rows), "columns": columns, "preview_rows": rows[:TRACE_PREVIEW_LIMIT]},
             "error": None,
         }
         return next_payload

@@ -73,12 +73,10 @@ def _repair_context(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _function_case_selection(payload: dict[str, Any]) -> dict[str, Any]:
     plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
-    case = plan.get("pandas_function_case") if isinstance(plan.get("pandas_function_case"), dict) else {}
     steps = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
     selected_steps = [deepcopy(step) for step in steps if isinstance(step, dict) and str(step.get("operation") or "") == "apply_pandas_function_case"]
-    selected_cases = _selected_function_cases(plan, case, selected_steps)
+    selected_cases = _selected_function_cases(plan, selected_steps)
     return {
-        "selected_case": deepcopy(case),
         "selected_cases": selected_cases,
         "selected_steps": selected_steps,
         "available_helpers": _helpers_from_selected_cases(selected_cases),
@@ -122,14 +120,12 @@ def _pandas_errors(payload: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
-def _selected_function_cases(plan: dict[str, Any], case: dict[str, Any], selected_steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _selected_function_cases(plan: dict[str, Any], selected_steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cases = []
-    if case:
-        cases.append(deepcopy(case))
+    single = plan.get("pandas_function_case")
+    if isinstance(single, dict) and single:
+        cases.append(deepcopy(single))
     for item in plan.get("pandas_function_cases", []) if isinstance(plan.get("pandas_function_cases"), list) else []:
-        if isinstance(item, dict) and item not in cases:
-            cases.append(deepcopy(item))
-    for item in plan.get("selected_function_cases", []) if isinstance(plan.get("selected_function_cases"), list) else []:
         if isinstance(item, dict) and item not in cases:
             cases.append(deepcopy(item))
     for step in selected_steps:
@@ -141,7 +137,24 @@ def _selected_function_cases(plan: dict[str, Any], case: dict[str, Any], selecte
         }
         if item not in cases:
             cases.append(item)
-    return cases
+    return _dedupe_cases(cases)
+
+
+def _dedupe_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in cases:
+        marker = (
+            str(item.get("function_name") or ""),
+            str(item.get("key") or item.get("function_case_key") or ""),
+            str(item.get("input_text") or ""),
+            str(item.get("source_alias") or ""),
+        )
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(deepcopy(item))
+    return deduped
 
 
 def _payload(value: Any) -> dict[str, Any]:

@@ -179,7 +179,7 @@ API 응답이 필요하면 다음을 추가한다.
 - Prompt와 LLM 호출은 Langflow 기본 `Prompt Template`, `Agent/LLM` 노드에 둔다.
 - custom component는 프롬프트 본문을 내장하지 않고 변수 생성, 정규화, 조회, 실행, 저장만 담당한다.
 - `required_params`만 조회 단계에 적용한다. 공정/제품/상태/장비/LOT 같은 분석 조건은 `filters`로 보존했다가 pandas 전처리에서 적용한다.
-- 제품 token 매칭이 필요한 복잡한 케이스는 `pandas_function_case.function_name=match_product_tokens`로 표현하고, pandas code는 `match_product_tokens(...)` helper를 사용한다. 세부 입력 예시는 `SPECIALIZED_INPUT_GUIDE.md`와 `function_case_helper_code_input_example.py`를 따른다.
+- 제품 token 매칭이 필요한 복잡한 케이스는 `pandas_function_cases[].function_name=match_product_tokens`로 표현하고, pandas code는 `match_product_tokens(...)` helper를 사용한다. 세부 입력 예시는 `SPECIALIZED_INPUT_GUIDE.md`와 `function_case_helper_code_input_example.py`를 따른다.
 - pandas code는 `result` 또는 `result_df`를 반드시 설정해야 한다.
 - pandas code는 import/open/eval/exec/file/network 접근을 사용하면 안 된다.
 - `runtime_sources`는 최종 API response에서 제거한다.

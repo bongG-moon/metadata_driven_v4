@@ -10,7 +10,7 @@ from lfx.custom.custom_component.component import Component
 from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.message import Message
 
-TABLE_PREVIEW_LIMIT = 20
+TABLE_PREVIEW_LIMIT = 10
 CELL_TEXT_LIMIT = 120
 VALUE_TEXT_LIMIT = 900
 DEFAULT_DOWNLOAD_BASE_URL = "http://localhost:8765"

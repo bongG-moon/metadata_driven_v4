@@ -10,7 +10,7 @@ from lfx.schema.message import Message
 
 def build_variables(payload_value: Any, metadata_candidates_value: Any = None) -> dict[str, Any]:
     payload = _payload(payload_value)
-    metadata_candidates = _payload(metadata_candidates_value) or {}
+    metadata_candidates = _compact_metadata_candidates(_payload(metadata_candidates_value) or {})
     return {
         "question": payload.get("request", {}).get("question", ""),
         "state_summary": json.dumps(_state_summary(payload), ensure_ascii=False, indent=2),
@@ -33,7 +33,6 @@ def _schema() -> dict[str, Any]:
     return {
         "intent_plan": {
             "analysis_kind": "string",
-            "pandas_function_case": {},
             "pandas_function_cases": [],
             "retrieval_jobs": [
                 {
@@ -51,6 +50,22 @@ def _schema() -> dict[str, Any]:
         "metadata_refs": [{"section": "string", "key": "string"}],
         "trace": {"decision_reason": []},
     }
+
+
+def _compact_metadata_candidates(value: dict[str, Any]) -> dict[str, Any]:
+    candidates = value.get("metadata_candidates") if isinstance(value.get("metadata_candidates"), dict) else value
+    result: dict[str, Any] = {}
+    for key in ("domain_items", "table_catalog_items", "main_flow_filters", "runtime_function_helpers"):
+        item = candidates.get(key) if isinstance(candidates, dict) else None
+        if item not in (None, "", [], {}):
+            result[key] = deepcopy(item)
+    if result:
+        return result
+    return {
+        str(key): deepcopy(item)
+        for key, item in candidates.items()
+        if key not in {"metadata_candidates", "metadata_load"} and item not in (None, "", [], {})
+    } if isinstance(candidates, dict) else {}
 
 
 def _payload(value: Any) -> dict[str, Any]:

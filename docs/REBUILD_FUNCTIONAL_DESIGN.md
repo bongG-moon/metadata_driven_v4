@@ -447,7 +447,7 @@ Main flow filter는 질문에서 추출 가능한 표준 filter 개념이다.
 
 1. metadata에 function case를 등록한다.
 2. intent normalizer가 질문과 metadata를 보고 후보를 고른다.
-3. 선택 결과를 `intent_plan.selected_function_cases`에 compact하게 남긴다.
+3. 선택 결과는 `intent_plan.pandas_function_cases` 배열에 compact하게 남기고, 실행 순서는 `pandas_execution_plan`의 `apply_pandas_function_case` step으로 표현한다.
 4. pandas prompt builder가 선택된 case만 LLM prompt에 `Specialized Functions` block으로 전달한다.
 5. pandas executor는 LLM이 생성한 self-contained code와 runtime source만 실행한다.
 

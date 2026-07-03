@@ -57,14 +57,14 @@ def store_result(
                 "intent_plan": _json_ready(next_payload.get("intent_plan", {})),
                 "source_results": _json_ready(next_payload.get("source_results", [])),
                 "runtime_sources": _json_ready(next_payload.get("runtime_sources", {})),
-                "result_rows": _json_ready(next_payload.get("_runtime_result_rows", next_payload.get("data", {}).get("rows", []))),
-                "analysis": _json_ready(next_payload.get("analysis", {})),
-                "data": _json_ready(next_payload.get("data", {})),
+                "result_rows": _json_ready(_result_rows_for_store(next_payload)),
+                "analysis": _json_ready(_compact_analysis_for_store(next_payload.get("analysis", {}))),
+                "data": _json_ready(_compact_data_for_store(next_payload.get("data", {}))),
             },
         }
         collection.replace_one({"_id": data_ref}, doc, upsert=True)
         data_refs = _build_data_refs(next_payload, data_ref, mongo_database, collection_name)
-        result_ref = data_refs[0] if data_refs else _data_ref_object(data_ref, mongo_database, collection_name, "payload.data.rows", "analysis_result", "분석 결과")
+        result_ref = data_refs[0] if data_refs else _data_ref_object(data_ref, mongo_database, collection_name, "payload.result_rows", "analysis_result", "분석 결과")
         next_payload.setdefault("data", {})["data_ref"] = result_ref
         next_payload["data_refs"] = data_refs
         next_payload.setdefault("trace", {}).setdefault("inspection", {})["result_store"] = {
@@ -145,6 +145,37 @@ def _json_ready(value: Any) -> Any:
     except Exception:
         pass
     return str(value)
+
+
+def _result_rows_for_store(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = payload.get("_full_result_rows")
+    if rows is None:
+        rows = payload.get("_runtime_result_rows")
+    if rows is None:
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        rows = data.get("rows", [])
+    return rows if isinstance(rows, list) else []
+
+
+def _compact_analysis_for_store(value: Any) -> dict[str, Any]:
+    analysis = value if isinstance(value, dict) else {}
+    keep_keys = (
+        "status",
+        "row_count",
+        "columns",
+        "analysis_code",
+        "llm_generated_code",
+        "pandas_filter_preamble",
+        "used_helpers",
+        "error",
+    )
+    return {key: deepcopy(analysis[key]) for key in keep_keys if key in analysis and key != "rows"}
+
+
+def _compact_data_for_store(value: Any) -> dict[str, Any]:
+    data = value if isinstance(value, dict) else {}
+    keep_keys = ("columns", "row_count", "data_ref")
+    return {key: deepcopy(data[key]) for key in keep_keys if key in data and key != "rows"}
 
 
 def _build_data_ref(payload: dict[str, Any]) -> str:

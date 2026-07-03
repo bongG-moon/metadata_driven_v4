@@ -45,7 +45,7 @@ PKG OUT은 제품별 생산실적 중 PKG 완료 조건을 우선 확인하고, 
 1. `domain_knowledge.txt` 또는 domain authoring flow를 통해 `pandas_function_cases` metadata를 등록한다.
 2. `01a MongoDB 도메인 메타데이터 로더`가 해당 metadata를 읽는다.
 3. `01d 메타데이터 후보 생성기`가 의도 분석 LLM에 후보로 전달한다.
-4. `03 의도 분석 Prompt Template`이 필요한 경우 `intent_plan.pandas_function_case`를 출력하게 한다.
+4. `03 의도 분석 Prompt Template`이 필요한 경우 `intent_plan.pandas_function_cases` 배열을 출력하게 한다.
 5. `04 의도 계획 정규화기`가 `pandas_execution_plan` 첫 단계에 `apply_pandas_function_case`를 보강한다.
 6. `15 pandas 변수 생성기.function_case_selection_json`은 의도 분석 결과에 들어 있는 function case 선택 정보를 `16 pandas Prompt Template.function_case_selection_json`에 전달한다.
 7. 실제 특화 함수 코드는 `function_case_helper_code_input_example.py` 내용을 `16 pandas Prompt Template.function_case_helper_code`에 직접 넣는다.
@@ -97,15 +97,19 @@ Domain Authoring Flow에 넣을 raw text는 repo root의 `domain_knowledge.txt` 
 ## 4. 의도 분석 LLM이 출력해야 하는 형태
 
 특화 함수가 필요하다고 판단되면 의도 분석 LLM 응답에 아래 값을 포함해야 한다.
+특화 함수가 1개뿐이어도 `pandas_function_cases` 배열에 1개 항목으로 넣는다.
 
 ```json
 {
   "intent_plan": {
-    "pandas_function_case": {
-      "key": "product_token_match",
-      "function_name": "match_product_tokens",
-      "input_text": "RG 32G DDR4 FBGA 96 DDP"
-    },
+    "pandas_function_cases": [
+      {
+        "key": "product_token_match",
+        "function_name": "match_product_tokens",
+        "input_text": "RG 32G DDR4 FBGA 96 DDP",
+        "source_alias": "production_data"
+      }
+    ],
     "pandas_execution_plan": [
       {
         "step": "특화 함수 적용",
@@ -122,7 +126,7 @@ Domain Authoring Flow에 넣을 raw text는 repo root의 `domain_knowledge.txt` 
 
 `source_alias`가 여러 개면 각 source에 대해 같은 `input_text`를 적용하도록 단계가 여러 개 생길 수 있다.
 
-특화 함수가 여러 개 필요하면 `pandas_function_cases` 배열을 사용한다.
+특화 함수가 여러 개 필요하면 같은 `pandas_function_cases` 배열에 여러 항목을 넣는다.
 
 ```json
 {

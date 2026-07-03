@@ -28,6 +28,7 @@ def _payload(value: Any) -> dict[str, Any]:
     payload = deepcopy(data) if isinstance(data, dict) else {}
     payload.pop("runtime_sources", None)
     payload.pop("_runtime_rows_by_alias", None)
+    payload.pop("_full_result_rows", None)
     payload.pop("_runtime_result_rows", None)
     return payload
 

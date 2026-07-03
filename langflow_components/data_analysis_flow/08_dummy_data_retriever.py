@@ -10,6 +10,7 @@ from lfx.io import DataInput, Output
 from lfx.schema.data import Data
 
 KOREA_ZONE_NAME = "Asia/Seoul"
+PREVIEW_LIMIT = 5
 
 
 PRODUCTS = [
@@ -171,7 +172,7 @@ def retrieve_dummy_data(payload_value: Any) -> dict[str, Any]:
                 "status": "ok",
                 "row_count": len(rows),
                 "columns": sorted({column for row in rows for column in row}),
-                "preview_rows": rows[:20],
+                "preview_rows": rows[:PREVIEW_LIMIT],
                 "rows": rows,
                 "applied_params": job.get("required_params", {}),
                 "pandas_filters": job.get("filters", {}),

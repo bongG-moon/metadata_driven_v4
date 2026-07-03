@@ -87,7 +87,7 @@ def build_intent_response(case: dict[str, Any], reference_date: str) -> dict[str
                     "filters": deepcopy(case["filters"]),
                 }
             ],
-            "pandas_function_case": function_case,
+            "pandas_function_cases": [function_case],
             "pandas_execution_plan": [
                 {
                     "step": "제품 token match helper 적용",

@@ -22,11 +22,32 @@ RUNTIME_FUNCTION_HELPERS = [
     },
 ]
 
+PRUNED_METADATA_KEYS = {
+    "_id",
+    "registration_trace",
+    "raw_trace",
+    "raw_text",
+    "raw_text_preview",
+    "refined_text",
+    "review",
+    "write_result",
+    "llm_response",
+    "existing_matches",
+    "duplicate_decision",
+    "created_by_prompt",
+    "created_at",
+    "updated_at",
+    "text",
+}
+
 
 def build_metadata_candidates(domain_items_value: Any = None, table_catalog_items_value: Any = None, main_flow_filters_value: Any = None) -> dict[str, Any]:
     domain_items, domain_load = _extract(domain_items_value, "domain_items")
     table_catalog_items, table_load = _extract(table_catalog_items_value, "table_catalog_items")
     main_flow_filters, main_load = _extract(main_flow_filters_value, "main_flow_filters")
+    domain_items = _sanitize_items(domain_items)
+    table_catalog_items = _sanitize_items(table_catalog_items)
+    main_flow_filters = _sanitize_items(main_flow_filters)
     domain_items = _annotate_runtime_function_cases(domain_items)
     candidates = {
         "domain_items": domain_items,
@@ -72,6 +93,29 @@ def _extract(value: Any, key: str) -> tuple[list[dict[str, Any]], dict[str, Any]
     return [], {}
 
 
+def _sanitize_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_sanitize_metadata_item(item) for item in items if isinstance(item, dict)]
+
+
+def _sanitize_metadata_item(item: dict[str, Any]) -> dict[str, Any]:
+    sanitized = _sanitize_value(item)
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
+def _sanitize_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text in PRUNED_METADATA_KEYS:
+                continue
+            result[key_text] = _sanitize_value(item)
+        return result
+    if isinstance(value, list):
+        return [_sanitize_value(item) for item in value]
+    return deepcopy(value)
+
+
 def _annotate_runtime_function_cases(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     helper_by_name = {item["function_name"]: item for item in RUNTIME_FUNCTION_HELPERS}
     annotated = []
@@ -89,7 +133,7 @@ def _annotate_runtime_function_cases(items: list[dict[str, Any]]) -> list[dict[s
             }
             if not selectable:
                 next_item["selection_note"] = (
-                    "이 항목은 intent_plan.pandas_function_case로 선택하지 않는다. "
+                    "이 항목은 intent_plan.pandas_function_cases로 선택하지 않는다. "
                     "일반 pandas_execution_plan 또는 analysis guidance로만 참고한다."
                 )
         annotated.append(next_item)

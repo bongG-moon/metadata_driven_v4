@@ -121,6 +121,30 @@ def test_normalize_query_response_derives_pandas_developer_info_from_trace() -> 
     assert developer["pandas_execution_status"]["execution_result"]["row_count"] == 1
 
 
+def test_web_intent_summary_uses_plural_pandas_function_cases() -> None:
+    from web_app.app import intent_plan_summary_lines
+
+    lines = intent_plan_summary_lines(
+        {
+            "analysis_kind": "product_token_analysis",
+            "pandas_function_cases": [
+                {
+                    "key": "product_token_match",
+                    "function_name": "match_product_tokens",
+                    "input_text": "RG 32G DDR4 FBGA 96 DDP",
+                    "source_alias": "production_data",
+                }
+            ],
+        }
+    )
+
+    text = "\n".join(lines)
+
+    assert "pandas 함수 케이스 `product_token_match`" in text
+    assert "match_product_tokens" in text
+    assert "RG 32G DDR4 FBGA 96 DDP" in text
+
+
 def test_normalize_authoring_response_accepts_v4_trace_preview_items() -> None:
     result = normalize_authoring_response(
         {

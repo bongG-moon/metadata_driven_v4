@@ -139,7 +139,7 @@ parallel:
 
 Web에서 중요한 차이:
 
-- `23 MongoDB Result Store`가 pandas 직후 `runtime_sources` 원본 rows와 `analysis.rows` 결과 rows를 `MONGODB_RESULT_COLLECTION`에 저장하고 preview row와 `data_ref`로 축약한다.
+- `23 MongoDB Result Store`가 pandas 직후 `runtime_sources` 원본 rows와 `result_rows` 전체 결과 rows를 `MONGODB_RESULT_COLLECTION`에 저장하고, runtime/API payload에는 preview row와 `data_ref`만 남긴다.
 - metadata QA flow가 `direct_response_ready=true`를 만든 질문은 데이터 retrieval/pandas 저장 대상이 아니다.
 - `metadata_route.target_dataset`은 dataset 설명/쿼리/활용 예시 같은 metadata QA에서만 쓰는 대상 포인터다. 일반 분석 질문에서 조회할 dataset 목록은 intent plan이 별도로 결정한다.
 - 사용자는 dataset key를 몰라도 된다. `생산량 데이터 조회 쿼리 알려줘` 같은 표현은 `domain_items.quantity_terms`의 alias와 dataset mapping을 통해 대표 dataset으로 해석한다.

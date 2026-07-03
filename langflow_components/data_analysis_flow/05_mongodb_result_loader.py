@@ -11,6 +11,7 @@ from lfx.schema.data import Data
 
 DEFAULT_DATABASE = "datagov"
 DEFAULT_COLLECTION = "agent_v4_result_store"
+RESULT_PREVIEW_LIMIT = 50
 
 
 def load_previous_result(payload_value: Any, mongo_uri: str = "", mongo_database: str = "", collection_name: str = "") -> dict[str, Any]:
@@ -31,9 +32,10 @@ def load_previous_result(payload_value: Any, mongo_uri: str = "", mongo_database
         if not doc:
             return _mark_skipped(next_payload, mongo_database, collection_name, "result_not_found", "data_ref에 해당하는 이전 결과가 없습니다.", ref)
         stored_payload = doc.get("payload", {}) if isinstance(doc.get("payload"), dict) else {}
-        for key in ("source_results", "runtime_sources", "analysis", "data"):
+        for key in ("source_results", "runtime_sources", "analysis"):
             if key in stored_payload:
                 next_payload[key] = deepcopy(stored_payload[key])
+        next_payload["data"] = _restore_data_from_stored_payload(stored_payload)
         data_refs = _build_data_refs(stored_payload, ref, mongo_database, collection_name)
         next_payload.setdefault("data", {})["data_ref"] = data_refs[0] if data_refs else _data_ref_object(ref, mongo_database, collection_name, "payload.result_rows", "analysis_result", "분석 결과 데이터")
         next_payload["data_refs"] = data_refs
@@ -80,7 +82,7 @@ def _ref_id(value: Any) -> str:
 
 
 def _build_data_refs(stored_payload: dict[str, Any], ref_id: str, database: str, collection_name: str) -> list[dict[str, Any]]:
-    data = stored_payload.get("data") if isinstance(stored_payload.get("data"), dict) else {}
+    data = _restore_data_from_stored_payload(stored_payload)
     refs = [
         _data_ref_object(
             ref_id,
@@ -156,6 +158,18 @@ def _columns_from_rows(rows: list[Any]) -> list[str]:
             if text not in columns:
                 columns.append(text)
     return columns
+
+
+def _restore_data_from_stored_payload(stored_payload: dict[str, Any]) -> dict[str, Any]:
+    data = deepcopy(stored_payload.get("data")) if isinstance(stored_payload.get("data"), dict) else {}
+    result_rows = stored_payload.get("result_rows") if isinstance(stored_payload.get("result_rows"), list) else []
+    if result_rows and "rows" not in data:
+        data["rows"] = deepcopy(result_rows[:RESULT_PREVIEW_LIMIT])
+    if result_rows and "row_count" not in data:
+        data["row_count"] = len(result_rows)
+    if result_rows and not data.get("columns"):
+        data["columns"] = _columns_from_rows(result_rows)
+    return data
 
 
 def _mark_skipped(

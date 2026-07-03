@@ -13,7 +13,7 @@ from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 
-PREVIEW_LIMIT = 20
+PREVIEW_LIMIT = 5
 
 
 def datalake_retrieve(

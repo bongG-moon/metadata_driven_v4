@@ -516,6 +516,32 @@ def test_intent_variables_builder_hides_date_context_and_direct_specialized_prom
     assert "specialized_prompt_text" not in input_names
 
 
+def test_intent_variables_builder_compacts_metadata_candidate_wrapper():
+    intent_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "02_intent_variables_builder.py")
+    variables = intent_variables.build_variables(
+        {"request": {"question": "오늘 재공 알려줘", "reference_date": "20260701"}},
+        {
+            "domain_items": [{"key": "duplicated_outer"}],
+            "metadata_candidates": {
+                "domain_items": [{"section": "process_groups", "key": "DA"}],
+                "table_catalog_items": [{"dataset_key": "wip_today"}],
+            },
+            "metadata_load": {"loads": {"domain_items": {"collection_name": "agent_v4_domain_items"}}},
+        },
+    )
+    candidates = json.loads(variables["metadata_candidates"])
+    schema = json.loads(variables["output_schema"])
+
+    assert candidates == {
+        "domain_items": [{"section": "process_groups", "key": "DA"}],
+        "table_catalog_items": [{"dataset_key": "wip_today"}],
+    }
+    assert "metadata_candidates" not in candidates
+    assert "metadata_load" not in candidates
+    assert "pandas_function_case" not in schema["intent_plan"]
+    assert schema["intent_plan"]["pandas_function_cases"] == []
+
+
 def test_langflow_dummy_data_covers_data_catalog_shapes():
     dummy = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "08_dummy_data_retriever.py")
     expected_columns = {
@@ -653,6 +679,8 @@ def test_langflow_dummy_data_covers_auto_korea_today_reference_date():
     assert routed["retrieval_job_bundle"]["live_source_retrieval"] is False
     assert retrieved["status"] == "ok"
     assert retrieved["source_results"][0]["row_count"] > 0
+    assert len(retrieved["source_results"][0]["preview_rows"]) <= 5
+    assert len(retrieved["source_results"][0]["rows"]) > len(retrieved["source_results"][0]["preview_rows"])
     assert {row["WORK_DATE"] for row in retrieved["source_results"][0]["rows"]} == {reference_date}
 
 
@@ -770,6 +798,8 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     assert response["analysis"]["analysis_code"]
     assert response["trace"]["inspection"]["pandas_execution"]["generated_code"]
     assert "runtime_sources" not in response
+    assert "_full_result_rows" not in response
+    assert "_runtime_result_rows" not in response
     assert "### 의도 분석" in playground_message
     assert "wip_sum_by_oper" in playground_message
     assert "### 데이터 조회" in playground_message
@@ -778,6 +808,25 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     assert "### pandas 코드/실행" in playground_message
     assert "df = sources['wip_data']" in playground_message
     assert "| OPER_NAME | wip_sum |" in playground_message
+
+
+def test_answer_message_adapter_result_table_uses_ten_row_preview():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "완료했습니다.",
+        "data": {
+            "columns": ["idx"],
+            "rows": [{"idx": index} for index in range(12)],
+            "row_count": 12,
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert "| 9 |" in message
+    assert "| 10 |" not in message
+    assert "총 12건 중 10건을 표시했습니다." in message
 
 
 def test_intent_normalizer_parses_langflow_message_text_with_nested_json():
@@ -1180,6 +1229,24 @@ def test_pandas_executor_outputs_json_ready_numeric_rows():
 
     json.dumps(result["data"], ensure_ascii=False)
     assert result["data"]["rows"] == [{"DEVICE": "DEV-A", "EMPTY": None, "QTY": 7, "RATIO": 1.5}]
+    assert result["_full_result_rows"] == [{"DEVICE": "DEV-A", "EMPTY": None, "QTY": 7, "RATIO": 1.5}]
+    assert "_runtime_result_rows" not in result
+
+
+def test_pandas_executor_trace_preview_is_compact_but_full_rows_are_kept():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {"runtime_sources": {}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+
+    result = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": "result = pd.DataFrame({'idx': list(range(12))})"},
+    )
+    trace_rows = result["trace"]["inspection"]["pandas_execution"]["execution_result"]["preview_rows"]
+
+    assert result["analysis"]["row_count"] == 12
+    assert len(result["_full_result_rows"]) == 12
+    assert len(result["data"]["rows"]) == 12
+    assert len(trace_rows) == 5
 
 
 def test_answer_variables_accept_numpy_scalars_after_result_store(monkeypatch):
@@ -1192,15 +1259,27 @@ def test_answer_variables_accept_numpy_scalars_after_result_store(monkeypatch):
     payload = {
         "request": {"session_id": "s1", "question": "수량 알려줘"},
         "runtime_sources": {"production": [{"DEVICE": "DEV-A", "QTY": np.int64(7)}]},
-        "_runtime_result_rows": [{"DEVICE": "DEV-A", "QTY": np.int64(7), "RATIO": np.float64(1.5), "EMPTY": np.nan}],
-        "source_results": [{"source_alias": "production", "row_count": np.int64(1)}],
-        "analysis": {"status": "ok", "row_count": np.int64(1)},
+        "_full_result_rows": [{"DEVICE": "DEV-A", "QTY": np.int64(7), "RATIO": np.float64(1.5), "EMPTY": np.nan}],
+        "source_results": [{"source_alias": "production", "row_count": np.int64(1), "preview_rows": [{"DEVICE": "DEV-A"}]}],
+        "analysis": {"status": "ok", "row_count": np.int64(1), "rows": [{"SHOULD_NOT_STORE": True}]},
         "data": {
             "columns": ["DEVICE", "QTY", "RATIO", "EMPTY"],
             "rows": [{"DEVICE": "DEV-A", "QTY": np.int64(7), "RATIO": np.float64(1.5), "EMPTY": np.nan}],
             "row_count": np.int64(1),
         },
-        "trace": {"warnings": [], "errors": [], "inspection": {"pandas_execution": {"execution_result": {"row_count": np.int64(1)}}}},
+        "trace": {
+            "warnings": [],
+            "errors": [],
+            "inspection": {
+                "pandas_execution": {
+                    "generated_code": "result = sources['production']",
+                    "effective_code_with_helpers": "def helper(): pass\nresult = sources['production']",
+                    "helper_sources": {"helper": "def helper(): pass"},
+                    "used_helpers": ["match_product_tokens"],
+                    "execution_result": {"row_count": np.int64(1), "columns": ["DEVICE"], "preview_rows": [{"DEVICE": "DEV-A"}]},
+                }
+            },
+        },
     }
 
     stored = result_store.store_result(payload)
@@ -1211,8 +1290,35 @@ def test_answer_variables_accept_numpy_scalars_after_result_store(monkeypatch):
 
     assert variables["question"] == "수량 알려줘"
     assert result_summary["rows"][0] == {"DEVICE": "DEV-A", "EMPTY": None, "QTY": 7, "RATIO": 1.5}
-    assert applied_scope["pandas_execution"]["execution_result"]["row_count"] == 1
-    assert mongo_store["datagov"]["agent_v4_result_store"][ref_id]["payload"]["result_rows"][0]["QTY"] == 7
+    assert applied_scope["pandas_execution"]["row_count"] == 1
+    assert applied_scope["pandas_execution"]["used_helpers"] == ["match_product_tokens"]
+    assert "generated_code" not in variables["applied_scope_json"]
+    assert "effective_code_with_helpers" not in variables["applied_scope_json"]
+    assert "helper_sources" not in variables["applied_scope_json"]
+    assert "preview_rows" not in variables["applied_scope_json"]
+    stored_payload = mongo_store["datagov"]["agent_v4_result_store"][ref_id]["payload"]
+    assert stored_payload["result_rows"][0]["QTY"] == 7
+    assert "rows" not in stored_payload["data"]
+    assert "rows" not in stored_payload["analysis"]
+
+
+def test_result_store_accepts_legacy_runtime_result_rows(monkeypatch):
+    import numpy as np
+
+    mongo_store = install_fake_pymongo(monkeypatch)
+    set_v4_mongo_env(monkeypatch)
+    result_store = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "23_mongodb_result_store.py")
+    payload = {
+        "request": {"session_id": "s1", "question": "수량 알려줘"},
+        "_runtime_result_rows": [{"DEVICE": "LEGACY", "QTY": np.int64(3)}],
+        "data": {"columns": ["DEVICE", "QTY"], "rows": [{"DEVICE": "PREVIEW", "QTY": 1}], "row_count": 1},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    stored = result_store.store_result(payload)
+    ref_id = stored["data"]["data_ref"]["ref_id"]
+
+    assert mongo_store["datagov"]["agent_v4_result_store"][ref_id]["payload"]["result_rows"] == [{"DEVICE": "LEGACY", "QTY": 3}]
 
 
 def test_pandas_executor_uses_shared_namespace_for_comprehensions():
@@ -1264,10 +1370,21 @@ def test_intent_and_pandas_variables_expose_selected_function_case_context():
     )
 
     assert normalized["intent_plan"]["pandas_execution_plan"][0]["operation"] == "apply_pandas_function_case"
+    assert "pandas_function_case" not in normalized["intent_plan"]
+    assert "selected_function_cases" not in normalized["intent_plan"]
+    assert normalized["intent_plan"]["pandas_function_cases"] == [
+        {
+            "key": "product_token_match",
+            "function_name": "match_product_tokens",
+            "input_text": "RG 32G DDR4 FBGA 96 DDP",
+            "source_alias": "production_data",
+        }
+    ]
     variables = pandas_variables.build_variables(normalized)
     context = json.loads(variables["function_case_selection_json"])
 
     assert context["available_helpers"][0]["function_name"] == "match_product_tokens"
+    assert "selected_case" not in context
     assert context["selected_steps"][0]["input_text"] == "RG 32G DDR4 FBGA 96 DDP"
 
 
@@ -1335,6 +1452,48 @@ def test_multiple_function_cases_expose_multiple_helpers_and_dummy_runtime():
     assert result["data"]["rows"] == [{"DEVICE": "DEV-RG", "PRODUCTION": 10}]
     assert trace["used_helpers"] == ["match_product_tokens", "sample_passthrough_helper"]
     assert "def sample_passthrough_helper" in trace["effective_code_with_helpers"]
+
+
+def test_intent_normalizer_dedupes_single_and_multiple_function_cases():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    payload = {"request": {"question": "제품 token 분석"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+    normalized = intent_normalizer.normalize_intent_plan(
+        payload,
+        {
+            "intent_plan": {
+                "analysis_kind": "product_token_analysis",
+                "pandas_function_case": {
+                    "key": "product_token_match",
+                    "function_name": "match_product_tokens",
+                    "input_text": "RG 32G DDR4 FBGA 96 DDP",
+                    "source_alias": "production_data",
+                },
+                "pandas_function_cases": [
+                    {
+                        "key": "product_token_match",
+                        "function_name": "match_product_tokens",
+                        "input_text": "RG 32G DDR4 FBGA 96 DDP",
+                        "source_alias": "production_data",
+                    }
+                ],
+                "selected_function_cases": [{"key": "legacy"}],
+                "retrieval_jobs": [{"dataset_key": "production_today", "source_alias": "production_data"}],
+                "pandas_execution_plan": [{"step": "sum_production", "source_alias": "production_data"}],
+            }
+        },
+    )
+
+    assert "pandas_function_case" not in normalized["intent_plan"]
+    assert "selected_function_cases" not in normalized["intent_plan"]
+    assert normalized["intent_plan"]["pandas_function_cases"] == [
+        {
+            "key": "product_token_match",
+            "function_name": "match_product_tokens",
+            "input_text": "RG 32G DDR4 FBGA 96 DDP",
+            "source_alias": "production_data",
+        }
+    ]
+    assert [step["operation"] for step in normalized["intent_plan"]["pandas_execution_plan"][:1]] == ["apply_pandas_function_case"]
 
 
 def test_specialized_function_examples_match_runtime_and_domain_authoring_contracts():
@@ -1500,6 +1659,67 @@ def test_data_analysis_split_mongodb_metadata_loaders_use_v4_env_defaults(monkey
     assert "_id" not in result["metadata_candidates"]["domain_items"][0]
 
 
+def test_metadata_candidates_remove_authoring_trace_but_keep_runtime_catalog_fields():
+    candidates_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01d_metadata_candidates_builder.py")
+    result = candidates_builder.build_metadata_candidates(
+        {
+            "domain_items": [
+                {
+                    "_id": "domain:process_groups:DA",
+                    "section": "process_groups",
+                    "key": "DA",
+                    "text": "authoring-only text",
+                    "registration_trace": {"raw_text": "원문 전체"},
+                    "raw_trace": {"llm": "debug"},
+                    "payload": {
+                        "display_name": "D/A",
+                        "aliases": ["DA"],
+                        "raw_text": "payload raw text",
+                        "description": "공정 그룹 설명",
+                    },
+                    "review": {"ready_to_save": True},
+                    "updated_at": "2026-07-03T00:00:00Z",
+                }
+            ],
+            "metadata_load": {"status": "ok"},
+        },
+        {
+            "table_catalog_items": [
+                {
+                    "_id": "table_catalog:production_today",
+                    "dataset_key": "production_today",
+                    "registration_trace": {"raw_text": "catalog 원문"},
+                    "payload": {
+                        "source_type": "oracle",
+                        "source_config": {
+                            "db_key": "PNT_RPT",
+                            "query_template": "SELECT * FROM PROD WHERE WORK_DATE = {DATE}",
+                        },
+                        "required_params": ["DATE"],
+                    },
+                }
+            ],
+            "metadata_load": {"status": "ok"},
+        },
+        {"main_flow_filters": [], "metadata_load": {"status": "ok"}},
+    )
+
+    domain_item = result["metadata_candidates"]["domain_items"][0]
+    catalog_item = result["metadata_candidates"]["table_catalog_items"][0]
+
+    assert "_id" not in domain_item
+    assert "text" not in domain_item
+    assert "registration_trace" not in domain_item
+    assert "raw_trace" not in domain_item
+    assert "review" not in domain_item
+    assert "updated_at" not in domain_item
+    assert "raw_text" not in domain_item["payload"]
+    assert domain_item["payload"]["description"] == "공정 그룹 설명"
+    assert "registration_trace" not in catalog_item
+    assert catalog_item["payload"]["source_config"]["query_template"].startswith("SELECT *")
+    assert result["domain_items"] == result["metadata_candidates"]["domain_items"]
+
+
 def test_metadata_candidates_mark_non_runtime_pandas_function_cases():
     candidates_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01d_metadata_candidates_builder.py")
     result = candidates_builder.build_metadata_candidates(
@@ -1534,7 +1754,7 @@ def test_metadata_candidates_mark_non_runtime_pandas_function_cases():
         "selectable_for_intent": False,
         "selection_policy": "not_registered_runtime_helper",
     }
-    assert "intent_plan.pandas_function_case로 선택하지 않는다" in items["calculate_production_by_oper_name"]["selection_note"]
+    assert "intent_plan.pandas_function_cases로 선택하지 않는다" in items["calculate_production_by_oper_name"]["selection_note"]
     assert items["product_token_match"]["runtime_helper"]["function_name"] == "match_product_tokens"
     assert items["product_token_match"]["runtime_helper"]["available"] is True
     assert items["product_token_match"]["runtime_helper"]["selectable_for_intent"] is True
@@ -1555,8 +1775,8 @@ def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
         "intent_plan": {"analysis_kind": "wip_sum"},
         "source_results": [{"source_alias": "wip_data", "row_count": 1}],
         "runtime_sources": {"wip_data": [{"OPER_NAME": "D/A1", "WIP": 120}]},
-        "analysis": {"status": "ok", "row_count": 1},
-        "data": {"rows": [{"OPER_NAME": "D/A1", "wip_sum": 120}], "row_count": 1},
+        "analysis": {"status": "ok", "row_count": 1, "columns": ["OPER_NAME", "wip_sum"], "rows": [{"OPER_NAME": "D/A1", "wip_sum": 120}]},
+        "data": {"columns": ["OPER_NAME", "wip_sum"], "rows": [{"OPER_NAME": "D/A1", "wip_sum": 120}], "row_count": 1},
         "trace": {"warnings": [], "errors": [], "inspection": {}},
     }
 
@@ -1584,8 +1804,12 @@ def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
     assert result_doc["ttl_hours"] == 3
     assert isinstance(result_doc["expires_at"], datetime)
     assert result_doc["expires_at"] > datetime.now(timezone.utc)
+    assert result_doc["payload"]["result_rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 120}]
+    assert "rows" not in result_doc["payload"]["data"]
+    assert "rows" not in result_doc["payload"]["analysis"]
     assert restored["trace"]["inspection"]["result_loader"]["status"] == "ok"
     assert restored["runtime_sources"]["wip_data"][0]["WIP"] == 120
+    assert restored["data"]["rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 120}]
     assert restored["data"]["data_ref"] == data_ref
 
     data_ref_store = load_module(ROOT / "web_app" / "data_ref_store.py")
@@ -1593,6 +1817,32 @@ def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
     source_rows = data_ref_store.load_data_ref_rows(stored["data_refs"][1], "mongodb://fake")
     assert result_rows["rows"] == [{"OPER_NAME": "D/A1", "wip_sum": 120}]
     assert source_rows["rows"] == [{"OPER_NAME": "D/A1", "WIP": 120}]
+
+
+def test_mongodb_result_loader_accepts_legacy_data_rows(monkeypatch):
+    mongo_store = install_fake_pymongo(monkeypatch)
+    set_v4_mongo_env(monkeypatch)
+    result_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "05_mongodb_result_loader.py")
+    mongo_store.setdefault("datagov", {}).setdefault("agent_v4_result_store", {})["legacy-ref"] = {
+        "_id": "legacy-ref",
+        "payload": {
+            "source_results": [],
+            "runtime_sources": {},
+            "analysis": {"status": "ok", "row_count": 1},
+            "data": {"columns": ["DEVICE"], "rows": [{"DEVICE": "LEGACY"}], "row_count": 1},
+        },
+    }
+
+    restored = result_loader.load_previous_result(
+        {
+            "data": {"data_ref": "legacy-ref"},
+            "trace": {"warnings": [], "errors": [], "inspection": {}},
+        }
+    )
+
+    assert restored["trace"]["inspection"]["result_loader"]["status"] == "ok"
+    assert restored["data"]["rows"] == [{"DEVICE": "LEGACY"}]
+    assert restored["data"]["data_ref"]["path"] == "payload.result_rows"
 
 
 def test_data_analysis_mongodb_result_store_has_ttl_input():

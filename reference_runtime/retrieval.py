@@ -9,7 +9,7 @@ from .contracts import ALLOWED_SOURCE_TYPES, ensure_dict, ensure_list, make_erro
 from .dummy_data import rows_for_dataset
 
 
-PREVIEW_LIMIT = 20
+PREVIEW_LIMIT = 5
 
 
 def run_data_retriever(payload: dict[str, Any], table_catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:

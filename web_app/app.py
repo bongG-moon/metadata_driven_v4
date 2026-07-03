@@ -5,6 +5,7 @@ import html
 import json
 import sys
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -465,7 +466,7 @@ def render_langflow_chat(settings: dict[str, Any]) -> None:
     with st.chat_message("user", avatar=chat_avatar_for("user")):
         st.markdown(safe_markdown_text(user_message))
     with st.chat_message("assistant", avatar=chat_avatar_for("assistant")):
-        with st.spinner("Langflow API 실행 중..."):
+        with render_loading_indicator():
             try:
                 result = st.session_state.langflow_api.run_query(
                     user_message,
@@ -483,6 +484,16 @@ def render_langflow_chat(settings: dict[str, Any]) -> None:
                 }
         render_assistant_chat_message(assistant_message, len(st.session_state.chat_messages), settings)
     st.session_state.chat_messages.append(assistant_message)
+
+
+@contextmanager
+def render_loading_indicator():
+    placeholder = st.empty()
+    placeholder.markdown('<div class="mdv3-inline-loader" aria-label="처리 중"></div>', unsafe_allow_html=True)
+    try:
+        yield
+    finally:
+        placeholder.empty()
 
 
 def render_data_ref_download_page(ref: dict[str, Any]) -> None:
@@ -1164,7 +1175,7 @@ def render_metadata_registration(settings: dict[str, Any]) -> None:
 
     if execute_clicked:
         try:
-            with st.spinner("Langflow authoring flow 실행 중..."):
+            with render_loading_indicator():
                 result = st.session_state.langflow_api.run_authoring(
                     flow_type,
                     authoring_input_payload(raw_text, review_notes),
@@ -1880,6 +1891,15 @@ def inject_style() -> None:
             animation: mdv3-spinner-rotate 0.82s linear infinite !important;
             transform-origin: center !important;
             transform-box: fill-box !important;
+        }
+        .mdv3-inline-loader {
+            width: 1.2rem;
+            height: 1.2rem;
+            margin: 0.15rem 0 0.35rem 0.1rem;
+            border-radius: 50%;
+            border: 2px solid #d0d5dd;
+            border-top-color: #2563eb;
+            animation: mdv3-spinner-rotate 0.82s linear infinite;
         }
         @keyframes mdv3-spinner-rotate {
             from { transform: rotate(0deg); }

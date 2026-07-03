@@ -319,6 +319,120 @@ def test_retrieval_router_live_mode_routes_by_source_type(monkeypatch):
     assert [job["dataset_key"] for job in goodocs["retrieval_job_bundle"]["jobs"]] == ["target"]
 
 
+def test_h_api_retriever_executes_configured_http_request():
+    retriever = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "10_h_api_retriever.py")
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return b'{"data":{"rows":[{"DEVICE":"D1","QTY":12}]}}'
+
+    def fake_open(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["method"] = request.get_method()
+        return FakeResponse()
+
+    payload = {
+        "retrieval_job_bundle": {
+            "jobs": [
+                {
+                    "dataset_key": "api_dataset",
+                    "source_alias": "api_data",
+                    "source_type": "h_api",
+                    "source_config": {
+                        "api_url": "https://example.test/items/{DATE}",
+                        "method": "GET",
+                        "response_path": "data.rows",
+                    },
+                    "required_params": {"DATE": "20260701", "PLANT": "PNT"},
+                }
+            ]
+        }
+    }
+
+    result = retriever.h_api_retrieve(payload, api_token="token", timeout_seconds="7", opener=fake_open)
+    source_result = result["source_results"][0]
+
+    assert result["status"] == "ok"
+    assert captured["method"] == "GET"
+    assert captured["timeout"] == 7
+    assert captured["url"].startswith("https://example.test/items/20260701?")
+    assert source_result["rows"] == [{"DEVICE": "D1", "QTY": 12}]
+    assert source_result["source_execution"]["used_dummy_data"] is False
+
+
+def test_datalake_retriever_runs_lakehouse_style_client():
+    retriever = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "11_datalake_retriever.py")
+    calls = {}
+
+    class FakeLakeHouse:
+        def __init__(self, real_user_id=""):
+            calls["real_user_id"] = real_user_id
+
+        def ensure_running(self, cluster_type):
+            calls["cluster_type"] = cluster_type
+
+        def auto_run_sync_paragraph(self, code):
+            calls["code"] = code
+
+        def get_rst(self):
+            return [{"DATE": "20260701", "QTY": 21}]
+
+    payload = {
+        "retrieval_job_bundle": {
+            "jobs": [
+                {
+                    "dataset_key": "lake_dataset",
+                    "source_alias": "lake_data",
+                    "source_type": "datalake",
+                    "source_config": {"query_template": "select * from t where work_date = {DATE}"},
+                    "required_params": {"DATE": "20260701"},
+                }
+            ]
+        }
+    }
+
+    result = retriever.datalake_retrieve(payload, user_id="u123", client_cls=FakeLakeHouse)
+    source_result = result["source_results"][0]
+
+    assert result["status"] == "ok"
+    assert calls["real_user_id"] == "u123"
+    assert calls["cluster_type"] == "starrocks"
+    assert "work_date = '20260701'" in calls["code"]
+    assert source_result["rows"] == [{"DATE": "20260701", "QTY": 21}]
+    assert source_result["source_execution"]["adapter"] == "datalake"
+
+
+def test_goodocs_retriever_uses_replaceable_godocs_client_contract():
+    retriever = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "12_goodocs_retriever.py")
+    payload = {
+        "retrieval_job_bundle": {
+            "jobs": [
+                {
+                    "dataset_key": "target",
+                    "source_alias": "target_data",
+                    "source_type": "goodocs",
+                    "source_config": {
+                        "doc_id": "doc-1",
+                        "sheet_name": "목표",
+                        "rows": [{"DEVICE": "D1", "TARGET": 100}],
+                    },
+                }
+            ]
+        }
+    }
+
+    result = retriever.goodocs_retrieve(payload)
+    source_result = result["source_results"][0]
+
+    assert result["status"] == "ok"
+    assert retriever.GoodocsClient is retriever.GodocsClient
+    assert source_result["rows"] == [{"DEVICE": "D1", "TARGET": 100}]
+    assert source_result["source_execution"]["doc_id"] == "doc-1"
+    assert source_result["source_execution"]["sheet_name"] == "목표"
+
+
 def test_analysis_request_loader_defaults_reference_date_to_korea_today():
     request_loader = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "00_analysis_request_loader.py")
     expected_today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
@@ -1586,6 +1700,25 @@ def test_langflow_prompt_templates_are_external_files_for_agent_nodes():
         guide = (ROOT / "langflow_components" / guide_name / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
         assert "Langflow Prompt Template" in guide
         assert "Langflow Agent/LLM" in guide
+
+
+def test_metadata_authoring_guide_uses_current_writer_ports():
+    guide = (ROOT / "docs" / "METADATA_AUTHORING_FLOW_GUIDE.md").read_text(encoding="utf-8")
+
+    assert "MongoDB Writer.authoring_payload" not in guide
+    assert "MongoDB Writer.review_payload" not in guide
+    assert "Review Writer.review_response" in guide
+    assert "API Adapter.api_response" in guide
+
+
+def test_data_analysis_connection_guide_intent_numbers_are_contiguous():
+    import re
+
+    guide = (ROOT / "langflow_components" / "data_analysis_flow" / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
+    intent_section = guide.split("## 2. 이전 결과 복원", 1)[0]
+    numbers = [int(match.group(1)) for match in re.finditer(r"^\| (\d+) \|", intent_section, flags=re.MULTILINE)]
+
+    assert numbers == list(range(1, 16))
 
 
 def test_langflow_prompt_templates_only_expose_valid_variables():

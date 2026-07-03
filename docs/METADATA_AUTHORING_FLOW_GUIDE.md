@@ -831,16 +831,22 @@ langflow_components/main_flow_filters_authoring_flow/
 
 ## Langflow 연결 예시
 
-각 authoring flow는 아래처럼 연결한다.
+각 authoring flow는 아래처럼 연결한다. 실제 노드 표시명은 flow별로 `Domain`, `Table Catalog`, `Main Flow Filter` 접두어가 붙지만, 포트 계약은 동일하다.
 
 ```text
 Text Input.raw_text
--> 00 Request Loader.raw_text
+-> 00 Authoring Request Loader.raw_text
+00 Existing Items Loader.existing_items
+-> 00 Authoring Request Loader.existing_items
+00 Authoring Request Loader.payload_out
 -> 01 Text Refinement Variables Builder.payload
 01 Text Refinement Variables Builder.raw_text
--> Text Refinement Prompt Template.raw_text
-Text Refinement Prompt Template
--> Gemini Text Refinement.prompt
+-> Langflow Prompt Template: 01_text_refinement_prompt_template_ko.md.raw_text
+Langflow Prompt Template: 01_text_refinement_prompt_template_ko.md.output
+-> Langflow Agent/LLM.input
+00 Authoring Request Loader.payload_out
+-> 02 Text Refinement Normalizer.payload
+Langflow Agent/LLM.output
 -> 02 Text Refinement Normalizer.llm_response
 ```
 
@@ -849,42 +855,43 @@ Text Refinement Prompt Template
 ```text
 02 Text Refinement Normalizer.payload_out
 -> 03 Authoring Variables Builder.payload
-03 Authoring Variables Builder.authoring_context
--> Authoring Prompt Template.authoring_context
+03 Authoring Variables Builder.existing_metadata_summary
+-> Langflow Prompt Template: 03_authoring_prompt_template_ko.md.existing_metadata_summary
+03 Authoring Variables Builder.refined_text
+-> Langflow Prompt Template: 03_authoring_prompt_template_ko.md.refined_text
 ```
 
 JSON 변환과 검수:
 
 ```text
-Authoring Prompt Template
--> Gemini Authoring JSON.prompt
+Langflow Prompt Template: 03_authoring_prompt_template_ko.md.output
+-> Langflow Agent/LLM.input
+02 Text Refinement Normalizer.payload_out
+-> 04 Authoring Result Normalizer.payload
+Langflow Agent/LLM.output
 -> 04 Authoring Result Normalizer.llm_response
 04 Authoring Result Normalizer.payload_out
 -> 05 Similarity Checker.payload
 05 Similarity Checker.payload_out
 -> 06 Review Variables Builder.payload
 06 Review Variables Builder.review_input_json
--> Review Prompt Template.review_input_json
-Review Prompt Template
--> Gemini Review JSON.prompt
+-> Langflow Prompt Template: 06_review_prompt_template_ko.md.review_input_json
+Langflow Prompt Template: 06_review_prompt_template_ko.md.output
+-> Langflow Agent/LLM.input
 05 Similarity Checker.payload_out
 -> 07 Review Writer.payload
-Gemini Review JSON
--> 07 Review Writer.llm_response
+Langflow Agent/LLM.output
+-> 07 Review Writer.review_response
 ```
 
 저장:
 
 ```text
-04B Duplicate/Similarity Checker.payload_out
--> 07 MongoDB Writer.authoring_payload
-06 Review Normalizer.payload_out
--> 07 MongoDB Writer.review_payload
-DropdownInput.duplicate_action
--> 07 MongoDB Writer.duplicate_action
-07 MongoDB Writer.write_result
--> 08 Response Builder.write_result
-08 Response Builder.message
+07 Review Writer.payload_out
+-> 08 Response Builder.payload
+08 Response Builder.api_response
+-> 09 API Adapter.api_response
+09 API Adapter.api_message
 -> Chat Output.message
 ```
 

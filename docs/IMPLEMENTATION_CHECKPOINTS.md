@@ -16,7 +16,7 @@ Instruction check:
 
 - txt 원문 변경 없음: pass
 - MongoDB write 없음: pass
-- v4 독립 skeleton: pass
+- v4 독립 구현: pass
 - 공정/제품 특화 hardcode 없음: pass
 
 ## Checkpoint 2. Metadata Storage Dry-Run Core
@@ -112,7 +112,7 @@ Verification:
   - table catalog blocks: 14
   - main flow filter blocks: 6
 
-## Checkpoint 5. Langflow Data Analysis Flow Skeleton
+## Checkpoint 5. Langflow Data Analysis Flow
 
 Implemented:
 
@@ -141,13 +141,13 @@ Implemented:
 
 Instruction check:
 
-- `의도분석 -> 데이터 조회 -> pandas code 실행 -> 답변/API response` skeleton exists: pass
+- `의도분석 -> 데이터 조회 -> pandas code 실행 -> 답변/API response` flow exists: pass
 - intent/pandas/answer prompt bodies are Korean-first Prompt Template files: pass
 - LLM execution is delegated to Langflow Agent/LLM nodes: pass
 - custom components only build variables, normalize LLM output, execute guarded pandas code, and shape responses: pass
 - `runtime_sources` is removed from final API response: pass
 - pandas executor blocks import/open/eval/exec and requires generated code to set `result`: pass
-- live Oracle/H-API/Datalake/Goodocs adapters are still environment-gated and are not validated against real services yet: pending
+- live Oracle/H-API/Datalake/Goodocs adapters are implemented as environment-gated adapters; real external service validation is still environment-dependent: pending
 
 Verification:
 

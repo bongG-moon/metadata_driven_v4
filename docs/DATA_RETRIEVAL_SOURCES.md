@@ -29,15 +29,18 @@ Python reference runtime은 `reference_runtime/retrieval.py`에서 source별 분
 ```dotenv
 RUN_LIVE_SOURCE_RETRIEVAL=false
 ORACLE_CONFIG_JSON=
+H_API_BASE_URL=
 H_API_TOKEN=
+DATALAKE_MODULE_NAME=lakes
+DATALAKE_CLASS_NAME=LakeHouse
 LAKEHOUSE_USER_ID=
 LAKEHOUSE_TOKEN=
 LAKEHOUSE_S3_ACCESS_KEY=
 LAKEHOUSE_S3_SECRET_KEY=
 GOODOCS_USER_ID=
+GOODOCS_TOKEN=
 GOODOCS_TOKEN_SOURCE=
 GOODOCS_TOKEN_KEY=
-GOODOCS_MODULE_NAME=
 SOURCE_FETCH_LIMIT=5000
 ```
 
@@ -63,6 +66,10 @@ PNT_RPT:
 여러 Oracle DB를 쓰는 경우 `PNT_RPT`, `GMS_DB`처럼 table catalog의 `source_config.db_key`와 같은 이름으로 나누어 입력합니다.
 
 Datalake Langflow component는 LakeHouse 방식으로 실행합니다. 입력으로 받은 `LAKEHOUSE_USER_ID`, `LAKEHOUSE_TOKEN`, `LAKEHOUSE_S3_ACCESS_KEY`, `LAKEHOUSE_S3_SECRET_KEY`를 환경변수에 세팅한 뒤 `lakes.LakeHouse(real_user_id=...)`, `ensure_running(cluster_type="starrocks")`, `auto_run_sync_paragraph(code=sql)`, `get_rst()` 순서로 결과를 읽습니다.
+
+H-API Langflow component는 `source_config.api_url/url/endpoint`, `method`, `headers`, `params/query_params`, `body/payload`, `response_path`를 사용해 HTTP 요청을 실행합니다. `{DATE}` 같은 템플릿 변수는 `retrieval_jobs[].required_params` 또는 `params` 값으로 치환합니다.
+
+Goodocs Langflow component는 파일 내부의 `GodocsClient` class를 통해 조회합니다. 실제 운영 환경에서는 이 class의 `fetch_rows(source_config, params, fetch_limit)` 구현만 교체하면 되고, 반환값은 `list[dict]` 또는 rows/data/items를 포함한 구조면 됩니다.
 
 ## Langflow Components
 

@@ -15,14 +15,14 @@
 | 5 | `01C MongoDB 메인 변수 로더.main_flow_filters` | `01D 메타데이터 후보 생성기.main_flow_filters` |
 | 6 | `01D 메타데이터 후보 생성기.metadata_candidates` | `02 의도 분석 변수 생성기.metadata_candidates_in` |
 | 7 | `00 분석 요청 로더.payload_out` | `02 의도 분석 변수 생성기.payload` |
-| 9 | `02 의도 분석 변수 생성기.question` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.question` |
-| 10 | `02 의도 분석 변수 생성기.state_summary` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.state_summary` |
-| 11 | `02 의도 분석 변수 생성기.metadata_candidates` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.metadata_candidates` |
-| 12 | optional `Text Input.message` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.specialized_prompt` |
-| 13 | `02 의도 분석 변수 생성기.output_schema` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.output_schema` |
-| 14 | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 15 | `00 분석 요청 로더.payload_out` | `04 의도 계획 정규화기.payload` |
-| 16 | `Langflow Agent/LLM.output` | `04 의도 계획 정규화기.llm_response` |
+| 8 | `02 의도 분석 변수 생성기.question` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.question` |
+| 9 | `02 의도 분석 변수 생성기.state_summary` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.state_summary` |
+| 10 | `02 의도 분석 변수 생성기.metadata_candidates` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.metadata_candidates` |
+| 11 | optional `Text Input.message` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.specialized_prompt` |
+| 12 | `02 의도 분석 변수 생성기.output_schema` | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.output_schema` |
+| 13 | `Langflow Prompt Template: 03_intent_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 14 | `00 분석 요청 로더.payload_out` | `04 의도 계획 정규화기.payload` |
+| 15 | `Langflow Agent/LLM.output` | `04 의도 계획 정규화기.llm_response` |
 
 `03_intent_prompt_template_ko.md.specialized_prompt`는 공정/현장 특화 지시가 있을 때만 별도 `Text Input.message`에서 직접 연결한다. 없으면 비워 둔다.
 
@@ -43,8 +43,8 @@
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 17A | `04 의도 계획 정규화기.payload_out` | `05 MongoDB 이전 결과 로더.payload` |
-| 17B | `05 MongoDB 이전 결과 로더.payload_out` | `06 조회 작업 검증기.payload` |
+| 16A | `04 의도 계획 정규화기.payload_out` | `05 MongoDB 이전 결과 로더.payload` |
+| 16B | `05 MongoDB 이전 결과 로더.payload_out` | `06 조회 작업 검증기.payload` |
 
 복원하지 않을 때:
 
@@ -58,11 +58,11 @@
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 18 | `06 조회 작업 검증기.payload_out` | `07 조회 작업 라우터.payload` |
-| 19 | `06 조회 작업 검증기.payload_out` | `13 소스 조회 결과 병합기.main_payload` |
-| 20 | `07 조회 작업 라우터.dummy_jobs` | `08 더미 데이터 조회기.payload` |
-| 21 | `08 더미 데이터 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.dummy_retrieval` |
-| 22 | `13 소스 조회 결과 병합기.payload_out` | `14 조회 페이로드 어댑터.payload` |
+| 17 | `06 조회 작업 검증기.payload_out` | `07 조회 작업 라우터.payload` |
+| 18 | `06 조회 작업 검증기.payload_out` | `13 소스 조회 결과 병합기.main_payload` |
+| 19 | `07 조회 작업 라우터.dummy_jobs` | `08 더미 데이터 조회기.payload` |
+| 20 | `08 더미 데이터 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.dummy_retrieval` |
+| 21 | `13 소스 조회 결과 병합기.payload_out` | `14 조회 페이로드 어댑터.payload` |
 
 Live branch를 사용할 때 추가 연결:
 
@@ -72,8 +72,8 @@ Live branch를 사용할 때 추가 연결:
 | `09 Oracle 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.oracle_retrieval` |
 | `07 조회 작업 라우터.h_api_jobs` | `10 H-API 조회기.payload` |
 | `10 H-API 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.h_api_retrieval` |
-| `07 조회 작업 라우터.datalake_jobs` | `11 Datalake 조회기.payload` |
-| `11 Datalake 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.datalake_retrieval` |
+| `07 조회 작업 라우터.datalake_jobs` | `11 데이터레이크 조회기.payload` |
+| `11 데이터레이크 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.datalake_retrieval` |
 | `07 조회 작업 라우터.goodocs_jobs` | `12 Goodocs 조회기.payload` |
 | `12 Goodocs 조회기.retrieval_payload` | `13 소스 조회 결과 병합기.goodocs_retrieval` |
 
@@ -83,16 +83,16 @@ Live branch를 사용할 때 추가 연결:
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 23 | `14 조회 페이로드 어댑터.payload_out` | `15 pandas 변수 생성기.payload` |
-| 24 | `15 pandas 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.intent_plan_json` |
-| 25 | `15 pandas 변수 생성기.source_schema_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.source_schema_json` |
-| 26 | `15 pandas 변수 생성기.source_preview_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.source_preview_json` |
-| 27 | `15 pandas 변수 생성기.function_case_selection_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_selection_json` |
-| 28 | `Text Input.message`에 `function_case_helper_code_input_example.py` 내용 붙여넣기 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_helper_code` |
-| 29 | `15 pandas 변수 생성기.output_contract_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output_contract_json` |
-| 30 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 31 | `14 조회 페이로드 어댑터.payload_out` | `17 pandas 코드 실행기.payload` |
-| 32 | `Langflow Agent/LLM.output` | `17 pandas 코드 실행기.llm_response` |
+| 22 | `14 조회 페이로드 어댑터.payload_out` | `15 pandas 변수 생성기.payload` |
+| 23 | `15 pandas 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.intent_plan_json` |
+| 24 | `15 pandas 변수 생성기.source_schema_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.source_schema_json` |
+| 25 | `15 pandas 변수 생성기.source_preview_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.source_preview_json` |
+| 26 | `15 pandas 변수 생성기.function_case_selection_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_selection_json` |
+| 27 | `Text Input.message`에 `function_case_helper_code_input_example.py` 내용 붙여넣기 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.function_case_helper_code` |
+| 28 | `15 pandas 변수 생성기.output_contract_json` | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output_contract_json` |
+| 29 | `Langflow Prompt Template: 16_pandas_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 30 | `14 조회 페이로드 어댑터.payload_out` | `17 pandas 코드 실행기.payload` |
+| 31 | `Langflow Agent/LLM.output` | `17 pandas 코드 실행기.llm_response` |
 
 재생성 경로를 쓰지 않으면 `17 pandas 코드 실행기.payload_out`을 바로 `23 MongoDB 결과 저장기.payload` 또는 `18 답변 변수 생성기.payload`로 연결한다.
 
@@ -104,22 +104,22 @@ pandas 실행 실패 시 오류 정보와 실패한 코드를 LLM에 넘겨 한 
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 33 | `17 pandas 코드 실행기.payload_out` | `17A pandas 재생성 변수 생성기.payload` |
-| 34 | `17A pandas 재생성 변수 생성기.repair_required` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.repair_required` |
-| 35 | `17A pandas 재생성 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.intent_plan_json` |
-| 36 | `17A pandas 재생성 변수 생성기.source_schema_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_schema_json` |
-| 37 | `17A pandas 재생성 변수 생성기.source_preview_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_preview_json` |
-| 38 | `17A pandas 재생성 변수 생성기.failed_code` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.failed_code` |
-| 39 | `17A pandas 재생성 변수 생성기.error_context_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.error_context_json` |
-| 40 | `17A pandas 재생성 변수 생성기.function_case_selection_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_selection_json` |
-| 41 | `Text Input.message`에 `function_case_helper_code_input_example.py` 내용 붙여넣기 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_helper_code` |
-| 42 | `17A pandas 재생성 변수 생성기.output_schema` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output_schema` |
-| 43 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 44 | `17 pandas 코드 실행기.payload_out` | `17R pandas 코드 재실행기.payload` |
-| 45 | `Langflow Agent/LLM.output` | `17R pandas 코드 재실행기.llm_response` |
-| 46 | `17 pandas 코드 실행기.payload_out` | `17C pandas 재생성 결과 선택기.original_payload` |
-| 47 | `17R pandas 코드 재실행기.payload_out` | `17C pandas 재생성 결과 선택기.retry_payload` |
-| 48 | `17C pandas 재생성 결과 선택기.payload_out` | `23 MongoDB 결과 저장기.payload` |
+| 32 | `17 pandas 코드 실행기.payload_out` | `17A pandas 재생성 변수 생성기.payload` |
+| 33 | `17A pandas 재생성 변수 생성기.repair_required` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.repair_required` |
+| 34 | `17A pandas 재생성 변수 생성기.intent_plan_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.intent_plan_json` |
+| 35 | `17A pandas 재생성 변수 생성기.source_schema_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_schema_json` |
+| 36 | `17A pandas 재생성 변수 생성기.source_preview_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.source_preview_json` |
+| 37 | `17A pandas 재생성 변수 생성기.failed_code` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.failed_code` |
+| 38 | `17A pandas 재생성 변수 생성기.error_context_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.error_context_json` |
+| 39 | `17A pandas 재생성 변수 생성기.function_case_selection_json` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_selection_json` |
+| 40 | `Text Input.message`에 `function_case_helper_code_input_example.py` 내용 붙여넣기 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.function_case_helper_code` |
+| 41 | `17A pandas 재생성 변수 생성기.output_schema` | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output_schema` |
+| 42 | `Langflow Prompt Template: 17b_pandas_repair_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 43 | `17 pandas 코드 실행기.payload_out` | `17R pandas 코드 재실행기.payload` |
+| 44 | `Langflow Agent/LLM.output` | `17R pandas 코드 재실행기.llm_response` |
+| 45 | `17 pandas 코드 실행기.payload_out` | `17C pandas 재생성 결과 선택기.original_payload` |
+| 46 | `17R pandas 코드 재실행기.payload_out` | `17C pandas 재생성 결과 선택기.retry_payload` |
+| 47 | `17C pandas 재생성 결과 선택기.payload_out` | `23 MongoDB 결과 저장기.payload` |
 
 재생성 LLM이 `{"code": ""}`를 반환하면 재실행 결과는 실패로 남고, `17C`는 원래 payload를 선택한다.
 
@@ -129,16 +129,16 @@ pandas 실행 실패 시 오류 정보와 실패한 코드를 LLM에 넘겨 한 
 
 | # | From node.output | To node.input |
 | --- | --- | --- |
-| 49 | `23 MongoDB 결과 저장기.payload_out` | `18 답변 변수 생성기.payload` |
-| 50 | `18 답변 변수 생성기.question` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.question` |
-| 51 | `18 답변 변수 생성기.result_summary_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.result_summary_json` |
-| 52 | `18 답변 변수 생성기.applied_scope_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.applied_scope_json` |
-| 53 | `18 답변 변수 생성기.warnings_errors_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.warnings_errors_json` |
-| 54 | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
-| 55 | `23 MongoDB 결과 저장기.payload_out` | `20 답변 응답 생성기.payload` |
-| 56 | `Langflow Agent/LLM.output` | `20 답변 응답 생성기.answer_text` |
-| 57 | `20 답변 응답 생성기.payload_out` | `21 답변 메시지 어댑터.payload` |
-| 58 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
+| 48 | `23 MongoDB 결과 저장기.payload_out` | `18 답변 변수 생성기.payload` |
+| 49 | `18 답변 변수 생성기.question` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.question` |
+| 50 | `18 답변 변수 생성기.result_summary_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.result_summary_json` |
+| 51 | `18 답변 변수 생성기.applied_scope_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.applied_scope_json` |
+| 52 | `18 답변 변수 생성기.warnings_errors_json` | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.warnings_errors_json` |
+| 53 | `Langflow Prompt Template: 19_answer_prompt_template_ko.md.output` | `Langflow Agent/LLM.input` |
+| 54 | `23 MongoDB 결과 저장기.payload_out` | `20 답변 응답 생성기.payload` |
+| 55 | `Langflow Agent/LLM.output` | `20 답변 응답 생성기.answer_text` |
+| 56 | `20 답변 응답 생성기.payload_out` | `21 답변 메시지 어댑터.payload` |
+| 57 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
 
 `21 답변 메시지 어댑터.download_base_url`에는 다운로드 링크를 만들 때 사용할 Base URL만 입력한다. 기본값은 `http://localhost:8765`이다.
 

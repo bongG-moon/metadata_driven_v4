@@ -69,6 +69,9 @@ signature: match_product_tokens(input_text, frame, token_columns=None, output_or
 
 처럼 제품 속성이 여러 컬럼에 나뉘어 있고, 사용자가 한 문장 token으로 제품을 말하는 경우에 사용한다.
 
+공정명 또는 공정 그룹 단독 표현은 제품 token 매칭이 아니다. 예를 들어 `DA공정`, `D/A공정`, `WB공정`, `W/B공정`, `FCB공정`, `BG공정`처럼 공정 기준 생산량/재공/실적을 묻는 경우에는 `match_product_tokens`를 선택하지 말고 `OPER_NAME` filter로 처리한다.
+`input_text`가 `DA`, `D/A`, `WB`, `W/B`, `FCB`, `BG`, `B/G`, `SBM`처럼 공정명/공정 그룹만 포함하면 `product_token_match`를 선택하지 않는다.
+
 추가 매칭 규칙:
 
 - 콤마로 여러 제품이 들어오면 제품별 token 묶음을 나누고, 제품 묶음끼리는 OR로 결합한다.

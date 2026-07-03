@@ -1327,6 +1327,50 @@ def test_data_analysis_split_mongodb_metadata_loaders_use_v4_env_defaults(monkey
     assert "_id" not in result["metadata_candidates"]["domain_items"][0]
 
 
+def test_metadata_candidates_mark_non_runtime_pandas_function_cases():
+    candidates_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01d_metadata_candidates_builder.py")
+    result = candidates_builder.build_metadata_candidates(
+        {
+            "domain_items": [
+                {
+                    "section": "pandas_function_cases",
+                    "key": "calculate_production_by_oper_name",
+                    "payload": {"function_name": "calculate_production_by_oper_name"},
+                },
+                {
+                    "section": "pandas_function_cases",
+                    "key": "product_token_match",
+                    "payload": {"function_name": "match_product_tokens"},
+                },
+                {
+                    "section": "pandas_function_cases",
+                    "key": "component_token_product_lookup",
+                    "payload": {"pseudocode": "filtered_df = match_product_tokens(product_dataframe, product_tokens)"},
+                },
+            ],
+            "metadata_load": {"status": "ok"},
+        },
+        {"table_catalog_items": [], "metadata_load": {"status": "ok"}},
+        {"main_flow_filters": [], "metadata_load": {"status": "ok"}},
+    )
+
+    items = {item["key"]: item for item in result["metadata_candidates"]["domain_items"]}
+    assert items["calculate_production_by_oper_name"]["runtime_helper"] == {
+        "function_name": "calculate_production_by_oper_name",
+        "available": False,
+        "selectable_for_intent": False,
+        "selection_policy": "not_registered_runtime_helper",
+    }
+    assert "intent_plan.pandas_function_case로 선택하지 않는다" in items["calculate_production_by_oper_name"]["selection_note"]
+    assert items["product_token_match"]["runtime_helper"]["function_name"] == "match_product_tokens"
+    assert items["product_token_match"]["runtime_helper"]["available"] is True
+    assert items["product_token_match"]["runtime_helper"]["selectable_for_intent"] is True
+    assert items["component_token_product_lookup"]["runtime_helper"]["function_name"] == "match_product_tokens"
+    assert items["component_token_product_lookup"]["runtime_helper"]["selectable_for_intent"] is True
+    assert result["metadata_candidates"]["runtime_function_helpers"][0]["function_name"] == "match_product_tokens"
+    assert result["metadata_load"]["counts"] == {"domain_items": 3, "table_catalog_items": 0, "main_flow_filters": 0}
+
+
 def test_data_analysis_mongodb_result_store_and_loader_round_trip(monkeypatch):
     mongo_store = install_fake_pymongo(monkeypatch)
     set_v4_mongo_env(monkeypatch)

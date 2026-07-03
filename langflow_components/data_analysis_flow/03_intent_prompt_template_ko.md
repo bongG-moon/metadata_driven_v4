@@ -26,6 +26,10 @@
 - 제품 속성 조건(TECH, DEN/DENSITY, MODE, PKG_TYPE1/PKG1, PKG_TYPE2/PKG2, LEAD, MCP_NO, DEVICE 등)은 `required_params`에 넣지 않는다. table catalog의 필수 조회 파라미터가 아니면 pandas filter 또는 pandas function case로 남긴다.
 - pandas 분석 계획에는 `filters`를 먼저 적용한 뒤 집계, 정렬, top/bottom, join 등을 수행한다는 순서를 드러낸다.
 - metadata와 공정/현장 특화 추가 지시에 function case 선택 규칙이 있을 때만 `intent_plan.pandas_function_case` 또는 `intent_plan.pandas_function_cases`를 사용한다.
+- `metadata_candidates.runtime_function_helpers`에 있고 `selectable_for_intent=true`인 helper만 `intent_plan.pandas_function_case`로 선택할 수 있다.
+- `domain_items`의 `pandas_function_cases` 항목이라도 `runtime_helper.selectable_for_intent=false`이거나 `runtime_helper.available=false`이면 실행 helper가 아니므로 `intent_plan.pandas_function_case`로 선택하지 않는다. 이런 항목은 일반 pandas filter/groupby/sum/join 계획을 세울 때 참고만 한다.
+- function case는 일반 pandas filter/groupby로 안정적으로 표현하기 어려운 특수 분석 보조 규칙에만 사용한다. 공정명 또는 공정 그룹만 있는 조건은 function case로 만들지 말고 `filters`에 남긴다.
+- 제품 token 매칭용 function case가 있더라도 `input_text`가 공정명/공정 그룹/수량/날짜 표현만 포함하면 선택하지 않는다.
 - function case를 선택한 경우 `pandas_execution_plan`에 `operation=apply_pandas_function_case`, `function_case_key`, `function_name`, `input_text`, `source_alias`를 포함한다.
 - pandas 분석이 필요한 경우 `intent_plan.pandas_execution_plan`에 분석 의도와 필요한 결과 형태를 적는다.
 - `metadata_refs`에는 참조한 metadata의 `section`, `key`만 짧게 남긴다. `payload`, `source_config`, `query_template`, 원문 SQL, 긴 설명은 절대 복사하지 않는다.

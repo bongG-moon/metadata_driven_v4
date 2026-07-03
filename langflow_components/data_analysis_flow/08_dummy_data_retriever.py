@@ -203,6 +203,7 @@ def _rows_for_dataset(dataset_key: str) -> list[dict[str, Any]]:
         "production": _production_rows(_unique_dates([yesterday, "20260701", "20260630", "20260627", "20260624"])),
         "wip_today": _wip_rows(_unique_dates([today, "20260701"])),
         "wip": _wip_rows(_unique_dates([yesterday, two_days_ago, "20260701", "20260630", "20260626", "20260624", "20260623"])),
+        "product_token_fixture": _product_token_fixture_rows(_unique_dates([today, "20260701"])),
         "target": _target_rows(),
         "equipment_assign": _equipment_assign_rows(),
         "equipment_status": _equipment_assign_rows(),
@@ -340,6 +341,44 @@ def _target_rows() -> list[dict[str, Any]]:
                 "TARGET": 1200 - index * 150,
             }
         )
+    return rows
+
+
+def _product_token_fixture_rows(work_dates: list[str]) -> list[dict[str, Any]]:
+    fixtures = [
+        {"FAMILY": "DDR", "TECH": "RG", "DENSITY": "8G", "DEN": "8G", "MODE": "DDR4", "ORG": "16", "PKG1": "FCBGA", "PKG_TYPE1": "FCBGA", "PKG2": "SDP", "PKG_TYPE2": "SDP", "LEAD": "96", "MCP_NO": "L-218K8H", "DEVICE": "RG-X16", "DEVICE_DESC": "RG 8G DDR4 X16 96 FCBGA SDP", "WIP": 10, "PRODUCTION": 100},
+        {"FAMILY": "DDR", "TECH": "CP", "DENSITY": "16G", "DEN": "16G", "MODE": "DDR", "ORG": "8", "PKG1": "FCBGA", "PKG_TYPE1": "FCBGA", "PKG2": "SDP", "PKG_TYPE2": "SDP", "LEAD": "78", "MCP_NO": "L-216A1", "DEVICE": "CP-X8", "DEVICE_DESC": "CP 16G DDR X8 78 FCBGA SDP", "WIP": 20, "PRODUCTION": 200},
+        {"FAMILY": "DDR", "TECH": "CP", "DENSITY": "16G", "DEN": "16G", "MODE": "DDR", "ORG": "16", "PKG1": "VFBGA", "PKG_TYPE1": "VFBGA", "PKG2": "SDP", "PKG_TYPE2": "SDP", "LEAD": "78", "MCP_NO": "A-663Z9", "DEVICE": "CP-F78-V", "DEVICE_DESC": "CP 16G DDR X16 78 VFBGA SDP", "WIP": 30, "PRODUCTION": 300},
+        {"FAMILY": "DDR", "TECH": "RG", "DENSITY": "8G", "DEN": "8G", "MODE": "DDR4", "ORG": "16", "PKG1": "VFBGA", "PKG_TYPE1": "VFBGA", "PKG2": "SDP", "PKG_TYPE2": "SDP", "LEAD": "96", "MCP_NO": "A-777Z9", "DEVICE": "RG-F96-V", "DEVICE_DESC": "RG 8G DDR4 X16 96 VFBGA SDP", "WIP": 35, "PRODUCTION": 350},
+        {"FAMILY": "DDR", "TECH": "RG", "DENSITY": "8G", "DEN": "8G", "MODE": "DDR4", "ORG": "8", "PKG1": "FCBGA", "PKG_TYPE1": "FCBGA", "PKG2": "SDP", "PKG_TYPE2": "SDP", "LEAD": "96", "MCP_NO": "L-999", "DEVICE": "RG-WRONG-ORG", "DEVICE_DESC": "RG 8G DDR4 X8 96 FCBGA SDP", "WIP": 40, "PRODUCTION": 400},
+        {"FAMILY": "DDR", "TECH": "CP", "DENSITY": "16G", "DEN": "16G", "MODE": "DDR", "ORG": "8", "PKG1": "FCBGA", "PKG_TYPE1": "FCBGA", "PKG2": "SDP", "PKG_TYPE2": "SDP", "LEAD": "96", "MCP_NO": "L-000", "DEVICE": "CP-WRONG-LEAD", "DEVICE_DESC": "CP 16G DDR X8 96 FCBGA SDP", "WIP": 50, "PRODUCTION": 500},
+        {"FAMILY": "TEST", "TECH": "ZZ", "DENSITY": "4G", "DEN": "4G", "MODE": "SDR", "ORG": "4", "PKG1": "BGA", "PKG_TYPE1": "BGA", "PKG2": "NONE", "PKG_TYPE2": "NONE", "LEAD": "12", "MCP_NO": "Z-000", "DEVICE": "NO-MATCH", "DEVICE_DESC": "negative control", "WIP": 99, "PRODUCTION": 999},
+    ]
+    processes = [
+        {"OPER": "WB1", "OPER_NAME": "W/B1", "OPER_SEQ": "200"},
+        {"OPER": "INPUT", "OPER_NAME": "INPUT", "OPER_SEQ": "010"},
+    ]
+    rows: list[dict[str, Any]] = []
+    for work_date in work_dates:
+        for fixture in fixtures:
+            for process in processes:
+                row = {
+                    "WORK_DATE": work_date,
+                    "WORK_DT": work_date,
+                    "DATE": work_date,
+                    "SHIFT": "1",
+                    "FACTORY": "PNT",
+                    "FAB": "PKG",
+                    "OPER": process["OPER"],
+                    "OPER_NUM": process["OPER"],
+                    "OPER_NAME": process["OPER_NAME"],
+                    "OPER_NM": process["OPER_NAME"],
+                    "OPER_SEQ": process["OPER_SEQ"],
+                    "TSV_DIE_TYP": "",
+                    "TSV_DIE_TYPE": "",
+                }
+                row.update(fixture)
+                rows.append(row)
     return rows
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from copy import deepcopy
 from datetime import date, datetime
@@ -11,17 +12,24 @@ from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 
+GOODOCS_SYSTEM_COLUMNS = {"ROW_INDEX", "LastUser", "LastTime", "LastEditType", "FirstUser", "FirstTime", "ROW_ID"}
 PREVIEW_LIMIT = 20
+
+
+class Goodocs:
+    def __init__(self, auth: dict[str, Any]):
+        self.auth = auth
+
+    def read_all(self) -> Any:
+        raise RuntimeError("Goodocs class implementation is not configured. Paste the real Goodocs class into this component.")
 
 
 def goodocs_retrieve(
     payload_value: Any,
     user_id: Any = "",
-    token: Any = "",
     token_source: Any = "",
     token_key: Any = "",
     fetch_limit: Any = "",
-    client: Any = None,
 ) -> dict[str, Any]:
     payload = _payload(payload_value)
     jobs = _jobs_for_source(payload)
@@ -29,13 +37,13 @@ def goodocs_retrieve(
         return _skipped("goodocs", "no goodocs retrieval jobs")
 
     limit = _fetch_limit(fetch_limit or os.getenv("SOURCE_FETCH_LIMIT", "5000"))
-    godocs_client = client or GodocsClient(
-        user_id=str(user_id or os.getenv("GOODOCS_USER_ID", "")).strip(),
-        token=str(token or os.getenv("GOODOCS_TOKEN", "")).strip(),
-        token_source=str(token_source or os.getenv("GOODOCS_TOKEN_SOURCE", "")).strip(),
-        token_key=str(token_key or os.getenv("GOODOCS_TOKEN_KEY", "")).strip(),
-    )
-    results = [_run_goodocs_job(job, godocs_client, limit) for job in jobs]
+    resolved_user_id = str(user_id or os.getenv("GOODOCS_USER_ID", "")).strip()
+    resolved_token_source = str(token_source or os.getenv("GOODOCS_TOKEN_SOURCE", "")).strip()
+    resolved_token_key = str(token_key or os.getenv("GOODOCS_TOKEN_KEY") or os.getenv("GOODOCS_TOKEN", "")).strip()
+    results = [
+        _run_goodocs_job(job, resolved_user_id, resolved_token_source, resolved_token_key, limit)
+        for job in jobs
+    ]
     errors = [error for result in results for error in result.get("errors", []) if isinstance(error, dict)]
     warnings = [warning for result in results for warning in result.get("warnings", []) if isinstance(warning, dict)]
     return {
@@ -49,50 +57,86 @@ def goodocs_retrieve(
     }
 
 
-def _run_goodocs_job(job: dict[str, Any], client: "GodocsClient", fetch_limit: int) -> dict[str, Any]:
+retrieve_goodocs_data = goodocs_retrieve
+
+
+def _run_goodocs_job(
+    job: dict[str, Any],
+    user_id: str,
+    token_source: str,
+    token_key: str,
+    fetch_limit: int,
+) -> dict[str, Any]:
     source_config = _source_config(job)
     params = _job_params(job)
     missing = _missing_required_params(params, _required_param_names(job, source_config))
     if missing:
         return _error_result(job, "missing_required_params", f"필수 파라미터가 없습니다: {', '.join(missing)}", params=params)
 
-    if not _has_goodocs_source(source_config):
-        return _error_result(job, "missing_goodocs_source", "Goodocs source_config에 doc_id 또는 테스트용 rows/data가 없습니다.", params=params)
+    doc_id = str(source_config.get("doc_id") or "").strip()
+    sheet_name = str(source_config.get("sheet_name") or source_config.get("sheet") or "").strip()
+    if not doc_id and not _has_inline_rows(source_config):
+        return _error_result(job, "missing_doc_id", "Goodocs source_config에 doc_id가 없습니다.", params=params)
 
+    inline_rows = _inline_rows(source_config)
+    if inline_rows:
+        rows = _drop_system_columns([_row_dict(row) for row in inline_rows])[:fetch_limit]
+        return _standard_result(job, rows, params, source_config, used_dummy_data=False, source_configured=True)
+
+    credentials = {"USER_ID": user_id, "TOKEN_SOURCE": token_source, "TOKEN_KEY": token_key}
+    if not any(str(value or "").strip() for value in credentials.values()):
+        rows = _dummy_rows(job, doc_id)[:fetch_limit]
+        return _standard_result(job, rows, params, source_config, used_dummy_data=True, source_configured=False)
+
+    missing_credentials = [key for key, value in credentials.items() if not str(value or "").strip()]
+    if missing_credentials:
+        return _error_result(
+            job,
+            "missing_goodocs_credentials",
+            f"Goodocs 인증 값이 없습니다: {', '.join(missing_credentials)}",
+            params=params,
+        )
+
+    auth = {"USER_ID": user_id, "DOC_ID": doc_id, "TOKEN_SOURCE": token_source, "TOKEN_KEY": token_key}
+    if sheet_name:
+        auth["SHEET_NAME"] = sheet_name
     try:
-        rows = client.fetch_rows(source_config=source_config, params=params, fetch_limit=fetch_limit)
-        rows = [_row_dict(row) for row in _rows_from_value(rows)[:fetch_limit]]
-        rows = _json_ready(rows)
-        return _standard_result(job, rows, params, source_config)
+        goodocs_cls = _goodocs_class()
+        goodocs = goodocs_cls(auth)
+        if sheet_name and hasattr(goodocs, "read_sheet"):
+            frame = goodocs.read_sheet(sheet_name)
+        else:
+            frame = goodocs.read_all()
+        rows = _frame_to_rows(frame)[:fetch_limit]
+        return _standard_result(job, rows, params, source_config, used_dummy_data=False, source_configured=True)
     except Exception as exc:
         return _error_result(job, "goodocs_retrieval_failed", f"Goodocs 조회 실패: {exc}", params=params)
 
 
-class GodocsClient:
-    def __init__(self, user_id: str = "", token: str = "", token_source: str = "", token_key: str = ""):
-        self.user_id = user_id
-        self.token = token
-        self.token_source = token_source
-        self.token_key = token_key
-
-    def fetch_rows(self, source_config: dict[str, Any], params: dict[str, Any], fetch_limit: int) -> list[dict[str, Any]]:
-        for key in ("rows", "data", "items"):
-            if isinstance(source_config.get(key), list):
-                return deepcopy(source_config[key])[:fetch_limit]
-        raise NotImplementedError("GodocsClient.fetch_rows를 실제 환경용 Goodocs 조회 class로 교체해야 합니다.")
-
-
-GoodocsClient = GodocsClient
+def _goodocs_class() -> Any:
+    override = getattr(GoodocsRetriever, "goodocs_class", None) if "GoodocsRetriever" in globals() else None
+    if override is not None:
+        return override
+    return Goodocs
 
 
 def _jobs_for_source(payload: dict[str, Any]) -> list[dict[str, Any]]:
     bundle = payload.get("retrieval_job_bundle") if isinstance(payload.get("retrieval_job_bundle"), dict) else {}
     bundle_jobs = bundle.get("jobs") if isinstance(bundle.get("jobs"), list) else []
     if bundle_jobs:
-        return [deepcopy(job) for job in bundle_jobs if isinstance(job, dict)]
-    plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else {}
+        return [
+            deepcopy(job)
+            for job in bundle_jobs
+            if isinstance(job, dict)
+            and _source_type(job.get("source_type") or _source_config(job).get("source_type")) in {"goodocs", "goodoc", "godocs"}
+        ]
+    plan = payload.get("intent_plan") if isinstance(payload.get("intent_plan"), dict) else payload
     jobs = plan.get("retrieval_jobs") if isinstance(plan.get("retrieval_jobs"), list) else []
-    return [deepcopy(job) for job in jobs if isinstance(job, dict) and _source_type(job.get("source_type")) in {"goodocs", "godocs"}]
+    return [
+        deepcopy(job)
+        for job in jobs
+        if isinstance(job, dict) and _source_type(job.get("source_type") or _source_config(job).get("source_type")) in {"goodocs", "goodoc", "godocs"}
+    ]
 
 
 def _source_config(job: dict[str, Any]) -> dict[str, Any]:
@@ -100,6 +144,8 @@ def _source_config(job: dict[str, Any]) -> dict[str, Any]:
     for key in ("doc_id", "document_id", "sheet_name", "sheet", "range", "table_name", "columns", "required_columns", "rows", "data", "items"):
         if job.get(key) not in (None, "", [], {}):
             config.setdefault(key, deepcopy(job[key]))
+    if config.get("document_id") and not config.get("doc_id"):
+        config["doc_id"] = config["document_id"]
     return config
 
 
@@ -121,14 +167,16 @@ def _required_param_names(job: dict[str, Any], source_config: dict[str, Any]) ->
     return []
 
 
-def _has_goodocs_source(source_config: dict[str, Any]) -> bool:
-    if source_config.get("doc_id") or source_config.get("document_id"):
-        return True
-    return any(isinstance(source_config.get(key), list) for key in ("rows", "data", "items"))
-
-
-def _standard_result(job: dict[str, Any], rows: list[dict[str, Any]], params: dict[str, Any], source_config: dict[str, Any]) -> dict[str, Any]:
+def _standard_result(
+    job: dict[str, Any],
+    rows: list[dict[str, Any]],
+    params: dict[str, Any],
+    source_config: dict[str, Any],
+    used_dummy_data: bool,
+    source_configured: bool,
+) -> dict[str, Any]:
     return {
+        "success": True,
         "source_alias": job.get("source_alias") or job.get("dataset_key"),
         "dataset_key": job.get("dataset_key"),
         "source_type": "goodocs",
@@ -137,16 +185,19 @@ def _standard_result(job: dict[str, Any], rows: list[dict[str, Any]], params: di
         "columns": _rows_columns(rows),
         "preview_rows": rows[:PREVIEW_LIMIT],
         "rows": rows,
+        "data": rows,
         "applied_params": deepcopy(params),
+        "applied_filters": deepcopy(job.get("filters", [])),
         "pandas_filters": deepcopy(job.get("filters", {})),
         "data_ref": "",
+        "summary": f"{job.get('dataset_key', 'source')} goodocs retrieval complete: {len(rows)} rows",
         "source_execution": {
-            "used_dummy_data": False,
+            "used_dummy_data": used_dummy_data,
             "adapter": "goodocs",
-            "doc_id": source_config.get("doc_id") or source_config.get("document_id") or "",
+            "doc_id": source_config.get("doc_id") or "",
             "sheet_name": source_config.get("sheet_name") or source_config.get("sheet") or "",
             "range": source_config.get("range") or "",
-            "source_configured": True,
+            "source_configured": source_configured,
             "filters_applied_in_retriever": False,
         },
         "warnings": [],
@@ -157,6 +208,7 @@ def _standard_result(job: dict[str, Any], rows: list[dict[str, Any]], params: di
 def _error_result(job: dict[str, Any], error_type: str, message: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     error = {"type": error_type, "message": message, "dataset_key": job.get("dataset_key", "")}
     return {
+        "success": False,
         "source_alias": job.get("source_alias") or job.get("dataset_key"),
         "dataset_key": job.get("dataset_key"),
         "source_type": "goodocs",
@@ -165,22 +217,67 @@ def _error_result(job: dict[str, Any], error_type: str, message: str, params: di
         "columns": [],
         "preview_rows": [],
         "rows": [],
+        "data": [],
         "applied_params": deepcopy(params if params is not None else _job_params(job)),
+        "applied_filters": deepcopy(job.get("filters", [])),
         "pandas_filters": deepcopy(job.get("filters", {})),
         "data_ref": "",
+        "summary": "",
+        "failure_type": error_type,
+        "error_message": message,
         "source_execution": {"used_dummy_data": False, "adapter": "goodocs", "source_configured": False},
         "warnings": [],
         "errors": [error],
     }
 
 
-def _missing_required_params(params: dict[str, Any], required_params: Any) -> list[str]:
-    missing = []
-    for item in _as_list(required_params):
-        key = str(item or "").strip()
-        if key and _dict_get_ci(params, key) in (None, "", []):
-            missing.append(key)
-    return missing
+def _dummy_rows(job: dict[str, Any], doc_id: str) -> list[dict[str, Any]]:
+    params = _job_params(job)
+    rows = []
+    for index in range(20):
+        rows.append(
+            {
+                "DATE": params.get("DATE", "2026-06-12"),
+                "TECH": "TSV" if index % 4 == 0 else "FC",
+                "DEN": "2048G" if index % 4 == 0 else "128G",
+                "MODE": "HBM3E" if index % 4 == 0 else "LPDDR5",
+                "PKG_TYPE1": "HBM" if index % 4 == 0 else "UFBGA",
+                "PKG_TYPE2": "HBM" if index % 4 == 0 else "MOBILE",
+                "LEAD": "LF",
+                "MCP_NO": "H-HBM16E" if index % 4 == 0 else "EMPTY",
+                "INPUT_PLAN": 120000 + index * 2000,
+                "OUT_PLAN": 90000 + index * 1500,
+                "doc_id": doc_id,
+            }
+        )
+    return rows
+
+
+def _frame_to_rows(frame: Any) -> list[dict[str, Any]]:
+    if hasattr(frame, "reset_index"):
+        try:
+            frame = frame.reset_index(drop=True)
+        except Exception:
+            pass
+    if hasattr(frame, "drop"):
+        try:
+            drop_columns = [column for column in GOODOCS_SYSTEM_COLUMNS if column in getattr(frame, "columns", [])]
+            if drop_columns:
+                frame = frame.drop(columns=drop_columns)
+        except Exception:
+            pass
+    return _drop_system_columns([_row_dict(row) for row in _rows_from_value(frame)])
+
+
+def _inline_rows(source_config: dict[str, Any]) -> list[Any]:
+    for key in ("rows", "data", "items"):
+        if isinstance(source_config.get(key), list):
+            return deepcopy(source_config[key])
+    return []
+
+
+def _has_inline_rows(source_config: dict[str, Any]) -> bool:
+    return bool(_inline_rows(source_config))
 
 
 def _rows_from_value(value: Any) -> list[Any]:
@@ -195,14 +292,18 @@ def _rows_from_value(value: Any) -> list[Any]:
                 if nested:
                     return nested
         return [value]
-    if value in (None, ""):
+    if value is None or (isinstance(value, str) and value == ""):
         return []
     if hasattr(value, "to_dict"):
         try:
             return value.to_dict(orient="records")
         except TypeError:
-            return value.to_dict()
+            return value.to_dict("records")
     return [{"value": value}]
+
+
+def _drop_system_columns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: value for key, value in row.items() if str(key) not in GOODOCS_SYSTEM_COLUMNS} for row in rows]
 
 
 def _row_dict(value: Any) -> dict[str, Any]:
@@ -238,6 +339,15 @@ def _json_ready(value: Any) -> Any:
     except Exception:
         pass
     return str(value)
+
+
+def _missing_required_params(params: dict[str, Any], required_params: Any) -> list[str]:
+    missing = []
+    for item in _as_list(required_params):
+        key = str(item or "").strip()
+        if key and _dict_get_ci(params, key) in (None, "", []):
+            missing.append(key)
+    return missing
 
 
 def _fetch_limit(value: Any) -> int:
@@ -284,7 +394,16 @@ def _payload(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return deepcopy(value)
     data = getattr(value, "data", None)
-    return deepcopy(data) if isinstance(data, dict) else {}
+    if isinstance(data, dict):
+        return deepcopy(data)
+    text = getattr(value, "text", None) or getattr(value, "content", None)
+    if isinstance(text, str):
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {"text": text}
+        except Exception:
+            return {"text": text}
+    return {}
 
 
 def _skipped(source_type: str, reason: str) -> dict[str, Any]:
@@ -292,12 +411,13 @@ def _skipped(source_type: str, reason: str) -> dict[str, Any]:
 
 
 class GoodocsRetriever(Component):
+    goodocs_class = None
+
     display_name = "12 Goodocs 조회기"
-    description = "table catalog의 Goodocs source_config를 사용해 문서/시트 데이터를 조회합니다."
+    description = "Goodocs 문서 기반 source job을 실행하고, 인증 또는 문서 설정이 없으면 dummy fallback으로 대체합니다."
     inputs = [
         DataInput(name="payload", display_name="페이로드", required=True),
         MessageTextInput(name="user_id", display_name="Goodocs 사용자 ID", required=False, value="", advanced=True),
-        MessageTextInput(name="token", display_name="Goodocs 토큰", required=False, value="", advanced=True),
         MessageTextInput(name="token_source", display_name="Goodocs 토큰 소스", required=False, value="", advanced=True),
         MessageTextInput(name="token_key", display_name="Goodocs 토큰 키", required=False, value="", advanced=True),
         MessageTextInput(name="fetch_limit", display_name="조회 제한 건수", required=False, value="5000", advanced=True),
@@ -309,7 +429,6 @@ class GoodocsRetriever(Component):
             data=goodocs_retrieve(
                 getattr(self, "payload", None),
                 getattr(self, "user_id", ""),
-                getattr(self, "token", ""),
                 getattr(self, "token_source", ""),
                 getattr(self, "token_key", ""),
                 getattr(self, "fetch_limit", ""),

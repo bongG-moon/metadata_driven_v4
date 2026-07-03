@@ -6,7 +6,11 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
 
     # 비교 안정성을 위해 값에서 영문/숫자만 남기고 대문자로 정규화한다.
     def _norm(value):
-        text = str('' if value is None else value).upper()
+        text = str('' if value is None else value).strip().upper()
+        if '.' in text:
+            left, right = text.split('.', 1)
+            if left.lstrip('-').isdigit() and right and all(ch == '0' for ch in right):
+                text = left
         return ''.join(ch for ch in text if ('A' <= ch <= 'Z') or ('0' <= ch <= '9'))
 
     # 컬럼명은 PKG_TYPE1, MCP NO처럼 표기 차이가 있어도 같은 key로 비교한다.

@@ -38,7 +38,6 @@ LAKEHOUSE_TOKEN=
 LAKEHOUSE_S3_ACCESS_KEY=
 LAKEHOUSE_S3_SECRET_KEY=
 GOODOCS_USER_ID=
-GOODOCS_TOKEN=
 GOODOCS_TOKEN_SOURCE=
 GOODOCS_TOKEN_KEY=
 SOURCE_FETCH_LIMIT=5000
@@ -69,7 +68,24 @@ Datalake Langflow component는 LakeHouse 방식으로 실행합니다. 입력으
 
 H-API Langflow component는 `source_config.api_url/url/endpoint`, `method`, `headers`, `params/query_params`, `body/payload`, `response_path`를 사용해 HTTP 요청을 실행합니다. `{DATE}` 같은 템플릿 변수는 `retrieval_jobs[].required_params` 또는 `params` 값으로 치환합니다.
 
-Goodocs Langflow component는 파일 내부의 `GodocsClient` class를 통해 조회합니다. 실제 운영 환경에서는 이 class의 `fetch_rows(source_config, params, fetch_limit)` 구현만 교체하면 되고, 반환값은 `list[dict]` 또는 rows/data/items를 포함한 구조면 됩니다.
+Goodocs Langflow component는 v3와 같은 `Goodocs(auth)` class 계약으로 조회합니다. 실제 운영 환경에서는 `12_goodocs_retriever.py`의 `Goodocs` class를 운영용 class로 교체하면 됩니다.
+
+운영 class는 아래 형태를 유지하면 됩니다.
+
+```python
+class Goodocs:
+    def __init__(self, auth):
+        self.auth = auth
+
+    def read_all(self):
+        ...
+
+    # sheet_name 단위 조회가 가능한 경우 선택 구현
+    def read_sheet(self, sheet_name):
+        ...
+```
+
+`auth`에는 `USER_ID`, `DOC_ID`, `TOKEN_SOURCE`, `TOKEN_KEY`가 들어가며, `sheet_name`이 있으면 `SHEET_NAME`도 함께 전달됩니다. 반환값은 pandas DataFrame, `list[dict]`, 또는 rows/data/items/result/results/records를 포함한 dict면 됩니다.
 
 ## Langflow Components
 

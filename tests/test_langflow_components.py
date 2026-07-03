@@ -404,7 +404,61 @@ def test_datalake_retriever_runs_lakehouse_style_client():
     assert source_result["source_execution"]["adapter"] == "datalake"
 
 
-def test_goodocs_retriever_uses_replaceable_godocs_client_contract():
+def test_goodocs_retriever_uses_v3_goodocs_class_contract():
+    retriever = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "12_goodocs_retriever.py")
+    captured = {}
+
+    class FakeGoodocs:
+        def __init__(self, auth):
+            captured["auth"] = auth
+
+        def read_sheet(self, sheet_name):
+            captured["sheet_name"] = sheet_name
+            return [
+                {"DEVICE": "D1", "TARGET": 100, "ROW_ID": "system"},
+                {"DEVICE": "D2", "TARGET": 200, "LastUser": "system"},
+            ]
+
+    payload = {
+        "retrieval_job_bundle": {
+            "jobs": [
+                {
+                    "dataset_key": "target",
+                    "source_alias": "target_data",
+                    "source_type": "goodocs",
+                    "source_config": {
+                        "doc_id": "doc-1",
+                        "sheet_name": "목표",
+                    },
+                }
+            ]
+        }
+    }
+
+    previous = retriever.GoodocsRetriever.goodocs_class
+    retriever.GoodocsRetriever.goodocs_class = FakeGoodocs
+    try:
+        result = retriever.goodocs_retrieve(payload, user_id="user-1", token_source="token-source", token_key="token-key")
+        source_result = result["source_results"][0]
+    finally:
+        retriever.GoodocsRetriever.goodocs_class = previous
+
+    assert result["status"] == "ok"
+    assert captured["auth"] == {
+        "USER_ID": "user-1",
+        "DOC_ID": "doc-1",
+        "TOKEN_SOURCE": "token-source",
+        "TOKEN_KEY": "token-key",
+        "SHEET_NAME": "목표",
+    }
+    assert captured["sheet_name"] == "목표"
+    assert source_result["rows"] == [{"DEVICE": "D1", "TARGET": 100}, {"DEVICE": "D2", "TARGET": 200}]
+    assert source_result["source_execution"]["doc_id"] == "doc-1"
+    assert source_result["source_execution"]["sheet_name"] == "목표"
+    assert source_result["source_execution"]["used_dummy_data"] is False
+
+
+def test_goodocs_retriever_keeps_inline_rows_for_local_fixture():
     retriever = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "12_goodocs_retriever.py")
     payload = {
         "retrieval_job_bundle": {
@@ -416,7 +470,7 @@ def test_goodocs_retriever_uses_replaceable_godocs_client_contract():
                     "source_config": {
                         "doc_id": "doc-1",
                         "sheet_name": "목표",
-                        "rows": [{"DEVICE": "D1", "TARGET": 100}],
+                        "rows": [{"DEVICE": "D1", "TARGET": 100, "ROW_ID": "system"}],
                     },
                 }
             ]
@@ -427,10 +481,8 @@ def test_goodocs_retriever_uses_replaceable_godocs_client_contract():
     source_result = result["source_results"][0]
 
     assert result["status"] == "ok"
-    assert retriever.GoodocsClient is retriever.GodocsClient
     assert source_result["rows"] == [{"DEVICE": "D1", "TARGET": 100}]
-    assert source_result["source_execution"]["doc_id"] == "doc-1"
-    assert source_result["source_execution"]["sheet_name"] == "목표"
+    assert source_result["source_execution"]["source_configured"] is True
 
 
 def test_analysis_request_loader_defaults_reference_date_to_korea_today():
@@ -938,8 +990,9 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
     helper_payload = {
         "runtime_sources": {
             "wip_data": [
-                {"TECH": "DA", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": "180", "DEVICE": "DEV-DA-GDDR6", "WIP": 33},
-                {"TECH": "ZZ", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": "180", "DEVICE": "DEV-ZZ-GDDR6", "WIP": 99},
+                {"TECH": "DA", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": 180, "DEVICE": "DEV-DA-GDDR6", "WIP": 33},
+                {"TECH": "DA", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": 180.0, "DEVICE": "DEV-DA-GDDR6-FLOAT", "WIP": 44},
+                {"TECH": "ZZ", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": 180.0, "DEVICE": "DEV-ZZ-GDDR6", "WIP": 99},
             ]
         },
         "trace": {"warnings": [], "errors": [], "inspection": {}},
@@ -950,7 +1003,10 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
     )
 
     assert helper_result["analysis"]["status"] == "ok"
-    assert helper_result["data"]["rows"] == [{"TECH": "DA", "DEVICE": "DEV-DA-GDDR6", "WIP": 33}]
+    assert helper_result["data"]["rows"] == [
+        {"TECH": "DA", "DEVICE": "DEV-DA-GDDR6", "WIP": 33},
+        {"TECH": "DA", "DEVICE": "DEV-DA-GDDR6-FLOAT", "WIP": 44},
+    ]
     helper_trace = helper_result["trace"]["inspection"]["pandas_execution"]
     effective_code = helper_trace["effective_code_with_helpers"]
     assert helper_trace["used_helpers"] == ["match_product_tokens"]

@@ -335,6 +335,7 @@ def normalize_query_response(api_response: Any) -> dict[str, Any]:
     structured_payload = _looks_like_query(payload)
     data = _query_data(payload)
     developer = _query_developer(api_response, payload)
+    developer = _merge_missing(developer, _query_pandas_developer(api_response, payload))
     applied_scope = _as_dict(payload.get("applied_scope") or payload.get("scope"))
     intent_plan = _as_dict(payload.get("intent_plan"))
     intent = _as_dict(payload.get("intent"))
@@ -642,6 +643,72 @@ def _query_developer(value: Any, preferred_payload: dict[str, Any] | None = None
                 if _has_value(found) and not _has_value(result.get(key)):
                     result[key] = found
     return result
+
+
+def _query_pandas_developer(*sources: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for source in sources:
+        for item in _walk(source):
+            item = _parse_json_dict(item) if isinstance(item, str) else item
+            if not isinstance(item, dict):
+                continue
+            trace = _as_dict(item.get("trace"))
+            inspection = _as_dict(trace.get("inspection"))
+            pandas_trace = _as_dict(inspection.get("pandas_execution"))
+            intent_trace = _as_dict(inspection.get("intent"))
+            analysis = _as_dict(item.get("analysis") or item.get("analysis_result"))
+            intent_plan = _as_dict(item.get("intent_plan") or item.get("intent"))
+            pandas_plan = _as_list(intent_plan.get("pandas_execution_plan"))
+
+            if pandas_plan:
+                _set_missing(result, "analysis_plan", pandas_plan)
+            if intent_trace.get("decision_reason"):
+                _set_missing(result, "reasoning_steps", _as_list(intent_trace.get("decision_reason")))
+            if pandas_trace:
+                _set_missing(result, "pandas_execution_status", _pandas_execution_status_for_developer(pandas_trace, analysis))
+                _set_missing(result, "filter_notes", pandas_trace.get("pandas_filter_plan"))
+                _set_missing(result, "data_preparation_code", pandas_trace.get("pandas_filter_preamble") or analysis.get("pandas_filter_preamble"))
+                _set_missing(
+                    result,
+                    "analysis_code",
+                    pandas_trace.get("effective_code_with_helpers")
+                    or analysis.get("effective_code_with_helpers")
+                    or pandas_trace.get("generated_code")
+                    or analysis.get("analysis_code"),
+                )
+                if pandas_trace.get("status") == "error":
+                    _set_missing(result, "failed_analysis_code", pandas_trace.get("llm_generated_code") or analysis.get("llm_generated_code"))
+                llm_code = pandas_trace.get("llm_generated_code") or analysis.get("llm_generated_code")
+                if llm_code:
+                    _set_missing(result, "pandas_code_json", {"code": llm_code})
+            elif analysis:
+                _set_missing(result, "analysis_status", analysis.get("status"))
+                _set_missing(result, "analysis_code", analysis.get("analysis_code"))
+                _set_missing(result, "data_preparation_code", analysis.get("pandas_filter_preamble"))
+    return result
+
+
+def _pandas_execution_status_for_developer(pandas_trace: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+    excluded = {"generated_code", "llm_generated_code", "pandas_filter_preamble", "effective_code_with_helpers", "helper_sources"}
+    status = {key: value for key, value in pandas_trace.items() if key not in excluded and _has_value(value)}
+    if not status.get("execution_result") and analysis:
+        status["execution_result"] = {
+            "row_count": analysis.get("row_count"),
+            "columns": analysis.get("columns"),
+        }
+    return {key: value for key, value in status.items() if _has_value(value)}
+
+
+def _merge_missing(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(primary)
+    for key, value in fallback.items():
+        _set_missing(merged, key, value)
+    return merged
+
+
+def _set_missing(target: dict[str, Any], key: str, value: Any) -> None:
+    if _has_value(value) and not _has_value(target.get(key)):
+        target[key] = value
 
 
 def _collect_data_refs(

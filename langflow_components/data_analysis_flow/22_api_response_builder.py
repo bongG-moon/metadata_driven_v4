@@ -14,6 +14,8 @@ def build_api_response(payload_value: Any) -> dict[str, Any]:
         "status": "ok" if payload.get("analysis", {}).get("status") == "ok" else "error",
         "message": payload.get("answer_message", ""),
         "request": payload.get("request", {}),
+        "intent_plan": payload.get("intent_plan", {}),
+        "analysis": payload.get("analysis", {}),
         "data": payload.get("data", {}),
         "data_refs": payload.get("data_refs", []),
         "state": payload.get("state", {}),

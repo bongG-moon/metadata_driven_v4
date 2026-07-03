@@ -714,6 +714,9 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     assert response["status"] == "ok"
     assert response["message"] == "D/A1 공정의 WIP 합계는 120입니다."
     assert response["data"]["row_count"] == 1
+    assert response["intent_plan"]["pandas_execution_plan"][0]["step"] == "sum_wip"
+    assert response["analysis"]["analysis_code"]
+    assert response["trace"]["inspection"]["pandas_execution"]["generated_code"]
     assert "runtime_sources" not in response
     assert "### 의도 분석" in playground_message
     assert "wip_sum_by_oper" in playground_message

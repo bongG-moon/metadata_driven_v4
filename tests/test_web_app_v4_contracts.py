@@ -74,6 +74,53 @@ def test_normalize_query_response_accepts_v4_data_analysis_payload() -> None:
     assert result["response_type"] == "data_analysis"
 
 
+def test_normalize_query_response_derives_pandas_developer_info_from_trace() -> None:
+    result = normalize_query_response(
+        {
+            "api_response": {
+                "response_type": "data_analysis",
+                "status": "ok",
+                "message": "분석 완료",
+                "intent_plan": {
+                    "pandas_execution_plan": [
+                        {"step": "제품별 생산량 집계", "source_alias": "production_data"},
+                    ]
+                },
+                "analysis": {
+                    "status": "ok",
+                    "row_count": 1,
+                    "columns": ["DEVICE", "TOTAL_PRODUCTION"],
+                },
+                "data": {
+                    "columns": ["DEVICE", "TOTAL_PRODUCTION"],
+                    "rows": [{"DEVICE": "DEV-A", "TOTAL_PRODUCTION": 120}],
+                    "row_count": 1,
+                },
+                "trace": {
+                    "inspection": {
+                        "intent": {"decision_reason": ["생산량 요청으로 판단했습니다."]},
+                        "pandas_execution": {
+                            "status": "ok",
+                            "generated_code": "result = sources['production_data']",
+                            "llm_generated_code": "result = sources['production_data']",
+                            "pandas_filter_preamble": "production_data = production_data.copy()",
+                            "pandas_filter_plan": [{"source_alias": "production_data", "conditions": []}],
+                            "execution_result": {"row_count": 1, "columns": ["DEVICE", "TOTAL_PRODUCTION"]},
+                        },
+                    }
+                },
+            }
+        }
+    )
+
+    developer = result["developer"]
+    assert developer["analysis_plan"][0]["step"] == "제품별 생산량 집계"
+    assert developer["analysis_code"] == "result = sources['production_data']"
+    assert developer["data_preparation_code"] == "production_data = production_data.copy()"
+    assert developer["filter_notes"][0]["source_alias"] == "production_data"
+    assert developer["pandas_execution_status"]["execution_result"]["row_count"] == 1
+
+
 def test_normalize_authoring_response_accepts_v4_trace_preview_items() -> None:
     result = normalize_authoring_response(
         {

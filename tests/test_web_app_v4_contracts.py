@@ -4,9 +4,12 @@ import pandas as pd
 
 from web_app.data_ref_store import DEFAULT_RESULT_COLLECTION
 from web_app.langflow_client import (
+    LangflowApiClient,
     LangflowSettings,
     build_authoring_node_input_settings,
     build_data_analysis_node_input_settings,
+    build_router_node_input_settings,
+    build_split_flow_node_input_settings,
     normalize_authoring_response,
     normalize_query_response,
 )
@@ -39,6 +42,22 @@ def test_data_analysis_direct_call_uses_previous_state_input() -> None:
     assert tweaks == {
         "00 분석 요청 로더": {"previous_state": {"current_data": {"row_count": 1}}},
     }
+
+
+def test_split_flow_tweaks_use_v4_korean_loader_names() -> None:
+    state = {"current_data": {"row_count": 1}}
+
+    metadata_tweaks = build_split_flow_node_input_settings("metadata_qa_flow", {}, state, "web-session")
+    analysis_tweaks = build_split_flow_node_input_settings("data_analysis_flow", {}, state, "web-session")
+
+    assert metadata_tweaks == {"00 메타데이터 QA 요청 로더": {"previous_state": state}}
+    assert analysis_tweaks == {"00 분석 요청 로더": {"previous_state": state}}
+
+
+def test_router_call_does_not_tweak_removed_custom_loader() -> None:
+    tweaks = build_router_node_input_settings({"current_data": {"row_count": 1}}, "web-session")
+
+    assert tweaks is None
 
 
 def test_authoring_api_tweaks_use_v4_korean_node_names(monkeypatch) -> None:
@@ -204,3 +223,231 @@ def test_normalize_authoring_response_accepts_v4_trace_preview_items() -> None:
     assert result["items"] == [{"section": "process_groups", "key": "WB"}]
     assert result["existing_matches"][0]["key"] == "W/B"
     assert result["conflict_warnings"][0]["message"] == "유사 항목 확인 필요"
+
+
+def test_router_authoring_envelope_normalizes_as_authoring(monkeypatch) -> None:
+    from web_app import langflow_client
+
+    def fake_call_langflow_api(*args, **kwargs):
+        return {
+            "api_response": {
+                "response_type": "routed_flow_execution",
+                "status": "ok",
+                "route": "domain_authoring",
+                "selected_flow": "domain_authoring_flow",
+                "execution_mode": "native_run_flow",
+                "route_decision": {"route": "domain_authoring", "confidence": "high"},
+                "raw_response": {
+                    "api_response": {
+                        "response_type": "metadata_authoring",
+                        "metadata_type": "domain",
+                        "success": True,
+                        "message": "저장되었습니다.",
+                        "write_result": {"success": True, "saved_count": 1},
+                        "trace": {"generated_items_preview": [{"section": "process_groups", "key": "DA"}]},
+                    }
+                },
+                "message": "저장되었습니다.",
+            }
+        }
+
+    monkeypatch.setattr(langflow_client, "call_langflow_api", fake_call_langflow_api)
+    client = LangflowApiClient(LangflowSettings(router_api_url="http://127.0.0.1:7860/api/v1/run/router"))
+
+    result = client.run_router_query("DA 공정 그룹 등록", "web-session")
+
+    assert result["response_type"] == "metadata_authoring"
+    assert result["metadata_type"] == "domain"
+    assert result["selected_flow"] == "domain_authoring_flow"
+    assert result["route_decision"]["route"] == "domain_authoring"
+    assert result["items"] == [{"section": "process_groups", "key": "DA"}]
+
+
+def test_router_dummy_authoring_envelope_normalizes_as_authoring(monkeypatch) -> None:
+    from web_app import langflow_client
+
+    def fake_call_langflow_api(*args, **kwargs):
+        return {
+            "api_response": {
+                "response_type": "routed_flow_execution",
+                "status": "ok",
+                "route": "dummy_domain_authoring",
+                "selected_flow": "dummy_domain_authoring_flow",
+                "execution_mode": "native_run_flow",
+                "route_decision": {"route": "dummy_domain_authoring", "confidence": "high"},
+                "selected_flow_response": {
+                    "response_type": "metadata_authoring",
+                    "metadata_type": "domain",
+                    "status": "dry_run",
+                    "success": False,
+                    "message": "더미 등록입니다.",
+                    "items": [{"section": "process_groups", "key": "DUMMY"}],
+                    "write_result": {"success": False, "saved_count": 0},
+                },
+                "message": "더미 등록입니다.",
+            }
+        }
+
+    monkeypatch.setattr(langflow_client, "call_langflow_api", fake_call_langflow_api)
+    client = LangflowApiClient(LangflowSettings(router_api_url="http://127.0.0.1:7860/api/v1/run/router"))
+
+    result = client.run_router_query("더미 도메인 등록", "web-session")
+
+    assert result["response_type"] == "metadata_authoring"
+    assert result["metadata_type"] == "domain"
+    assert result["selected_flow"] == "dummy_domain_authoring_flow"
+    assert result["route_decision"]["route"] == "dummy_domain_authoring"
+    assert result["write_result"]["saved_count"] == 0
+
+
+def test_router_dummy_metadata_qa_envelope_normalizes_as_metadata_qa(monkeypatch) -> None:
+    from web_app import langflow_client
+
+    def fake_call_langflow_api(*args, **kwargs):
+        return {
+            "api_response": {
+                "response_type": "routed_flow_execution",
+                "status": "ok",
+                "route": "dummy_metadata_qa",
+                "selected_flow": "dummy_metadata_qa_flow",
+                "execution_mode": "native_run_flow",
+                "route_decision": {"route": "dummy_metadata_qa", "confidence": "high"},
+                "selected_flow_response": {
+                    "response_type": "metadata_qa",
+                    "status": "ok",
+                    "direct_response_ready": True,
+                    "message": "더미 메타데이터 조회 결과입니다.",
+                    "answer_message": "더미 메타데이터 조회 결과입니다.",
+                    "metadata_qa": {"summary": "더미"},
+                    "data": {"rows": [], "columns": [], "row_count": 0},
+                },
+                "message": "더미 메타데이터 조회 결과입니다.",
+            }
+        }
+
+    monkeypatch.setattr(langflow_client, "call_langflow_api", fake_call_langflow_api)
+    client = LangflowApiClient(LangflowSettings(router_api_url="http://127.0.0.1:7860/api/v1/run/router"))
+
+    result = client.run_router_query("더미 메타데이터 알려줘", "web-session")
+
+    assert result["response_type"] == "metadata_qa"
+    assert result["selected_flow"] == "dummy_metadata_qa_flow"
+    assert result["route_decision"]["route"] == "dummy_metadata_qa"
+    assert result["direct_response_ready"] is True
+
+
+def test_router_clarification_envelope_does_not_default_to_data_analysis(monkeypatch) -> None:
+    from web_app import langflow_client
+
+    def fake_call_langflow_api(*args, **kwargs):
+        return {
+            "api_response": {
+                "response_type": "routed_flow_execution",
+                "status": "needs_more_input",
+                "route": "clarification",
+                "selected_flow": "",
+                "execution_mode": "direct",
+                "route_decision": {
+                    "route": "clarification",
+                    "confidence": "high",
+                    "needs_clarification": True,
+                    "clarification_question": "어떤 요청인지 알려주세요.",
+                },
+                "raw_response": {
+                    "api_response": {
+                        "response_type": "clarification",
+                        "status": "needs_more_input",
+                        "message": "어떤 요청인지 알려주세요.",
+                    }
+                },
+                "message": "어떤 요청인지 알려주세요.",
+            }
+        }
+
+    monkeypatch.setattr(langflow_client, "call_langflow_api", fake_call_langflow_api)
+    client = LangflowApiClient(LangflowSettings(router_api_url="http://127.0.0.1:7860/api/v1/run/router"))
+
+    result = client.run_router_query("음", "web-session")
+
+    assert result["route_decision"]["route"] == "clarification"
+    assert result["selected_flow"] == ""
+    assert result["response_type"] == "clarification"
+    assert result["status"] == "needs_more_input"
+    assert result["direct_response_ready"] is True
+    assert result["message"] == "어떤 요청인지 알려주세요."
+
+
+def test_router_flow_error_envelope_preserves_error_status(monkeypatch) -> None:
+    from web_app import langflow_client
+
+    def fake_call_langflow_api(*args, **kwargs):
+        return {
+            "api_response": {
+                "response_type": "routed_flow_execution",
+                "status": "error",
+                "route": "flow_error",
+                "selected_flow": "",
+                "execution_mode": "native_run_flow",
+                "route_decision": {"route": "flow_error", "confidence": "high"},
+                "raw_response": {
+                    "api_response": {
+                        "response_type": "flow_error",
+                        "status": "error",
+                        "message": "선택 flow 실행 실패",
+                        "errors": [{"type": "empty_native_run_flow_response", "message": "비어 있음"}],
+                    }
+                },
+                "message": "선택 flow 실행 실패",
+            }
+        }
+
+    monkeypatch.setattr(langflow_client, "call_langflow_api", fake_call_langflow_api)
+    client = LangflowApiClient(LangflowSettings(router_api_url="http://127.0.0.1:7860/api/v1/run/router"))
+
+    result = client.run_router_query("음", "web-session")
+
+    assert result["route_decision"]["route"] == "flow_error"
+    assert result["response_type"] == "flow_error"
+    assert result["status"] == "error"
+    assert result["errors"][0]["type"] == "empty_native_run_flow_response"
+
+
+def test_router_selected_flow_error_preserves_error_status_and_state(monkeypatch) -> None:
+    from web_app import langflow_client
+
+    def fake_call_langflow_api(*args, **kwargs):
+        return {
+            "api_response": {
+                "response_type": "routed_flow_execution",
+                "status": "error",
+                "route": "data_analysis",
+                "selected_flow": "data_analysis_flow",
+                "execution_mode": "native_run_flow",
+                "route_decision": {"route": "data_analysis", "confidence": "high"},
+                "raw_response": {},
+                "selected_flow_response": {},
+                "message": "Native Run Flow 응답이 비어 있습니다.",
+                "trace": {
+                    "execution": {
+                        "errors": [
+                            {
+                                "type": "empty_native_run_flow_response",
+                                "message": "Native Run Flow 응답이 비어 있습니다.",
+                            }
+                        ]
+                    }
+                },
+            }
+        }
+
+    monkeypatch.setattr(langflow_client, "call_langflow_api", fake_call_langflow_api)
+    client = LangflowApiClient(LangflowSettings(router_api_url="http://127.0.0.1:7860/api/v1/run/router"))
+
+    result = client.run_router_query("오늘 DA공정 생산량", "web-session", {"current_data": {"row_count": 1}})
+
+    assert result["route_decision"]["route"] == "data_analysis"
+    assert result["selected_flow"] == "data_analysis_flow"
+    assert result["status"] == "error"
+    assert result["response_type"] == "routed_flow_execution"
+    assert result["state"] == {"current_data": {"row_count": 1}}
+    assert result["errors"][0]["type"] == "empty_native_run_flow_response"

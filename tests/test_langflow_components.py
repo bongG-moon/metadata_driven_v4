@@ -2167,13 +2167,18 @@ def test_langflow_prompt_templates_only_expose_valid_variables():
         "repair_required",
         "failed_code",
         "error_context_json",
-        "output_contract_json",
-        "result_summary_json",
-        "applied_scope_json",
-        "answer_context_json",
-        "domain_answer_guidance",
-        "warnings_errors_json",
-    }
+            "output_contract_json",
+            "result_summary_json",
+            "applied_scope_json",
+            "answer_context_json",
+            "metadata_context_json",
+                "domain_answer_guidance",
+                "warnings_errors_json",
+                "user_input",
+            "route_candidates_json",
+            "routing_rules",
+            "output_schema_json",
+        }
     prompt_files = sorted((ROOT / "langflow_components").glob("*/*prompt_template_ko.md"))
     for path in prompt_files:
         text = path.read_text(encoding="utf-8")
@@ -2689,3 +2694,210 @@ def test_metadata_authoring_api_adapters_emit_structured_api_message():
         assert len(component_classes) == 1
         output_names = [item.kwargs.get("name") for item in component_classes[0].outputs]
         assert output_names == ["api_payload", "api_message"]
+
+
+def test_dummy_data_analysis_flow_emits_data_analysis_contract():
+    request_loader = load_module(ROOT / "langflow_components" / "dummy_data_analysis_flow" / "00_dummy_request_loader.py")
+    response_builder = load_module(ROOT / "langflow_components" / "dummy_data_analysis_flow" / "01_dummy_data_analysis_response_builder.py")
+
+    payload = request_loader.build_dummy_request("router smoke test")
+    response = response_builder.build_dummy_response(payload)
+
+    assert response["response_type"] == "data_analysis"
+    assert response["status"] == "ok"
+    assert response["message"] == response["display_message"]
+    assert response["message"].startswith("### 답변")
+    assert "### 결과 테이블" in response["message"]
+    assert "### 의도 분석" in response["message"]
+    assert "### 데이터 조회" in response["message"]
+    assert "### pandas 코드/실행" in response["message"]
+    assert "```python" in response["message"]
+    assert response["answer_message"]
+    assert response["intent_plan"]["retrieval_jobs"]
+    assert response["intent_plan"]["pandas_execution_plan"]
+    assert response["data"]["row_count"] == len(response["data"]["rows"])
+    assert response["analysis"]["analysis_code"]
+    assert response["trace"]["inspection"]["intent"]["status"] == "ok"
+    assert response["trace"]["inspection"]["data_retrieval"]["status"] == "ok"
+    assert response["trace"]["inspection"]["pandas_execution"]["generated_code"]
+    assert response["trace"]["inspection"]["dummy_flow"]["status"] == "ok"
+
+
+def test_dummy_metadata_qa_flow_emits_metadata_qa_contract():
+    request_loader = load_module(ROOT / "langflow_components" / "dummy_metadata_qa_flow" / "00_dummy_metadata_qa_request_loader.py")
+    response_builder = load_module(ROOT / "langflow_components" / "dummy_metadata_qa_flow" / "01_dummy_metadata_qa_response_builder.py")
+
+    payload = request_loader.build_dummy_request("등록된 데이터셋 알려줘", {"session_id": "s1"})
+    response = response_builder.build_dummy_response(payload)
+
+    assert response["response_type"] == "metadata_qa"
+    assert response["status"] == "ok"
+    assert response["direct_response_ready"] is True
+    assert response["message"] == response["display_message"]
+    assert response["message"].startswith("### 답변")
+    assert response["answer_message"]
+    assert response["data"]["row_count"] == len(response["data"]["rows"])
+    assert response["metadata_qa"]["source_refs"]
+    assert response["metadata_route"]["route"] == "dummy_metadata_qa"
+    assert response["state"]["session_id"] == "s1"
+
+
+def test_metadata_qa_flow_reads_v4_metadata_and_emits_api_contract(monkeypatch):
+    store = install_fake_pymongo(monkeypatch)
+    set_v4_mongo_env(monkeypatch)
+    store["datagov"] = {
+        "agent_v4_domain_items": {
+            "domain:quantity_terms:production_quantity": {
+                "_id": "domain:quantity_terms:production_quantity",
+                "section": "quantity_terms",
+                "key": "production_quantity",
+                "status": "active",
+                "raw_trace": {"hidden": True},
+                "payload": {
+                    "display_name": "생산량",
+                    "aliases": ["생산량", "생산실적"],
+                    "column": "PRODUCTION",
+                    "aggregation_method": "sum",
+                },
+            }
+        },
+        "agent_v4_table_catalog_items": {
+            "table_catalog:production_today": {
+                "_id": "table_catalog:production_today",
+                "dataset_key": "production_today",
+                "status": "active",
+                "payload": {
+                    "display_name": "Production Today",
+                    "dataset_family": "production",
+                    "source_type": "oracle",
+                    "required_params": ["DATE"],
+                    "source_config": {
+                        "source_type": "oracle",
+                        "db_key": "PNT_RPT",
+                        "query_template": "SELECT WORK_DATE, DEVICE, PRODUCTION FROM PROD WHERE WORK_DATE = {DATE}",
+                    },
+                },
+            }
+        },
+        "agent_v4_main_flow_filters": {
+            "main_flow_filter:DATE": {
+                "_id": "main_flow_filter:DATE",
+                "filter_key": "DATE",
+                "status": "active",
+                "payload": {"display_name": "기준일", "aliases": ["오늘", "어제"], "operator": "eq"},
+            }
+        },
+    }
+    request_loader = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "00_metadata_qa_request_loader.py")
+    domain_loader = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "01a_mongodb_domain_metadata_loader.py")
+    table_loader = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "01b_mongodb_table_catalog_loader.py")
+    filter_loader = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "01c_mongodb_main_filter_loader.py")
+    context_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "02_metadata_qa_context_builder.py")
+    variables_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "03_metadata_qa_variables_builder.py")
+    normalizer = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "04_metadata_qa_response_normalizer.py")
+    message_adapter = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "05_metadata_qa_message_adapter.py")
+    api_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "06_metadata_qa_api_response_builder.py")
+
+    payload = request_loader.build_request("생산량 데이터 관련 쿼리문은 어떤건지 알려줘")
+    domain = domain_loader.load_domain_metadata()
+    table = table_loader.load_table_catalog_metadata()
+    main_filter = filter_loader.load_main_filter_metadata()
+    context_payload = context_builder.build_metadata_qa_context(payload, domain, table, main_filter)
+    variables = variables_builder.build_variables(context_payload)
+    qa_payload = normalizer.normalize_metadata_qa_response(context_payload, "")
+    message = message_adapter.build_message(qa_payload)
+    api_response = api_builder.build_api_response(qa_payload, message)
+
+    assert context_payload["metadata_route"]["answer_mode"] == "dataset_sql"
+    assert "raw_trace" not in variables["metadata_context_json"]
+    assert "production_today" in variables["metadata_context_json"]
+    assert qa_payload["response_type"] == "metadata_qa"
+    assert qa_payload["direct_response_ready"] is True
+    assert qa_payload["metadata_qa"]["sql_blocks"][0]["sql"].startswith("SELECT WORK_DATE")
+    assert "```sql" in message
+    assert api_response["response_type"] == "metadata_qa"
+    assert "metadata_qa_context" not in api_response
+    assert "agent_v4_result_store" not in store["datagov"]
+
+
+def test_metadata_qa_variables_keep_static_policy_inside_prompt_template():
+    variables_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "03_metadata_qa_variables_builder.py")
+    prompt_text = (ROOT / "langflow_components" / "metadata_qa_flow" / "03_metadata_qa_prompt_template_ko.md").read_text(encoding="utf-8")
+
+    output_names = [item.kwargs.get("name") for item in variables_builder.MetadataQaVariablesBuilder.outputs]
+    variables = variables_builder.build_variables({"request": {"question": "생산량 도메인 알려줘"}, "metadata_qa_context": {}})
+
+    assert output_names == ["question", "metadata_context_json", "output_schema_json"]
+    assert "response_policy" not in variables
+    assert "{response_policy}" not in prompt_text
+    assert "응답 정책:" in prompt_text
+
+
+def test_dummy_metadata_authoring_flows_preserve_raw_text_and_do_not_save():
+    specs = [
+        (
+            "dummy_domain_authoring_flow",
+            "00_dummy_domain_authoring_request_loader.py",
+            "01_dummy_domain_authoring_response_builder.py",
+            "domain",
+        ),
+        (
+            "dummy_table_catalog_authoring_flow",
+            "00_dummy_table_catalog_authoring_request_loader.py",
+            "01_dummy_table_catalog_authoring_response_builder.py",
+            "table_catalog",
+        ),
+        (
+            "dummy_main_flow_filter_authoring_flow",
+            "00_dummy_main_flow_filter_authoring_request_loader.py",
+            "01_dummy_main_flow_filter_authoring_response_builder.py",
+            "main_flow_filter",
+        ),
+    ]
+    raw_text = "  -- 주석 포함 원문\nWITH sample AS (SELECT 1 AS value)\nSELECT * FROM sample\n"
+
+    for folder, request_file, response_file, metadata_type in specs:
+        request_loader = load_module(ROOT / "langflow_components" / folder / request_file)
+        response_builder = load_module(ROOT / "langflow_components" / folder / response_file)
+
+        payload = request_loader.build_request(raw_text, duplicate_action="replace", dry_run="false")
+        response = response_builder.build_response(payload)
+
+        assert payload["request"]["raw_text"] == raw_text
+        assert payload["request"]["duplicate_action"] == "replace"
+        assert payload["request"]["dry_run"] is False
+        assert response["response_type"] == "metadata_authoring"
+        assert response["metadata_type"] == metadata_type
+        assert response["write_result"]["saved_count"] == 0
+        assert response["write_result"]["success"] is False
+        assert response["trace"]["raw_text_preview"].startswith("  -- 주석 포함 원문")
+
+
+def test_router_flow_final_structure_uses_smart_router_docs_only():
+    router_dir = ROOT / "langflow_components" / "router_flow"
+    py_files = sorted(router_dir.glob("*.py"))
+    connection_guide = (router_dir / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
+
+    assert py_files == []
+    assert not (router_dir / "ROUTE_FLOW_MAP.md").exists()
+    assert "Chat Input\n-> Smart Router\n-> route별 Run Flow" in connection_guide
+    assert "Smart Router routes table" in connection_guide
+    assert "direct_answer" in connection_guide
+    assert "clarification" in connection_guide
+    assert "Chat Output 하나만 써야 하는 경우" in connection_guide
+    assert "selected_flow`는 Run Flow에 변수로 연결하는 값이 아니라" in connection_guide
+    assert "`data_analysis` | `data_analysis_flow`" in connection_guide
+    assert "`dummy_main_flow_filter_authoring` | `dummy_main_flow_filter_authoring_flow`" in connection_guide
+    assert "`flow_error` |" not in connection_guide
+    assert "`flow_error`는 Smart Router routes table에 넣는 route가 아니다" in connection_guide
+
+
+def test_router_connection_guide_lists_only_final_runtime_nodes():
+    guide = (ROOT / "langflow_components" / "router_flow" / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
+
+    assert "router request loader" in guide
+    assert "더 이상 사용하지 않는 것" in guide
+    assert "Notify(router_response" in guide
+    assert "`Route Message`를 비워 원래 입력을 Run Flow로 보내고" in guide
+    assert "실제 실행 노드로 연결하지 않는다" not in guide
+    assert "Run Flow 대상 flow는 변수 입력이 아니라 각 Run Flow 노드 설정에서 미리 선택한다" in guide

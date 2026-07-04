@@ -9,8 +9,9 @@
 ```text
 main router canvas
 Chat Input
--> router_flow 00~05
--> 06 Selected Flow API Runner
+-> Smart Router
+-> route별로 미리 선택된 Run Flow 노드 하나
+-> 선택 route의 subflow 응답
 -> Chat Output
 ```
 
@@ -29,23 +30,18 @@ Final Message
 -> Chat Output
 ```
 
-main router는 어떤 flow를 실행할지 선택하고, 선택된 flow의 API 호출 정보만 만듭니다. state load/write, metadata QA 판단, data analysis 실행 준비는 각 subflow 안에서 처리합니다.
+main router는 어떤 route로 보낼지 판단합니다. `Run Flow`는 flow 이름을 변수로 받아 실행 대상을 바꾸는 노드가 아니므로, route별 Run Flow 노드를 미리 배치하고 각 노드에서 대상 flow를 직접 선택합니다. state load/write, metadata QA 판단, data analysis 실행 준비는 각 subflow 안에서 처리합니다.
 
 ## Main Router Flow
 
 | Node | Role |
 | --- | --- |
-| `00 Router Request Loader` | 질문을 route 판단 payload로 변환 |
-| `01 Metadata Context Loader` | route 판단용 metadata 요약 로드 |
-| `02 Route Candidate Builder` | rule 기반 route 후보와 LLM 필요 여부 생성 |
-| `03A Route Prompt Context Builder` | 기본 Prompt Template용 route context 하나 생성 |
-| Langflow Prompt Template | route/API catalog와 route classifier prompt 문장 관리 |
-| Route Classifier LLM | 최종 route 판단 |
-| `04 Route Classifier Normalizer` | route 결과 정규화 |
-| `05 Orchestrator Response Builder` | `selected_flow`와 `subflow_call` 생성 |
-| `06 Selected Flow API Runner` | 선택된 subflow 하나만 Langflow API로 호출 |
+| Chat Input | 사용자 입력을 Smart Router로 전달 |
+| Smart Router | route table과 Additional Instructions 기준으로 route 판단 |
+| route별 Run Flow | 각 branch에서 미리 선택된 subflow 실행 |
+| route별 Chat/API Output | 선택된 subflow의 최종 응답 반환 |
 
-여러 native Run Flow output을 한 노드로 모으면 Langflow 실행기가 연결된 upstream을 모두 기다릴 수 있습니다. direct router canvas에서는 `05.Route Response -> 06.Selected Flow API Runner -> Chat Output`으로 연결합니다. `05.Route Response` 안에는 `subflow_call.api_url`, `subflow_call.input_value`, `subflow_call.session_id`가 들어가며, `06`은 이 값으로 선택된 subflow 하나만 호출합니다. Web backend는 router API 하나만 호출하며, 선택된 subflow API 호출은 router canvas 내부의 `06 Selected Flow API Runner`가 처리합니다.
+여러 native Run Flow output을 한 노드로 모으면 Langflow 실행기가 연결된 upstream을 모두 기다릴 수 있습니다. 따라서 `router_flow/CONNECTION_GUIDE.md`의 방식처럼 Smart Router route output을 route별 Run Flow 노드에 직접 연결합니다. 각 Run Flow 노드는 대상 flow를 노드 설정에서 미리 선택하고 refresh해야 합니다.
 
 ## Data Analysis Flow
 
@@ -104,7 +100,7 @@ API/session state 저장 경로:
 
 | Purpose | Connection |
 | --- | --- |
-| Route classification | `03A Route Prompt Context Builder -> Langflow Prompt Template -> Route Classifier LLM -> 04 Route Classifier Normalizer` |
+| Route classification | `Chat Input -> Smart Router` |
 | Intent planning | `02 Intent Prompt Builder -> Intent LLM -> 04 Intent Plan Normalizer` |
 | Pandas code generation | `14 Pandas Prompt Builder -> Pandas Code LLM -> 15 Pandas Code Executor` |
 | Pandas repair | `16B Pandas Repair Prompt Builder -> Pandas Repair LLM -> second 15 Pandas Code Executor` |

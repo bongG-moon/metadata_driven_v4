@@ -9,11 +9,12 @@
 ```text
 Web/API
 -> router_flow
--> router internal API runner
+-> Smart Router route output
+-> route별로 미리 선택된 Native Run Flow
 -> metadata_qa_flow | data_analysis_flow | report_generation_flow | operations_diagnosis_flow
 ```
 
-combined `main_flow` canvas는 제거되었다. web backend는 router flow 하나만 실행하고, router flow 내부에서 `selected_flow`에 따른 하위 flow API 호출까지 처리한다.
+combined `main_flow` canvas는 제거되었다. web backend는 router flow 하나만 실행하고, router flow 내부에서 Smart Router route output이 route별로 미리 선택된 Run Flow 노드 하나를 실행한다.
 
 대상 사용자는 Langflow, Python, JSON, MongoDB를 직접 다루지 않는 현업 작업자다. Web은 Langflow canvas 편집기를 노출하는 도구가 아니라, 자연어 질의, metadata 등록, 검토, 검증을 업무 화면으로 감싸는 얇은 운영 레이어여야 한다.
 
@@ -59,7 +60,8 @@ Browser UI
 -> MongoDB metadata collections and result store
 ```
 
-Query runtime은 router-owned split mode로 동작한다. Web backend는 router flow만 호출하고, Router가 만든 `selected_flow`에 따라 router flow 내부의 API Runner가 `metadata_qa_flow`, `data_analysis_flow`, `report_generation_flow`, `operations_diagnosis_flow` 중 하나를 호출한다.
+Query runtime은 router-owned split mode로 동작한다. Web backend는 router flow만 호출하고, router flow 내부에서는 Smart Router route output이 route별로 미리 선택된 Native Run Flow 하나를 실행한다. router 내부에서 하위 flow를 API로 다시 호출하지 않는다.
+Langflow `Run Flow`는 flow 이름을 변수로 입력받지 않으므로, 각 Run Flow 노드에서 대상 flow를 직접 선택하고 refresh해야 동적 입력 포트가 보인다.
 
 현재 `metadata_driven_v3`의 flow는 아래 다섯 묶음으로 본다.
 
@@ -74,6 +76,9 @@ Query runtime은 router-owned split mode로 동작한다. Web backend는 router 
 | Domain authoring | `langflow_components/domain_authoring_flow/` | domain 용어/규칙을 자연어에서 MongoDB item으로 저장 |
 | Table catalog authoring | `langflow_components/table_catalog_authoring_flow/` | dataset/source/column/filter mapping을 자연어에서 저장 |
 | Main flow filter authoring | `langflow_components/main_flow_filters_authoring_flow/` | 날짜, 공정, 제품, LOT, 장비 등 filter metadata 저장 |
+| Dummy data analysis | `langflow_components/dummy_data_analysis_flow/` | 개발/스모크 테스트용 data analysis 호환 응답 |
+| Dummy metadata QA | `langflow_components/dummy_metadata_qa_flow/` | 개발/스모크 테스트용 metadata QA 호환 응답 |
+| Dummy metadata authoring | `langflow_components/dummy_*_authoring_flow/` | 개발/스모크 테스트용 metadata authoring 호환 응답. MongoDB 저장은 하지 않음 |
 
 Web backend가 담당해야 하는 일:
 
@@ -93,16 +98,17 @@ Browser가 직접 하지 말아야 하는 일:
 
 ## 3. 현재 Query Flow 계약
 
-현재 query runtime은 router/subflow 연결 순서를 따른다. Web/API 검증에서는 router flow 내부에서 선택된 subflow API 호출까지 끝내는 구성을 기본으로 둔다.
+현재 query runtime은 router/subflow 연결 순서를 따른다. Web/API 검증에서는 router flow 내부에서 선택된 flow 실행까지 끝내는 구성을 기본으로 둔다.
 
 ```text
 Web/API
--> router_flow 00~06
--> selected subflow Run API, called inside router flow
+-> router_flow
+-> Smart Router route output
+-> route별 고정 Run Flow 실행
 -> router flow final message/API response
 ```
 
-Web/API backend는 router flow 하나만 호출한다. Router flow 안에서 `05 Orchestrator Response Builder.Route Response -> 06 Selected Flow API Runner.Route Response -> Chat Output`까지 연결하고, `06`이 `selected_flow`에 해당하는 subflow API를 호출한다. 만약 router flow가 route decision만 반환하면 web 화면에는 최종 답변/표/state가 부족하게 표시되므로, `LANGFLOW_ROUTER_FLOW_ID` 또는 `LANGFLOW_ROUTER_API_URL`은 `00~06`까지 연결된 router flow를 가리켜야 한다.
+Web/API backend는 router flow 하나만 호출한다. Router flow 안에서 Smart Router가 route를 나누고, 각 route output은 대상 flow가 미리 선택된 Run Flow 노드로 연결된다. 만약 router flow가 Smart Router route 판단만 하고 Run Flow 결과를 반환하지 않으면 web 화면에는 최종 답변/표/state가 부족하게 표시되므로, `LANGFLOW_ROUTER_FLOW_ID` 또는 `LANGFLOW_ROUTER_API_URL`은 route별 Run Flow 실행까지 포함된 router flow를 가리켜야 한다.
 
 `data_analysis_flow`가 선택된 경우 subflow 내부 순서는 다음과 같다.
 
@@ -499,7 +505,7 @@ WEB_SESSION_STORE=mongodb
 WEB_PENDING_AUTHORING_COLLECTION=agent_v4_pending_authoring
 ```
 
-`web_app.langflow_client`는 질의 화면에서 `LANGFLOW_ROUTER_API_URL` 또는 `LANGFLOW_BASE_URL + LANGFLOW_ROUTER_FLOW_ID`로 만든 `/api/v1/run/{flow_id}` URL만 호출한다. Router flow가 route decision과 `06 Selected Flow API Runner` 결과를 함께 반환해야 하며, web backend는 `selected_flow`별 subflow URL을 추가 호출하지 않는다. Authoring 화면은 별도 authoring flow URL(`LANGFLOW_DOMAIN_AUTHORING_API_URL`, `LANGFLOW_TABLE_CATALOG_AUTHORING_API_URL`, `LANGFLOW_MAIN_FILTER_AUTHORING_API_URL`)을 사용한다.
+`web_app.langflow_client`는 질의 화면에서 `LANGFLOW_ROUTER_API_URL` 또는 `LANGFLOW_BASE_URL + LANGFLOW_ROUTER_FLOW_ID`로 만든 `/api/v1/run/{flow_id}` URL만 호출한다. Router flow는 Smart Router가 선택한 Run Flow의 최종 Message/API output을 반환해야 하며, web backend는 `selected_flow`별 subflow URL을 추가 호출하지 않는다. Authoring 화면은 별도 authoring flow URL(`LANGFLOW_DOMAIN_AUTHORING_API_URL`, `LANGFLOW_TABLE_CATALOG_AUTHORING_API_URL`, `LANGFLOW_MAIN_FILTER_AUTHORING_API_URL`)을 계속 사용할 수 있고, router authoring route도 같은 응답 계약으로 정규화한다.
 
 개별 subflow가 구조화 `api_response` Data output 대신 Chat/Message Output만 반환하는 경우도 지원한다. 이때 web app은 nested message text를 `answer_message`로 표시하고 `message_only=true`로 다룬다. 다만 결과 row, state, data_ref, intent, pandas code 같은 구조화 영역은 Message 안에 JSON으로 포함되어 있거나 별도 Data/API response output으로 반환될 때만 화면의 표/상세 탭에 안정적으로 표시된다.
 
@@ -671,8 +677,8 @@ Backend 처리:
 Backend 처리:
 
 1. `session_id`로 이전 `state` 조회.
-2. Langflow router flow 호출 후 선택된 subflow 호출.
-3. selected subflow의 compacted `api_response` payload를 읽는다.
+2. Langflow router flow를 호출한다. Web backend는 selected subflow를 추가로 직접 호출하지 않는다.
+3. 선택된 Run Flow의 `api_response` Data output 또는 최종 Message output을 읽는다.
 4. 응답의 `state`를 session store에 저장.
 5. 화면용 response 반환.
 
@@ -724,8 +730,8 @@ Query runtime에서 기본 전달 값:
 
 - `input_value`: 사용자 질문 text
 - `session_id`: 웹/API 대화별 session id
-- router flow 노드 입력값 설정: 기본적으로 없음
-- selected subflow 노드 입력값 설정: 필요할 때만 `00 ... Request Loader.state`
+- router flow 노드 입력값 설정: Smart Router 최종 구조에서는 제거된 `00 라우터 요청 로더` tweak을 전달하지 않는다
+- route별 Run Flow 노드 입력값 설정: Run Flow 대상은 router 내부에서 변수로 주입하지 않고, 각 Run Flow 노드 설정에서 미리 선택
 
 Langflow canvas의 request loader에는 별도 `Session ID` 또는 `Router Payload` 입력을 연결하지 않는다. session id는 Langflow Run API payload의 `session_id`와 message/payload 내부 값에서 자동 추론한다.
 
@@ -744,7 +750,7 @@ Authoring flow에 전달할 값:
 
 Parsing 원칙:
 
-- Query flow: selected subflow의 `api_response`를 우선 사용한다. 이 payload는 답변, preview data, `data_ref`, state만 projection한 상태다.
+- Query flow: 선택된 Run Flow의 `api_response` Data output을 우선 사용한다. 이 payload는 답변, preview data, `data_ref`, state만 projection한 상태다.
 - Authoring flow: `08 ... Response Builder.api_response`만 사용한다.
 - `21 Answer Message Adapter.message`와 authoring `message`는 사람이 보는 Markdown/text다. JSON 계약으로 파싱하지 않는다.
 - Langflow wrapper가 response를 여러 겹 감싸더라도 backend parser는 대상 output name을 찾아 꺼낸다.
@@ -842,9 +848,9 @@ Pending record에 저장하지 않을 값:
 
 ## 15. Web 검증 체크리스트
 
-- router flow와 selected subflow가 정상 호출되는가
-- selected subflow `api_response`의 compacted payload를 JSON으로 받을 수 있는가
-- 선택된 subflow의 API/Data output을 우선 파싱하는가
+- router flow의 Smart Router output이 route별 고정 Run Flow 노드 하나만 실행하는가
+- 선택된 Run Flow의 `api_response` compacted payload를 JSON으로 받을 수 있는가
+- 선택된 flow의 API/Data output을 우선 파싱하는가
 - `21 Answer Message Adapter.message`를 API JSON으로 오인하지 않는가
 - session별 follow-up 질문이 유지되는가
 - `state.current_data.data_ref`가 다음 질문 전에 preview/summary로 복원되고, full rows가 초반 payload에 불필요하게 붙지 않는가

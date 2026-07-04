@@ -65,7 +65,7 @@ RUN_LANGFLOW_API_VALIDATION=true
 검증 기준은 다음과 같다.
 
 - router flow: web app의 첫 진입점이다.
-- metadata/data/report/diagnosis flow: router flow 내부의 `06 Selected Flow API Runner`가 선택적으로 호출하는 query subflow다. Desktop/Web 검증용 `LANGFLOW_ROUTER_FLOW_ID`는 `00~06`까지 연결된 router flow를 가리켜야 한다.
+- metadata/data/report/diagnosis flow: router flow 내부에서 Smart Router output이 route별로 미리 선택된 Native Run Flow를 실행하는 query subflow다. Desktop/Web 검증용 `LANGFLOW_ROUTER_FLOW_ID`는 Smart Router와 route별 Run Flow 연결까지 포함된 router flow를 가리켜야 한다.
 - authoring flow: web metadata 관리 화면에서 신규 metadata를 등록할 때 사용한다.
 - `LANGFLOW_INPUT_TYPE`은 현재 컴포넌트들이 `MessageTextInput` 기반이면 `chat`을 기본으로 둔다. 실제 Langflow API 화면에서 `input_type`을 `text`로 안내하면 `.env`에서 `text`로 바꾸면 된다.
 

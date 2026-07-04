@@ -179,7 +179,8 @@ DATE는 WORK_DT랑 연결돼.
 ```text
 Web/API or Chat
 -> router_flow
--> selected subflow API runner
+-> Smart Router route output
+-> route별로 미리 선택된 Run Flow
 -> metadata_qa_flow | data_analysis_flow | report_generation_flow | operations_diagnosis_flow
 -> final message/API response
 ```
@@ -190,14 +191,15 @@ Web/API or Chat
 
 - 질문 유형 분류
 - metadata QA, data analysis, report, diagnosis 중 하나 선택
-- 선택된 subflow 호출 정보 생성
-- 선택된 하나의 subflow만 실행
+- 선택된 route의 입력을 해당 Run Flow branch로 전달
+- route별로 미리 선택된 Run Flow 중 하나만 실행
 
 필수 요구사항:
 
 - router는 subflow 내부 payload를 조립하지 않는다.
 - 여러 native Run Flow output을 동시에 기다리는 구조를 만들지 않는다.
-- selected flow 하나만 API runner가 호출한다.
+- Run Flow 대상 flow는 변수로 선택하지 않고, 각 Run Flow 노드 설정에서 미리 선택한다.
+- 선택 route의 Native Run Flow 결과만 표준 router 실행 결과로 변환한다.
 - route LLM 결과는 normalizer가 허용 route 목록으로 검증한다.
 
 Router와 selected subflow 사이의 표준 envelope:
@@ -235,7 +237,7 @@ Subflow response는 반드시 아래 shape로 정규화한다.
 }
 ```
 
-API runner는 호출 전 `route`, `api_url`, `session_id`, `input.question`을 검증하고, 호출 후 `response_type`, `status`, `message`, `state`를 검증한다. timeout, connection error, invalid response는 selected subflow의 성공으로 위장하지 않고 `status=error`, `response_type=flow_error`로 반환한다.
+Execution adapter는 실행 전 `route`, `selected_flow`, `session_id`, `input_value`를 검증하고, 실행 후 `response_type`, `status`, `message`, `state`를 검증한다. timeout, connection error, invalid response는 selected flow의 성공으로 위장하지 않고 `status=error`로 반환한다.
 
 ### 4.2 Data Analysis Flow
 

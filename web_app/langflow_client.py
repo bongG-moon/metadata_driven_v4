@@ -137,7 +137,7 @@ class LangflowApiClient:
         return self._attach_and_save_session_state(result, session_id, question)
 
     def run_router_query(self, question: str, session_id: str, state: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Call only the router flow; the router flow is responsible for any internal subflow API calls."""
+        """Call only the router flow; the router flow owns the selected-flow execution."""
         if not self.settings.router_api_url:
             raise ValueError("LANGFLOW_ROUTER_API_URL or LANGFLOW_ROUTER_FLOW_ID is not configured.")
         try:
@@ -154,20 +154,31 @@ class LangflowApiClient:
         except requests.exceptions.Timeout as exc:
             raise TimeoutError(
                 "Router Langflow API timed out. The web app now calls only the router flow, so check the router canvas, "
-                "its internal Selected Flow API Runner, and the Langflow Desktop logs for the nested flow failure."
+                "its internal Native Run Flow result adapter, and the Langflow Desktop logs for the nested flow failure."
             ) from exc
 
         router_executed_payload = extract_selected_flow_execution_payload(raw_route_response)
-        normalization_source = router_executed_payload.get("raw_response") or raw_route_response
-        result = normalize_query_response(normalization_source)
         route_payload = normalize_route_response(router_executed_payload or raw_route_response)
         selected_flow = str(route_payload.get("selected_flow") or router_executed_payload.get("selected_flow") or "")
+        normalization_source = (
+            router_executed_payload.get("raw_response")
+            or router_executed_payload.get("selected_flow_response")
+            or raw_route_response
+        )
+        if _is_authoring_selected_flow(selected_flow) or _looks_like_authoring(extract_authoring_payload(normalization_source)):
+            result = normalize_authoring_response(normalization_source)
+        elif _is_direct_router_route(route_payload.get("route")) or _router_execution_failed(router_executed_payload):
+            result = normalize_direct_router_response(normalization_source, route_payload)
+        else:
+            result = normalize_query_response(normalization_source)
         if selected_flow:
             _apply_selected_flow_defaults(result, selected_flow)
-            result["selected_flow"] = selected_flow
+        result["selected_flow"] = selected_flow
         result["api_mode"] = "langflow_router_only"
         result["route_decision"] = route_payload
         result["raw_route_response"] = raw_route_response
+        if not result.get("state") and isinstance(state, dict):
+            result["state"] = state
         result["raw_response"] = raw_route_response
         return result
 
@@ -298,11 +309,11 @@ def build_split_flow_node_input_settings(
 ) -> dict[str, Any] | None:
     flow_inputs = _as_dict(route_payload.get("flow_inputs"))
     route_state = _as_dict(flow_inputs.get("state")) or _as_dict(state)
-    common = {"state": route_state} if route_state else {}
+    common = {"previous_state": route_state} if route_state else {}
     if selected_flow == "metadata_qa_flow":
-        return {"00 Metadata QA Request Loader": common} if common else None
+        return {"00 메타데이터 QA 요청 로더": common} if common else None
     if selected_flow == "data_analysis_flow":
-        return {"00 Analysis Request Loader": common} if common else None
+        return {"00 분석 요청 로더": common} if common else None
     if selected_flow == "report_generation_flow":
         return {"00 Report Request Loader": common} if common else None
     if selected_flow == "operations_diagnosis_flow":
@@ -390,9 +401,19 @@ def normalize_route_response(api_response: Any) -> dict[str, Any]:
     if not selected_flow:
         route = str(payload.get("route") or metadata_route.get("route") or "data_analysis")
         selected_flow = {
-            "direct_answer": "metadata_qa_flow",
+            "direct_answer": "",
+            "clarification": "",
+            "flow_error": "",
             "metadata_qa": "metadata_qa_flow",
             "data_analysis": "data_analysis_flow",
+            "dummy_data_analysis": "dummy_data_analysis_flow",
+            "dummy_metadata_qa": "dummy_metadata_qa_flow",
+            "domain_authoring": "domain_authoring_flow",
+            "dummy_domain_authoring": "dummy_domain_authoring_flow",
+            "table_catalog_authoring": "table_catalog_authoring_flow",
+            "dummy_table_catalog_authoring": "dummy_table_catalog_authoring_flow",
+            "main_flow_filter_authoring": "main_flow_filters_authoring_flow",
+            "dummy_main_flow_filter_authoring": "dummy_main_flow_filter_authoring_flow",
             "report_generation": "report_generation_flow",
             "operations_diagnosis": "operations_diagnosis_flow",
         }.get(route, "data_analysis_flow")
@@ -402,7 +423,6 @@ def normalize_route_response(api_response: Any) -> dict[str, Any]:
         "response_type": str(payload.get("response_type") or "route_decision"),
         "route": route,
         "selected_flow": selected_flow,
-        "flow_id_env": str(payload.get("flow_id_env") or ""),
         "route_confidence": payload.get("route_confidence") or metadata_route.get("route_confidence") or metadata_route.get("confidence"),
         "route_source": payload.get("route_source") or metadata_route.get("route_source"),
         "route_llm_used": bool(payload.get("route_llm_used") or metadata_route.get("route_llm_used")),
@@ -430,6 +450,7 @@ def normalize_authoring_response(api_response: Any) -> dict[str, Any]:
     conflict_warnings = _as_list(payload.get("conflict_warnings")) or _as_list(trace.get("conflict_warnings")) or warnings
     ui_status = _authoring_ui_status(payload, review, write_result, trace, existing_matches, conflict_warnings, errors)
     return {
+        "response_type": str(payload.get("response_type") or "metadata_authoring"),
         "status": str(payload.get("status") or write_result.get("status") or ui_status),
         "ui_status": ui_status,
         "message": _first_text(payload, ["message", "response", "answer_message"])
@@ -445,6 +466,49 @@ def normalize_authoring_response(api_response: Any) -> dict[str, Any]:
         "errors": errors,
         "warnings": warnings,
         "api_response": payload,
+    }
+
+
+def normalize_direct_router_response(api_response: Any, route_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = extract_main_payload(api_response)
+    api_payload = _as_dict(payload.get("api_response"))
+    if str(api_payload.get("response_type") or "") in {"direct_answer", "clarification", "flow_error", "routed_flow_execution"}:
+        payload = api_payload
+    nested_payload = _as_dict(_as_dict(payload.get("raw_response")).get("api_response"))
+    if str(nested_payload.get("response_type") or "") in {"direct_answer", "clarification", "flow_error"}:
+        payload = nested_payload
+    route_info = _as_dict(route_payload)
+    route = str(payload.get("response_type") or route_info.get("route") or "direct_answer")
+    status = str(payload.get("status") or route_info.get("status") or ("needs_more_input" if route == "clarification" else "ok"))
+    trace_errors = _as_list(_as_dict(_as_dict(payload.get("trace")).get("execution")).get("errors"))
+    message = (
+        _first_text(payload, ["message", "answer_message", "response", "text", "content"])
+        or _first_text(route_info, ["message", "reason"])
+        or _extract_text_anywhere(api_response)
+        or ""
+    )
+    return {
+        "status": status,
+        "success": status not in {"error", "failed"},
+        "response_type": route,
+        "direct_response_ready": route in {"direct_answer", "clarification", "flow_error"},
+        "message_only": True,
+        "answer_message": message,
+        "plain_answer_message": message,
+        "display_message": message,
+        "message": message,
+        "data": {"rows": [], "columns": [], "row_count": 0},
+        "applied_scope": {},
+        "intent_plan": {},
+        "intent": {},
+        "metadata_qa": {},
+        "metadata_route": {},
+        "analysis": {"status": status},
+        "state": _as_dict(route_info.get("state")) or _as_dict(payload.get("state")),
+        "warnings": _as_list(payload.get("warnings")),
+        "errors": _as_list(payload.get("errors")) or trace_errors,
+        "data_refs": [],
+        "developer": {},
     }
 
 
@@ -523,9 +587,35 @@ def normalize_metadata_type(value: Any) -> str:
 
 
 def _apply_selected_flow_defaults(result: dict[str, Any], selected_flow: str) -> None:
-    if selected_flow == "metadata_qa_flow" and result.get("message_only"):
+    if selected_flow in {"metadata_qa_flow", "dummy_metadata_qa_flow"} and result.get("message_only"):
         result["response_type"] = "metadata_qa"
         result["direct_response_ready"] = True
+
+
+def _is_authoring_selected_flow(selected_flow: str) -> bool:
+    return str(selected_flow or "") in {
+        "domain_authoring_flow",
+        "dummy_domain_authoring_flow",
+        "table_catalog_authoring_flow",
+        "dummy_table_catalog_authoring_flow",
+        "main_flow_filters_authoring_flow",
+        "dummy_main_flow_filter_authoring_flow",
+    }
+
+
+def _is_direct_router_route(route: Any) -> bool:
+    return str(route or "") in {"direct_answer", "clarification", "flow_error"}
+
+
+def _router_execution_failed(value: dict[str, Any]) -> bool:
+    api_payload = _as_dict(value.get("api_response"))
+    if api_payload:
+        return _router_execution_failed(api_payload)
+    if str(value.get("status") or "").lower() == "error":
+        return True
+    trace = _as_dict(value.get("trace"))
+    execution = _as_dict(trace.get("execution"))
+    return bool(execution.get("errors"))
 
 
 def normalize_duplicate_action(value: Any) -> str:
@@ -841,19 +931,32 @@ def _looks_like_route_decision(value: dict[str, Any]) -> bool:
         return False
     return bool(
         value.get("response_type") == "route_decision"
+        or value.get("response_type") == "routed_flow_execution"
+        or value.get("route_decision")
         or value.get("selected_flow")
         or (value.get("flow_inputs") and value.get("route"))
     )
 
 
 def _looks_like_selected_flow_execution(value: dict[str, Any]) -> bool:
-    return bool(value.get("raw_response") and value.get("selected_flow") and ("message" in value or "status" in value))
+    return bool(
+        value.get("response_type") == "routed_flow_execution"
+        or (value.get("raw_response") and ("message" in value or "status" in value) and ("selected_flow" in value or "route" in value))
+    )
 
 
 def _route_from_selected_flow(selected_flow: str) -> str:
     return {
         "metadata_qa_flow": "metadata_qa",
+        "dummy_metadata_qa_flow": "dummy_metadata_qa",
         "data_analysis_flow": "data_analysis",
+        "dummy_data_analysis_flow": "dummy_data_analysis",
+        "domain_authoring_flow": "domain_authoring",
+        "dummy_domain_authoring_flow": "dummy_domain_authoring",
+        "table_catalog_authoring_flow": "table_catalog_authoring",
+        "dummy_table_catalog_authoring_flow": "dummy_table_catalog_authoring",
+        "main_flow_filters_authoring_flow": "main_flow_filter_authoring",
+        "dummy_main_flow_filter_authoring_flow": "dummy_main_flow_filter_authoring",
         "report_generation_flow": "report_generation",
         "operations_diagnosis_flow": "operations_diagnosis",
     }.get(str(selected_flow or ""), "")

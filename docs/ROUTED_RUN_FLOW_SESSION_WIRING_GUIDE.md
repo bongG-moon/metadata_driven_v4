@@ -1,12 +1,16 @@
-# Routed API + Session State Wiring Guide
+# Routed Run Flow + Session State Wiring Guide
 
-이 문서는 main router flow와 하위 flow API를 연결하는 기준입니다. 현재 권장 구조는 단순합니다.
+> 참고: 현재 v4 router 내부에서는 하위 flow를 API로 다시 호출하지 않는다. Web/외부 시스템이 router flow를 API로 호출할 수는 있지만, router canvas 안에서는 route별로 미리 선택된 Native Run Flow 결과를 받아 표준 응답으로 합친다.
+> Langflow `Run Flow`는 flow 이름을 변수로 입력받는 노드가 아니므로, 각 Run Flow 노드에서 대상 flow를 먼저 선택해야 한다.
+
+이 문서는 main router flow와 하위 flow의 session state 연결 기준입니다. 현재 권장 구조는 단순합니다.
 
 ```text
 main router flow
 Chat Input
--> router_flow 00~05
--> 06 Selected Flow API Runner
+-> Smart Router
+-> route별로 미리 선택된 Native Run Flow 노드 하나
+-> 선택 route의 subflow 응답
 -> Chat Output
 ```
 
@@ -25,92 +29,66 @@ Final Message
 -> Chat Output
 ```
 
-main flow는 subflow 내부 payload를 조립하지 않습니다. main flow는 질문을 분류하고, `05 Orchestrator Response Builder`가 `api_url + input_value + session_id` 형태의 `subflow_call`을 만든 뒤, `06 Selected Flow API Runner`가 선택된 subflow 하나만 호출하게 합니다.
+main flow는 subflow 내부 payload를 조립하지 않습니다. main flow는 질문을 분류하고, Smart Router route output이 route별로 미리 선택된 Native Run Flow 노드 하나만 실행하게 합니다. 별도 router custom component chain은 사용하지 않습니다.
 
 ## Main Router Connections
 
+### A. Playground/Native 권장 연결
+
 ```text
 Chat Input.Chat Message
-  -> 00 Router Request Loader.Question
+  -> Smart Router.Input
 
-00 Router Request Loader.Payload
-  -> 01 Metadata Context Loader.Payload
+Smart Router.data_analysis output
+  -> Run Flow(data_analysis_flow)의 동적 질문 입력 포트
 
-01 Metadata Context Loader.Payload
-  -> 02 Route Candidate Builder.Payload
+Smart Router.metadata_qa output
+  -> Run Flow(metadata_qa_flow)의 동적 질문 입력 포트
 
-02 Route Candidate Builder.Payload
-  -> 03A Route Prompt Context Builder.Payload
+Smart Router.domain_authoring output
+  -> Run Flow(domain_authoring_flow)의 동적 raw text 입력 포트
 
-03A Route Prompt Context Builder.Route Prompt Context
-  -> Langflow Prompt Template.route_prompt_context
-
-Langflow Prompt Template.Prompt
-  -> Route Classifier LLM.Input
-
-02 Route Candidate Builder.Payload
-  -> 04 Route Classifier Normalizer.Payload
-
-Route Classifier LLM.Output
-  -> 04 Route Classifier Normalizer.Route LLM Response
-
-04 Route Classifier Normalizer.Payload
-  -> 05 Orchestrator Response Builder.Payload
-
-05 Orchestrator Response Builder.Route Response
-  -> 06 Selected Flow API Runner.Route Response
-
-06 Selected Flow API Runner.Message
-  -> Chat Output
+각 Run Flow의 최종 Message/API output
+  -> 해당 route의 Chat Output 또는 후속 응답 어댑터
 ```
 
-native Run Flow node는 text/message input만 받을 수 있고 여러 Run Flow output을 한 노드로 모으면 Langflow 실행기가 연결된 upstream을 모두 기다릴 수 있습니다. direct router canvas에서는 `05`가 만든 `subflow_call`을 `06 Selected Flow API Runner`가 읽어서 선택된 subflow API 하나만 호출합니다.
+Smart Router의 routes table에서 Route Message를 비우면 매칭된 output으로 원래 사용자 입력이 전달됩니다.
+Run Flow 노드는 대상 flow를 선택하고 refresh해야 해당 flow의 동적 입력 포트가 표시됩니다.
 
-| `selected_flow` | Called subflow |
+| Smart Router route | Run Flow 노드에서 미리 선택할 flow |
 | --- | --- |
-| `metadata_qa_flow` | Metadata QA Flow |
-| `data_analysis_flow` | Data Analysis Flow |
-| `report_generation_flow` | Report Generation Flow |
-| `operations_diagnosis_flow` | Operations Diagnosis Flow |
+| `data_analysis` | `data_analysis_flow` |
+| `dummy_data_analysis` | `dummy_data_analysis_flow` |
+| `metadata_qa` | `metadata_qa_flow` |
+| `dummy_metadata_qa` | `dummy_metadata_qa_flow` |
+| `domain_authoring` | `domain_authoring_flow` |
+| `dummy_domain_authoring` | `dummy_domain_authoring_flow` |
+| `table_catalog_authoring` | `table_catalog_authoring_flow` |
+| `dummy_table_catalog_authoring` | `dummy_table_catalog_authoring_flow` |
+| `main_flow_filter_authoring` | `main_flow_filters_authoring_flow` |
+| `dummy_main_flow_filter_authoring` | `dummy_main_flow_filter_authoring_flow` |
 
-`05`와 `06`은 아래 환경변수를 사용합니다. 보통은 `.env`에 base URL과 flow id만 넣으면 `05`가 `subflow_call.api_url`을 만들어줍니다. `06`은 먼저 이 값을 사용하고, 비어 있으면 자기 advanced input과 환경변수를 fallback으로 확인합니다.
+Run Flow 출력은 Data 또는 Message일 수 있습니다. 여러 출력이 보이면 최종 API/구조화 응답 output을 먼저 연결하고, 없으면 최종 Message output을 연결합니다.
 
-| selected_flow | Required env |
-| --- | --- |
-| `metadata_qa_flow` | `LANGFLOW_BASE_URL` + `LANGFLOW_METADATA_QA_FLOW_ID` or `LANGFLOW_METADATA_QA_API_URL` |
-| `data_analysis_flow` | `LANGFLOW_BASE_URL` + `LANGFLOW_DATA_ANALYSIS_FLOW_ID` or `LANGFLOW_DATA_ANALYSIS_API_URL` |
-| `report_generation_flow` | `LANGFLOW_BASE_URL` + `LANGFLOW_REPORT_GENERATION_FLOW_ID` or `LANGFLOW_REPORT_GENERATION_API_URL` |
-| `operations_diagnosis_flow` | `LANGFLOW_BASE_URL` + `LANGFLOW_OPERATIONS_DIAGNOSIS_FLOW_ID` or `LANGFLOW_OPERATIONS_DIAGNOSIS_API_URL` |
-
-예를 들어 subflow API가 `http://localhost:7860/api/v1/run/3023ab38-a7a3-475b-83c8-c04bd90a16c5`라면:
-
-```text
-LANGFLOW_BASE_URL=http://localhost:7860
-LANGFLOW_METADATA_QA_FLOW_ID=3023ab38-a7a3-475b-83c8-c04bd90a16c5
-```
-
-또는 `LANGFLOW_METADATA_QA_API_URL`에 full URL을 바로 넣어도 됩니다.
-
-예전 native Run Flow 분기용 switch/merger 노드는 제거했습니다. main router canvas는 `05 -> 06 -> Chat Output` 경로만 사용합니다.
+전체 route와 flow 매핑은 `langflow_components/router_flow/CONNECTION_GUIDE.md`의 Smart Router routes table을 기준으로 확인합니다.
 
 ## Subflow Standard Connections
 
-모든 subflow의 시작부는 같은 패턴입니다.
+현재 v4에서 구현된 subflow의 시작부는 request loader가 `previous_state`를 직접 받는 패턴입니다.
 
 ```text
 Chat Input.Chat Message
-  -> 00 MongoDB Session State Loader.Question
   -> 00 Request Loader.Question
 
-00 MongoDB Session State Loader.Loaded State
-  -> 00 Request Loader.Previous State
+Web/API에서 이전 상태를 주입할 때
+  -> 00 Request Loader.previous_state
 ```
 
-모든 subflow의 종료부도 같은 패턴입니다.
+종료부는 flow별 최종 API response와 최종 Message를 분리합니다.
 
 ```text
 Final API Response
-  -> 01 MongoDB Session State Writer.Response Payload
+  -> Web/API 구조화 응답
 
 Final Message
   -> Chat Output
@@ -120,8 +98,8 @@ Final Message
 
 | Subflow | First loader | Previous state input | Final API response | Final human message |
 | --- | --- | --- | --- | --- |
-| `metadata_qa_flow` | `00 Metadata QA Request Loader.Question` | `00 Metadata QA Request Loader.Previous State` | `05 Metadata QA API Response Builder.API Response` | `04 Metadata QA Message Adapter.Message` |
-| `data_analysis_flow` | `00 Analysis Request Loader.Question` | `00 Analysis Request Loader.Previous State` | `21 API Response Builder.API Response` | `20 Answer Message Adapter.Message` |
+| `metadata_qa_flow` | `00 메타데이터 QA 요청 로더.사용자 질문` | `00 메타데이터 QA 요청 로더.이전 상태` | `06 메타데이터 QA API 응답 생성기.API 응답` | `05 메타데이터 QA 메시지 어댑터.메시지` |
+| `data_analysis_flow` | `00 분석 요청 로더.사용자 질문` | `00 분석 요청 로더.이전 상태` | `22 API 응답 생성기.API 응답` | `21 답변 메시지 어댑터.메시지` |
 | `report_generation_flow` | `00 Report Request Loader.Question` | `00 Report Request Loader.Previous State` | `03 Report Response Builder.API Response` | `03 Report Response Builder.Message` |
 | `operations_diagnosis_flow` | `00 Diagnosis Request Loader.Question` | `00 Diagnosis Request Loader.Previous State` | `05 Diagnosis API Response Builder.API Response` | `04 Diagnosis Message Adapter.Message` |
 
@@ -158,8 +136,6 @@ Operations diagnosis examples:
 
 1. 새 subflow가 질문 하나만 받아 독립 실행되도록 만듭니다.
 2. 필요하면 subflow 내부에 session state loader/writer를 둡니다.
-3. `router_flow/02_route_candidate_builder.py`에 새 route hint를 추가합니다.
-4. `router_flow/ROUTE_CLASSIFIER_PROMPT_TEMPLATE.md`와 Langflow 기본 Prompt Template의 route 설명에 새 route를 추가합니다.
-5. `router_flow/04_route_classifier_normalizer.py`의 허용 route에 새 route를 추가합니다.
-6. `router_flow/05_orchestrator_response_builder.py`의 `FLOW_BY_ROUTE`에 route 매핑을 추가합니다.
-7. `06 Selected Flow API Runner`에 새 `selected_flow`의 API URL/env 매핑을 추가합니다.
+3. `router_flow/CONNECTION_GUIDE.md`의 Smart Router routes table에 새 route와 selected flow를 추가합니다.
+4. Smart Router canvas routes table에도 같은 route를 추가합니다.
+5. router canvas에 새 Run Flow 노드를 추가하고 대상 flow를 직접 선택한 뒤 refresh합니다.

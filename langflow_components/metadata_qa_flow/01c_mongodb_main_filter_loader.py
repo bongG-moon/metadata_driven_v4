@@ -89,12 +89,13 @@ class MetadataQaMainFilterLoader(Component):
     outputs = [Output(name="main_flow_filters", display_name="메인 필터", method="build_payload", types=["Data"])]
 
     def build_payload(self) -> Data:
-        return Data(
-            data=load_main_filter_metadata(
-                getattr(self, "mongo_uri", ""),
-                getattr(self, "mongo_database", ""),
-                getattr(self, "collection_name", ""),
-                getattr(self, "limit", "1000"),
-                getattr(self, "status_filter", "active"),
-            )
+        result = load_main_filter_metadata(
+            getattr(self, "mongo_uri", ""),
+            getattr(self, "mongo_database", ""),
+            getattr(self, "collection_name", ""),
+            getattr(self, "limit", "1000"),
+            getattr(self, "status_filter", "active"),
         )
+        load = result.get("metadata_load", {}) if isinstance(result, dict) else {}
+        self.status = f"{load.get('status', 'unknown')} / {load.get('collection_name', DEFAULT_COLLECTION)} / {load.get('count', 0)}건"
+        return Data(data=result)

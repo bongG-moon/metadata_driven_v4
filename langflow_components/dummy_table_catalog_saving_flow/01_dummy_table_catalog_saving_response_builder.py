@@ -9,6 +9,7 @@ from lfx.schema.data import Data
 from lfx.schema.message import Message
 
 METADATA_TYPE = "table_catalog"
+METADATA_LABEL = "테이블 카탈로그"
 
 
 def build_response(payload_value: Any) -> dict[str, Any]:
@@ -18,28 +19,117 @@ def build_response(payload_value: Any) -> dict[str, Any]:
         "payload": {
             "display_name": "더미 Production Today",
             "source_type": "dummy",
+            "dataset_family": "production",
+            "required_params": ["DATE"],
             "columns": ["WORK_DATE", "OPER_NAME", "DEVICE", "PRODUCTION"],
         },
     }
-    message = "더미 테이블 카탈로그 등록 flow가 저장 없이 예시 dataset item 1건을 생성했습니다."
+    items = [item]
+    columns = ["데이터셋 키", "데이터셋", "분류", "연결 방식", "필수 조건", "상태"]
+    rows = [_item_row(item)]
+    answer_message = f"{METADATA_LABEL} 메타데이터 1건을 저장 전 검토했습니다. 현재 더미 flow라 MongoDB에는 반영하지 않았습니다."
+    answer_sections = _answer_sections(answer_message, columns, rows)
+    message = _display_message(answer_sections)
     return {
         "response_type": "metadata_authoring",
         "metadata_type": METADATA_TYPE,
+        "metadata_label": METADATA_LABEL,
         "status": "dry_run",
         "success": False,
+        "direct_response_ready": True,
         "message": message,
-        "items": [item],
+        "answer_message": answer_message,
+        "display_message": message,
+        "answer_sections": answer_sections,
+        "items": items,
+        "data": {"columns": columns, "rows": rows, "row_count": len(rows)},
+        "metadata_authoring": {
+            "metadata_type": METADATA_TYPE,
+            "metadata_label": METADATA_LABEL,
+            "status": "dry_run",
+            "generated_count": len(items),
+            "saved_count": 0,
+            "would_save_count": len(items),
+            "dry_run": True,
+            "keys": ["dummy_production_today"],
+        },
         "review": {"status": "ok", "warnings": ["더미 flow이므로 MongoDB에 저장하지 않았습니다."]},
-        "write_result": {"success": False, "dry_run": True, "message": "더미 flow는 저장하지 않습니다.", "saved_count": 0},
+        "write_result": {"success": False, "dry_run": True, "message": "더미 flow는 저장하지 않습니다.", "saved_count": 0, "would_save_count": len(items)},
         "trace": {
             "raw_text_preview": _payload(payload.get("trace")).get("raw_text_preview", ""),
-            "generated_items_preview": [item],
+            "generated_items_preview": items,
             "existing_matches": [],
             "conflict_warnings": [],
         },
         "warnings": [{"type": "dummy_saving_flow", "message": "실제 LLM/MongoDB 저장 없이 더미 등록 응답을 반환했습니다."}],
         "errors": _list(payload.get("errors")),
     }
+
+
+def _item_row(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _payload(item.get("payload"))
+    required_params = payload.get("required_params")
+    if isinstance(required_params, list):
+        required_text = ", ".join(str(value) for value in required_params if str(value).strip())
+    else:
+        required_text = str(required_params or "").strip()
+    return {
+        "데이터셋 키": str(item.get("dataset_key") or ""),
+        "데이터셋": str(payload.get("display_name") or item.get("dataset_key") or ""),
+        "분류": str(payload.get("dataset_family") or ""),
+        "연결 방식": str(payload.get("source_type") or ""),
+        "필수 조건": required_text or "없음",
+        "상태": "저장 예정",
+    }
+
+
+def _answer_sections(answer_message: str, columns: list[str], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "summary": {"headline": answer_message, "description": answer_message},
+        "key_points": [
+            f"생성된 {METADATA_LABEL} 등록 후보는 {len(rows)}건입니다.",
+            "더미 flow라 실제 LLM 호출과 MongoDB 저장은 수행하지 않았습니다.",
+            "필수 조건과 연결 방식이 화면/API에서 확인 가능한 형태로 정리되었습니다.",
+        ],
+        "target_table": {"title": "등록 대상 테이블 카탈로그", "columns": columns, "rows": rows, "row_count": len(rows)},
+        "notices": [{"type": "dummy", "title": "더미 응답", "message": "실제 저장 flow의 응답 형식만 빠르게 확인하기 위한 결과입니다."}],
+        "next_steps": ["실제 저장 flow에서 같은 원문으로 실행해 검수 결과를 확인하세요.", "저장 후 Metadata QA에서 조회 가능한 데이터셋 목록을 확인하세요."],
+    }
+
+
+def _display_message(answer_sections: dict[str, Any]) -> str:
+    sections = []
+    headline = str(_payload(answer_sections.get("summary")).get("headline") or "").strip()
+    if headline:
+        sections.append("### 등록 결과\n" + headline)
+    key_points = _list(answer_sections.get("key_points"))
+    if key_points:
+        sections.append("### 한눈에 보기\n" + "\n".join(f"- {point}" for point in key_points))
+    target_table = _payload(answer_sections.get("target_table"))
+    rows = _list(target_table.get("rows"))
+    columns = [str(item) for item in _list(target_table.get("columns"))]
+    if rows and columns:
+        sections.append("### " + str(target_table.get("title") or "등록 대상") + "\n" + _markdown_table(rows, columns) + f"\n\n총 {len(rows)}건입니다.")
+    notices = [item for item in _list(answer_sections.get("notices")) if isinstance(item, dict)]
+    if notices:
+        lines = ["### 확인할 점"]
+        for item in notices:
+            lines.append(f"- {item.get('title') or item.get('type')}: {item.get('message')}")
+        sections.append("\n".join(lines))
+    next_steps = _list(answer_sections.get("next_steps"))
+    if next_steps:
+        sections.append("### 다음 단계\n" + "\n".join(f"- {step}" for step in next_steps))
+    return "\n\n".join(sections)
+
+
+def _markdown_table(rows: list[Any], columns: list[str]) -> str:
+    header = "| " + " | ".join(columns) + " |"
+    divider = "| " + " | ".join("---" for _ in columns) + " |"
+    body = []
+    for row in rows:
+        row_dict = _payload(row)
+        body.append("| " + " | ".join(str(row_dict.get(column, "")).replace("|", "\\|") for column in columns) + " |")
+    return "\n".join([header, divider] + body)
 
 
 def _payload(value: Any) -> dict[str, Any]:

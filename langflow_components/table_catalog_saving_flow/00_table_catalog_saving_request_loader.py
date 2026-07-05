@@ -34,7 +34,7 @@ def _items(value: Any) -> list[dict[str, Any]]:
 class TableCatalogSavingRequestLoader(Component):
     display_name = "00 테이블 카탈로그 등록 요청 로더"
     description = "자연어 테이블 카탈로그 등록 요청을 시작합니다. 기본값은 드라이런입니다."
-    inputs = [MessageTextInput(name="raw_text", display_name="원문 텍스트", required=True), DropdownInput(name="duplicate_action", display_name="중복 처리 방식", options=["ask", "merge", "replace", "skip", "create_new"], value="ask"), DropdownInput(name="dry_run", display_name="드라이런", options=["true", "false"], value="true"), DataInput(name="existing_items", display_name="기존 항목", required=False)]
+    inputs = [MessageTextInput(name="raw_text", display_name="원문 텍스트", required=True, tool_mode=True), DropdownInput(name="duplicate_action", display_name="중복 처리 방식", options=["ask", "merge", "replace", "skip", "create_new"], value="ask"), DropdownInput(name="dry_run", display_name="드라이런", options=["true", "false"], value="true"), DataInput(name="existing_items", display_name="기존 항목", required=False)]
     outputs = [Output(name="payload_out", display_name="페이로드 출력", method="build_payload")]
 
     def build_payload(self) -> Data:

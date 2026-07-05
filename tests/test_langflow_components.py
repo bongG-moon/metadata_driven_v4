@@ -178,6 +178,16 @@ def _component_outputs(module):
     return component_classes[0].outputs
 
 
+def _component_inputs(module):
+    component_classes = [
+        value
+        for value in vars(module).values()
+        if isinstance(value, type) and value.__module__ == module.__name__ and hasattr(value, "inputs")
+    ]
+    assert len(component_classes) == 1
+    return component_classes[0].inputs
+
+
 def test_langflow_components_do_not_import_project_helpers():
     forbidden = {"reference_runtime", "langflow_components", "utils", "helpers"}
     assert COMPONENT_FILES
@@ -3166,11 +3176,13 @@ def test_dummy_data_analysis_flow_emits_data_analysis_contract():
     assert response["message"] == response["display_message"]
     assert response["message"].startswith("### 답변")
     assert "### 결과 테이블" in response["message"]
-    assert "### 의도 분석" in response["message"]
-    assert "### 데이터 조회" in response["message"]
-    assert "### pandas 코드/실행" in response["message"]
-    assert "```python" in response["message"]
+    assert "### 적용 기준" in response["message"]
+    assert "### 분석 과정 요약" in response["message"]
+    assert "### 참고" in response["message"]
+    assert "### 다음에 볼 만한 질문" in response["message"]
     assert response["answer_message"]
+    assert response["answer_sections"]["result_table"]["row_count"] == len(response["data"]["rows"])
+    assert response["answer_sections"]["notices"][0]["type"] == "dummy_data"
     assert response["intent_plan"]["retrieval_jobs"]
     assert response["intent_plan"]["pandas_execution_plan"]
     assert response["data"]["row_count"] == len(response["data"]["rows"])
@@ -3185,7 +3197,7 @@ def test_dummy_metadata_qa_flow_emits_metadata_qa_contract():
     request_loader = load_module(ROOT / "langflow_components" / "dummy_metadata_qa_flow" / "00_dummy_metadata_qa_request_loader.py")
     response_builder = load_module(ROOT / "langflow_components" / "dummy_metadata_qa_flow" / "01_dummy_metadata_qa_response_builder.py")
 
-    payload = request_loader.build_dummy_request("등록된 데이터셋 알려줘", {"session_id": "s1"})
+    payload = request_loader.build_dummy_request("조회 가능한 데이터셋 알려줘", {"session_id": "s1"})
     response = response_builder.build_dummy_response(payload)
 
     assert response["response_type"] == "metadata_qa"
@@ -3193,7 +3205,12 @@ def test_dummy_metadata_qa_flow_emits_metadata_qa_contract():
     assert response["direct_response_ready"] is True
     assert response["message"] == response["display_message"]
     assert response["message"].startswith("### 답변")
+    assert "### 한눈에 보기" in response["message"]
+    assert "### 조회 가능한 데이터" in response["message"]
+    assert "### 다음에 물어볼 수 있는 질문" in response["message"]
     assert response["answer_message"]
+    assert response["answer_sections"]["detail_table"]["row_count"] == len(response["data"]["rows"])
+    assert response["answer_sections"]["show_related_items"] is False
     assert response["data"]["row_count"] == len(response["data"]["rows"])
     assert response["metadata_qa"]["source_refs"]
     assert response["metadata_route"]["route"] == "dummy_metadata_qa"
@@ -3479,6 +3496,14 @@ def test_dummy_metadata_saving_flows_preserve_raw_text_and_do_not_save():
         assert payload["request"]["dry_run"] is False
         assert response["response_type"] == "metadata_authoring"
         assert response["metadata_type"] == metadata_type
+        assert response["direct_response_ready"] is True
+        assert response["message"] == response["display_message"]
+        assert response["message"].startswith("### 등록 결과")
+        assert "### 한눈에 보기" in response["message"]
+        assert "### 다음 단계" in response["message"]
+        assert response["answer_sections"]["target_table"]["row_count"] == len(response["items"])
+        assert response["data"]["row_count"] == len(response["items"])
+        assert response["metadata_authoring"]["dry_run"] is True
         assert response["write_result"]["saved_count"] == 0
         assert response["write_result"]["success"] is False
         assert response["trace"]["raw_text_preview"].startswith("  -- 주석 포함 원문")
@@ -3512,3 +3537,95 @@ def test_router_connection_guide_lists_only_final_runtime_nodes():
     assert "`Route Message`를 비워 원래 입력을 Run Flow로 보내고" in guide
     assert "실제 실행 노드로 연결하지 않는다" not in guide
     assert "Run Flow 대상 flow는 변수 입력이 아니라 각 Run Flow 노드 설정에서 미리 선택한다" in guide
+
+
+def test_router_example_questions_cover_runtime_routes():
+    examples = (ROOT / "langflow_components" / "router_flow" / "EXAMPLE_QUESTIONS.md").read_text(encoding="utf-8")
+
+    for route in (
+        "data_analysis",
+        "metadata_qa",
+        "domain_saving",
+        "table_catalog_saving",
+        "main_flow_filter_saving",
+        "dummy_data_analysis",
+        "dummy_metadata_qa",
+        "dummy_domain_saving",
+        "dummy_table_catalog_saving",
+        "dummy_main_flow_filter_saving",
+        "direct_answer",
+        "clarification",
+    ):
+        assert f"`{route}`" in examples
+    assert "Route Message" in examples
+    assert "요약하거나 수정하지 않는다" in examples
+    assert "dummy route는 사용자가 명시적으로" in examples
+    assert "오늘 DA공정 생산량 알려줘" in examples
+    assert "production_today 필수 조건 보여줘" in examples
+    assert "metadata 종류" in examples
+
+
+def test_router_flow_v2_tool_call_docs_cover_tools():
+    router_dir = ROOT / "langflow_components" / "router_flow_v2"
+    py_files = sorted(router_dir.glob("*.py"))
+    connection_guide = (router_dir / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
+    system_prompt = (router_dir / "SYSTEM_PROMPT_KO.md").read_text(encoding="utf-8")
+    tool_descriptions = (router_dir / "TOOL_DESCRIPTIONS.md").read_text(encoding="utf-8")
+    examples = (router_dir / "EXAMPLE_QUESTIONS.md").read_text(encoding="utf-8")
+
+    assert py_files == []
+    assert "Chat Input\n-> Agent 또는 Tool Calling Agent" in connection_guide
+    assert "Tool Mode" in connection_guide
+    assert "Run Flow" in connection_guide
+    assert "정확히 하나" in system_prompt
+    assert "요약하거나 재작성하지 않는다" in system_prompt
+    assert "명시적으로 dummy" in connection_guide
+    assert "Web/API" in connection_guide
+    assert "API Request로 직접 호출하지 않는다" in connection_guide
+    assert "`run_metadata_qa` | `metadata_qa_flow`" in connection_guide
+    assert "`run_metadata_qa` | 메타데이터 QA 실행 | `metadata_qa_flow`" in tool_descriptions
+    assert "wrapper flow는 추가하지 않는다" in connection_guide
+    assert "metadata_qa_tool_wrapper_flow" not in connection_guide
+    assert "대표 예시" in connection_guide
+    assert "오늘 DA공정 생산량 알려줘" in system_prompt
+    assert "production_today 필수 조건 보여줘" in system_prompt
+    assert "metadata 종류" in system_prompt
+
+    for slug in (
+        "run_data_analysis",
+        "run_metadata_qa",
+        "save_domain_metadata",
+        "save_table_catalog_metadata",
+        "save_main_flow_filter_metadata",
+        "run_dummy_data_analysis",
+        "run_dummy_metadata_qa",
+        "run_dummy_domain_saving",
+        "run_dummy_table_catalog_saving",
+        "run_dummy_main_flow_filter_saving",
+    ):
+        assert f"`{slug}`" in connection_guide
+        assert f"`{slug}`" in system_prompt
+        assert f"`{slug}`" in tool_descriptions
+        assert f"`{slug}`" in examples
+
+
+def test_flow_tool_entry_inputs_are_agent_controlled():
+    specs = [
+        ("data_analysis_flow/00_analysis_request_loader.py", "question"),
+        ("metadata_qa_flow/00_metadata_qa_request_loader.py", "question"),
+        ("domain_saving_flow/00_domain_saving_request_loader.py", "raw_text"),
+        ("table_catalog_saving_flow/00_table_catalog_saving_request_loader.py", "raw_text"),
+        ("main_flow_filters_saving_flow/00_main_flow_filter_saving_request_loader.py", "raw_text"),
+        ("dummy_data_analysis_flow/00_dummy_request_loader.py", "question"),
+        ("dummy_metadata_qa_flow/00_dummy_metadata_qa_request_loader.py", "question"),
+        ("dummy_domain_saving_flow/00_dummy_domain_saving_request_loader.py", "raw_text"),
+        ("dummy_table_catalog_saving_flow/00_dummy_table_catalog_saving_request_loader.py", "raw_text"),
+        ("dummy_main_flow_filter_saving_flow/00_dummy_main_flow_filter_saving_request_loader.py", "raw_text"),
+    ]
+
+    for relative_path, input_name in specs:
+        module = load_module(ROOT / "langflow_components" / relative_path)
+        inputs = _component_inputs(module)
+        matching = [item for item in inputs if item.kwargs.get("name") == input_name]
+        assert matching, relative_path
+        assert matching[0].kwargs.get("tool_mode") is True, relative_path

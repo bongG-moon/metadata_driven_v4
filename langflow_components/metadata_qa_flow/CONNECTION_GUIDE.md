@@ -90,6 +90,24 @@ Smart Router.metadata_qa
 Smart Router의 `metadata_qa` route는 `Route Message`를 비워둔다.
 그래야 원래 사용자 질문이 `metadata_qa_flow`로 그대로 전달된다.
 
+### 5.1 Tool Call Router v2 연결
+
+`router_flow_v2`에서 `metadata_qa_flow`를 Run Flow tool로 사용할 때도 최종 대상은 동일하다.
+Run Flow에서 `metadata_qa_flow`를 선택하고 refresh한 뒤 Tool Mode를 켠다.
+
+이 flow의 첫 입력인 `00 메타데이터 QA 요청 로더.사용자 질문`은 agent가 제어해야 하는 입력이므로 코드상 `tool_mode=True`로 지정되어 있다.
+Run Flow tool call 결과에 아래 오류가 나오면 MongoDB 문제가 아니라 질문 입력 매핑 문제다.
+
+```text
+{"type": "empty_question", "message": "메타데이터 QA 질문이 비어 있습니다."}
+```
+
+이 경우 `router_flow_v2/CONNECTION_GUIDE.md`의 `Metadata QA Tool 필수 확인` 절차에 따라 Run Flow refresh와 Tool Mode 재설정을 먼저 확인한다.
+
+질문 입력이 정상인데도 데이터가 비어 있으면 01A/01B/01C MongoDB 로더 상태를 본다.
+상태가 `skipped / ... / 0건`이면 `MONGODB_URI`가 Langflow 실행 환경에 없거나 로더 고급 입력이 비어 있는 것이다.
+상태가 `error / ... / 0건`이면 MongoDB 연결, 인증, collection 이름을 확인한다.
+
 ## 6. 검증 질문
 
 아래 질문으로 flow 동작을 확인한다.

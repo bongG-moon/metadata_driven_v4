@@ -89,12 +89,13 @@ class MetadataQaDomainMetadataLoader(Component):
     outputs = [Output(name="domain_items", display_name="도메인 메타데이터", method="build_payload", types=["Data"])]
 
     def build_payload(self) -> Data:
-        return Data(
-            data=load_domain_metadata(
-                getattr(self, "mongo_uri", ""),
-                getattr(self, "mongo_database", ""),
-                getattr(self, "collection_name", ""),
-                getattr(self, "limit", "1000"),
-                getattr(self, "status_filter", "active"),
-            )
+        result = load_domain_metadata(
+            getattr(self, "mongo_uri", ""),
+            getattr(self, "mongo_database", ""),
+            getattr(self, "collection_name", ""),
+            getattr(self, "limit", "1000"),
+            getattr(self, "status_filter", "active"),
         )
+        load = result.get("metadata_load", {}) if isinstance(result, dict) else {}
+        self.status = f"{load.get('status', 'unknown')} / {load.get('collection_name', DEFAULT_COLLECTION)} / {load.get('count', 0)}건"
+        return Data(data=result)

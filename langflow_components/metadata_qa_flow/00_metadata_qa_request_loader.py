@@ -37,7 +37,7 @@ class MetadataQaRequestLoader(Component):
     display_name = "00 메타데이터 QA 요청 로더"
     description = "메타데이터 조회/설명 질문을 읽기 전용 QA 페이로드로 변환합니다."
     inputs = [
-        MessageTextInput(name="question", display_name="사용자 질문", required=True),
+        MessageTextInput(name="question", display_name="사용자 질문", required=True, tool_mode=True),
         DataInput(name="previous_state", display_name="이전 상태", required=False),
     ]
     outputs = [Output(name="payload_out", display_name="페이로드 출력", method="build_payload", types=["Data"])]

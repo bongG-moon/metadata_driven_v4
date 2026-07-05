@@ -17,7 +17,8 @@ def build_dummy_response(payload_value: Any) -> dict[str, Any]:
     fixture = _fixture(question)
     rows = fixture["rows"]
     answer = fixture["answer_message"]
-    display_message = _display_message(fixture)
+    answer_sections = _answer_sections(fixture)
+    display_message = _display_message(fixture, answer_sections)
     trace = _payload(payload.get("trace"))
     trace.setdefault("warnings", []).append(
         {
@@ -39,6 +40,7 @@ def build_dummy_response(payload_value: Any) -> dict[str, Any]:
         "message": display_message,
         "answer_message": answer,
         "display_message": display_message,
+        "answer_sections": answer_sections,
         "request": request,
         "metadata_refs": fixture["metadata_refs"],
         "intent_plan": fixture["intent_plan"],
@@ -252,6 +254,7 @@ def _base_fixture(
         "question": question,
         "answer_message": answer_message,
         "summary": summary,
+        "analysis_kind": analysis_kind,
         "rows": rows,
         "columns": columns,
         "intent_plan": {"analysis_kind": analysis_kind, "retrieval_jobs": retrieval_jobs, "pandas_execution_plan": pandas_plan},
@@ -303,17 +306,196 @@ def _decision_reason(question: str, analysis_kind: str) -> list[str]:
     return reasons
 
 
-def _display_message(fixture: dict[str, Any]) -> str:
+def _answer_sections(fixture: dict[str, Any]) -> dict[str, Any]:
+    rows = deepcopy(fixture["rows"])
+    columns = list(fixture["columns"])
+    display_rows = [_display_row(row, columns) for row in rows if isinstance(row, dict)]
+    criteria = _applied_criteria(fixture)
+    return {
+        "summary": {
+            "headline": fixture["answer_message"],
+            "description": fixture["summary"],
+            "basis": _summary_basis(criteria),
+        },
+        "result_table": {
+            "columns": columns,
+            "rows": rows,
+            "display_rows": display_rows,
+            "row_count": len(rows),
+            "preview_limit": 10,
+        },
+        "applied_criteria": criteria,
+        "evidence": {
+            "datasets": _compact_source_results(fixture["source_results"]),
+            "calculation_rules": deepcopy(fixture["metadata_refs"][:10]),
+            "step_outputs": deepcopy(fixture["step_outputs"][:6]),
+            "function_case_results": deepcopy(fixture["function_case_results"][:6]),
+        },
+        "notices": [{"type": "dummy_data", "message": "현재 결과는 더미 데이터 기준입니다."}],
+        "next_questions": _next_questions(fixture),
+    }
+
+
+def _applied_criteria(fixture: dict[str, Any]) -> dict[str, Any]:
+    required_params: dict[str, Any] = {}
+    analysis_filters: dict[str, Any] = {}
+    datasets: list[dict[str, Any]] = []
+    for job in fixture["intent_plan"]["retrieval_jobs"]:
+        alias = str(job.get("source_alias") or job.get("dataset_key") or "").strip()
+        dataset_key = str(job.get("dataset_key") or "").strip()
+        datasets.append({"dataset_key": dataset_key, "source_alias": alias, "source_type": job.get("source_type")})
+        if job.get("required_params"):
+            required_params[alias or dataset_key] = deepcopy(job["required_params"])
+        if job.get("filters"):
+            analysis_filters[alias or dataset_key] = deepcopy(job["filters"])
+    return _omit_empty(
+        {
+            "datasets": _dedupe_dicts(datasets),
+            "required_params": required_params,
+            "analysis_filters": analysis_filters,
+            "group_by": _group_by_columns(fixture["intent_plan"]["pandas_execution_plan"]),
+            "metrics": _metric_columns(fixture["rows"], fixture["columns"]),
+        }
+    )
+
+
+def _summary_basis(criteria: dict[str, Any]) -> list[str]:
+    basis = []
+    if criteria.get("required_params"):
+        basis.append("데이터셋의 필수 조회 조건을 먼저 적용했습니다.")
+    if criteria.get("analysis_filters"):
+        basis.append("공정/제품 조건은 분석 단계에서 필터링했습니다.")
+    if criteria.get("metrics"):
+        basis.append("요청 지표를 기준으로 집계했습니다.")
+    return basis
+
+
+def _compact_source_results(source_results: list[Any]) -> list[dict[str, Any]]:
+    compact = []
+    for source in source_results:
+        if not isinstance(source, dict):
+            continue
+        compact.append(
+            _omit_empty(
+                {
+                    "dataset_key": source.get("dataset_key"),
+                    "source_alias": source.get("source_alias"),
+                    "source_type": source.get("source_type"),
+                    "status": source.get("status"),
+                    "row_count": source.get("row_count"),
+                    "applied_params": source.get("applied_params"),
+                    "pandas_filters": source.get("pandas_filters"),
+                }
+            )
+        )
+    return compact
+
+
+def _group_by_columns(pandas_plan: list[Any]) -> list[str]:
+    columns: list[str] = []
+    for step in pandas_plan:
+        if not isinstance(step, dict):
+            continue
+        for key in ("groupby_columns", "group_by", "group_by_columns", "group_columns"):
+            value = step.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    text = str(item or "").strip()
+                    if text and text not in columns:
+                        columns.append(text)
+            elif isinstance(value, str) and value.strip() and value.strip() not in columns:
+                columns.append(value.strip())
+    return columns
+
+
+def _metric_columns(rows: list[Any], columns: list[str]) -> list[str]:
+    metrics = []
+    for column in columns:
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            value = row.get(column)
+            if isinstance(value, bool) or isinstance(value, str) or value is None:
+                continue
+            try:
+                float(value)
+            except Exception:
+                continue
+            metrics.append(column)
+            break
+    return metrics
+
+
+def _next_questions(fixture: dict[str, Any]) -> list[str]:
+    if fixture["analysis_kind"] == "production_wip_by_product_process":
+        return ["이 제품을 세부 공정별로 나눠볼까요?", "같은 조건으로 원본 Lot 목록도 확인할까요?"]
+    if fixture["analysis_kind"] == "production_by_product_process":
+        return ["같은 제품의 전후 공정 재공도 같이 볼까요?", "일자 범위를 넓혀 추이를 확인할까요?"]
+    return ["상위 제품별 세부 공정 생산량도 볼까요?", "원본 데이터를 내려받아 Lot 단위로 확인할까요?"]
+
+
+def _display_message(fixture: dict[str, Any], answer_sections: dict[str, Any]) -> str:
     sections = [
         "### 답변\n" + fixture["answer_message"],
-        "### 결과 테이블\n" + _markdown_table(fixture["rows"], fixture["columns"]) + f"\n\n총 {len(fixture['rows'])}건입니다.",
-        _intent_section(fixture),
-        _retrieval_section(fixture),
-        _pandas_section(fixture),
+        _result_table_section(answer_sections),
+        _applied_criteria_section(answer_sections),
+        _step_outputs_section(fixture),
+        _function_case_section(fixture["function_case_results"]),
+        _notice_section(answer_sections),
+        _next_questions_section(answer_sections),
     ]
-    if fixture["function_case_results"]:
-        sections.insert(2, _function_case_section(fixture["function_case_results"]))
     return "\n\n".join(section for section in sections if section)
+
+
+def _result_table_section(answer_sections: dict[str, Any]) -> str:
+    result_table = answer_sections.get("result_table") if isinstance(answer_sections.get("result_table"), dict) else {}
+    rows = result_table.get("display_rows") if isinstance(result_table.get("display_rows"), list) else []
+    columns = result_table.get("columns") if isinstance(result_table.get("columns"), list) else []
+    row_count = int(result_table.get("row_count") or len(rows))
+    preview_limit = int(result_table.get("preview_limit") or 10)
+    if not rows and not columns:
+        return ""
+    if not rows:
+        return "### 결과 테이블\n표시할 결과 행이 없습니다."
+    preview_rows = rows[:preview_limit]
+    note = f"\n\n총 {row_count}건 중 {len(preview_rows)}건을 표시했습니다." if row_count > len(preview_rows) else f"\n\n총 {row_count}건입니다."
+    return "### 결과 테이블\n" + _markdown_table(preview_rows, columns) + note
+
+
+def _applied_criteria_section(answer_sections: dict[str, Any]) -> str:
+    criteria = answer_sections.get("applied_criteria") if isinstance(answer_sections.get("applied_criteria"), dict) else {}
+    if not criteria:
+        return ""
+    lines = ["### 적용 기준"]
+    for label, key in (
+        ("사용 데이터", "datasets"),
+        ("조회 필수 조건", "required_params"),
+        ("분석 조건", "analysis_filters"),
+        ("그룹 기준", "group_by"),
+        ("계산 지표", "metrics"),
+    ):
+        value = criteria.get(key)
+        if value not in (None, "", [], {}):
+            lines.append(f"- {label}: `{_json(value)}`")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _step_outputs_section(fixture: dict[str, Any]) -> str:
+    outputs = fixture.get("step_outputs") if isinstance(fixture.get("step_outputs"), list) else []
+    if not outputs:
+        return ""
+    lines = ["### 분석 과정 요약"]
+    for item in outputs[:4]:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("description") or item.get("key") or "중간 결과").strip()
+        row_count = item.get("row_count")
+        lines.append(f"- {label}: 행 수 `{_table_cell(row_count)}`")
+        preview_rows = item.get("preview_rows") if isinstance(item.get("preview_rows"), list) else []
+        columns = item.get("columns") if isinstance(item.get("columns"), list) else []
+        if preview_rows and columns:
+            lines.append(_markdown_table(preview_rows[:3], columns))
+    return "\n".join(lines)
 
 
 def _intent_section(fixture: dict[str, Any]) -> str:
@@ -363,14 +545,44 @@ def _pandas_section(fixture: dict[str, Any]) -> str:
 
 
 def _function_case_section(results: list[dict[str, Any]]) -> str:
-    lines = ["### 제품/조건 매핑 결과"]
+    if not results:
+        return ""
+    lines = ["### 분석 근거"]
     for item in results:
-        lines.append(f"- 제품 표현 `{item.get('input_text', '')}` 기준으로 `{item.get('matched_count', 0)}`개 제품이 매칭되었습니다.")
+        function_name = str(item.get("function_name") or "function_case").strip()
+        input_text = str(item.get("input_text") or "").strip()
+        lines.append("")
+        lines.append(f"**{function_name}**")
+        if input_text:
+            lines.append(f"- 입력: `{input_text}`")
+        lines.append(f"- 전체 매칭: `{_table_cell(item.get('matched_count', 0))}`건")
         preview = item.get("preview_rows") if isinstance(item.get("preview_rows"), list) else []
         columns = item.get("columns") if isinstance(item.get("columns"), list) else []
         if preview and columns:
+            lines.append(f"- 미리보기: `{len(preview[:3])}`건 표시")
             lines.append(_markdown_table(preview[:3], columns))
     return "\n".join(lines)
+
+
+def _notice_section(answer_sections: dict[str, Any]) -> str:
+    notices = answer_sections.get("notices")
+    notices = notices if isinstance(notices, list) else []
+    if not notices:
+        return ""
+    lines = ["### 참고"]
+    for item in notices[:8]:
+        message = str(item.get("message") if isinstance(item, dict) else item).strip()
+        if message:
+            lines.append(f"- {message}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _next_questions_section(answer_sections: dict[str, Any]) -> str:
+    questions = answer_sections.get("next_questions")
+    questions = [str(item).strip() for item in questions if str(item or "").strip()] if isinstance(questions, list) else []
+    if not questions:
+        return ""
+    return "### 다음에 볼 만한 질문\n" + "\n".join(f"- {question}" for question in questions[:3])
 
 
 def _retrieval_job_label(job: dict[str, Any]) -> str:
@@ -410,6 +622,26 @@ def _table_cell(value: Any) -> str:
     else:
         text = "" if value is None else str(value)
     return text.replace("|", "\\|").replace("\n", "<br>")
+
+
+def _display_row(row: dict[str, Any], columns: list[str]) -> dict[str, Any]:
+    return {column: _table_cell(row.get(column, "")) for column in columns}
+
+
+def _omit_empty(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item not in (None, "", [], {})}
+
+
+def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for item in items:
+        signature = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        result.append(item)
+    return result
 
 
 def _json(value: Any) -> str:

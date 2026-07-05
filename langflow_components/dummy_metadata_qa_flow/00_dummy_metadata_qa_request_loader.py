@@ -30,7 +30,7 @@ class DummyMetadataQaRequestLoader(Component):
     display_name = "00 더미 메타데이터 QA 요청 로더"
     description = "라우터 개발 검증용 메타데이터 QA 요청을 표준 페이로드로 변환합니다."
     inputs = [
-        MessageTextInput(name="question", display_name="사용자 질문", required=True),
+        MessageTextInput(name="question", display_name="사용자 질문", required=True, tool_mode=True),
         DataInput(name="previous_state", display_name="이전 상태", required=False),
     ]
     outputs = [Output(name="payload_out", display_name="페이로드 출력", method="build_payload")]

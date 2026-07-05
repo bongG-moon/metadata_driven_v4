@@ -29,6 +29,8 @@ PRUNED_METADATA_KEYS = {
 
 SECRET_KEY_PATTERNS = ("password", "passwd", "token", "secret", "api_key", "apikey", "mongo_uri", "uri")
 CALCULATION_SECTIONS = {"analysis_recipes", "metric_terms", "pandas_function_cases", "calculation_rules", "quantity_terms"}
+LIST_ALL_TABLE_MODES = {"available_sources"}
+DEFAULT_MAX_ITEMS = 50
 
 
 def build_metadata_qa_context(
@@ -36,11 +38,11 @@ def build_metadata_qa_context(
     domain_items_value: Any = None,
     table_catalog_items_value: Any = None,
     main_flow_filters_value: Any = None,
-    max_items: Any = "12",
+    max_items: Any = str(DEFAULT_MAX_ITEMS),
 ) -> dict[str, Any]:
     payload = _payload(payload_value)
     question = str(_dict(payload.get("request")).get("question") or "").strip()
-    limit = _int(max_items, 12)
+    limit = _int(max_items, DEFAULT_MAX_ITEMS)
 
     domain_items, domain_load = _extract_items(domain_items_value, "domain_items")
     table_items, table_load = _extract_items(table_catalog_items_value, "table_catalog_items")
@@ -111,10 +113,10 @@ def _infer_answer_mode(question: str) -> str:
         return "dataset_sql"
     if _looks_like_data_value_question(lowered):
         return "data_analysis_redirect"
+    if _looks_like_available_sources_question(lowered):
+        return "available_sources"
     if any(token in lowered for token in ("필수 파라미터", "필수조건", "필수 조건", "required param", "required_param")):
         return "required_params"
-    if any(token in lowered for token in ("조회 가능", "조회가능", "연결방식", "데이터들이", "데이터셋", "data catalog")):
-        return "available_sources"
     if any(token in lowered for token in ("어떤 데이터", "무슨 데이터", "어느 데이터", "어떤 테이블", "무슨 테이블", "어떤 source", "무슨 source", "어떤 소스")):
         return "question_to_dataset"
     if any(token in lowered for token in ("공정 그룹", "세부 공정", "포함", "차수", "공정에는")) and "공정" in lowered:
@@ -145,6 +147,12 @@ def _looks_like_data_value_question(lowered: str) -> bool:
     return has_metric and asks_value and has_time_or_target
 
 
+def _looks_like_available_sources_question(lowered: str) -> bool:
+    catalog_tokens = ("조회 가능", "조회가능", "데이터셋", "데이터들", "데이터 목록", "data catalog", "연결 방식", "연결방식")
+    list_tokens = ("목록", "전체", "각 데이터", "각 source", "각 소스", "뭐가", "무엇", "list", "표", "정리", "보여")
+    return any(token in lowered for token in catalog_tokens) and any(token in lowered for token in list_tokens)
+
+
 def _select_domain_items(question: str, answer_mode: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     if answer_mode == "calculation_logic_list":
         selected = [item for item in items if str(item.get("section") or "") in CALCULATION_SECTIONS]
@@ -164,8 +172,8 @@ def _select_domain_items(question: str, answer_mode: str, items: list[dict[str, 
 
 
 def _select_table_items(question: str, answer_mode: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
-    if answer_mode == "available_sources":
-        return items[:limit]
+    if answer_mode in LIST_ALL_TABLE_MODES:
+        return items[: _list_limit(limit, items)]
     if answer_mode in {"dataset_sql", "dataset_detail", "required_params", "question_to_dataset"}:
         selected = _ranked(question, items, limit)
         return selected if selected else items[: min(limit, 5)]
@@ -177,12 +185,18 @@ def _select_table_items(question: str, answer_mode: str, items: list[dict[str, A
 
 def _select_filter_items(question: str, answer_mode: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     if answer_mode == "available_sources":
-        return items[:limit]
+        return []
     if answer_mode in {"required_params", "term_definition", "question_to_dataset"}:
         return _ranked(question, items, min(limit, 6))
     if answer_mode == "data_analysis_redirect":
         return []
     return _ranked(question, items, min(limit, 6))
+
+
+def _list_limit(limit: int, items: list[dict[str, Any]]) -> int:
+    if not items:
+        return 0
+    return min(len(items), max(limit, DEFAULT_MAX_ITEMS))
 
 
 def _ranked(question: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
@@ -437,7 +451,7 @@ class MetadataQaContextBuilder(Component):
         DataInput(name="domain_items", display_name="도메인 메타데이터", required=False),
         DataInput(name="table_catalog_items", display_name="테이블 카탈로그", required=False),
         DataInput(name="main_flow_filters", display_name="메인 필터", required=False),
-        MessageTextInput(name="max_items", display_name="최대 후보 수", value="12", required=False, advanced=True),
+        MessageTextInput(name="max_items", display_name="최대 후보 수", value=str(DEFAULT_MAX_ITEMS), required=False, advanced=True),
     ]
     outputs = [Output(name="payload_out", display_name="페이로드 출력", method="build_payload", types=["Data"])]
 

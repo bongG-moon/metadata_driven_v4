@@ -257,10 +257,10 @@ def test_router_authoring_envelope_normalizes_as_authoring(monkeypatch) -> None:
             "api_response": {
                 "response_type": "routed_flow_execution",
                 "status": "ok",
-                "route": "domain_authoring",
-                "selected_flow": "domain_authoring_flow",
+                "route": "domain_saving",
+                "selected_flow": "domain_saving_flow",
                 "execution_mode": "native_run_flow",
-                "route_decision": {"route": "domain_authoring", "confidence": "high"},
+                "route_decision": {"route": "domain_saving", "confidence": "high"},
                 "raw_response": {
                     "api_response": {
                         "response_type": "metadata_authoring",
@@ -282,8 +282,8 @@ def test_router_authoring_envelope_normalizes_as_authoring(monkeypatch) -> None:
 
     assert result["response_type"] == "metadata_authoring"
     assert result["metadata_type"] == "domain"
-    assert result["selected_flow"] == "domain_authoring_flow"
-    assert result["route_decision"]["route"] == "domain_authoring"
+    assert result["selected_flow"] == "domain_saving_flow"
+    assert result["route_decision"]["route"] == "domain_saving"
     assert result["items"] == [{"section": "process_groups", "key": "DA"}]
 
 
@@ -295,10 +295,10 @@ def test_router_dummy_authoring_envelope_normalizes_as_authoring(monkeypatch) ->
             "api_response": {
                 "response_type": "routed_flow_execution",
                 "status": "ok",
-                "route": "dummy_domain_authoring",
-                "selected_flow": "dummy_domain_authoring_flow",
+                "route": "dummy_domain_saving",
+                "selected_flow": "dummy_domain_saving_flow",
                 "execution_mode": "native_run_flow",
-                "route_decision": {"route": "dummy_domain_authoring", "confidence": "high"},
+                "route_decision": {"route": "dummy_domain_saving", "confidence": "high"},
                 "selected_flow_response": {
                     "response_type": "metadata_authoring",
                     "metadata_type": "domain",
@@ -319,8 +319,8 @@ def test_router_dummy_authoring_envelope_normalizes_as_authoring(monkeypatch) ->
 
     assert result["response_type"] == "metadata_authoring"
     assert result["metadata_type"] == "domain"
-    assert result["selected_flow"] == "dummy_domain_authoring_flow"
-    assert result["route_decision"]["route"] == "dummy_domain_authoring"
+    assert result["selected_flow"] == "dummy_domain_saving_flow"
+    assert result["route_decision"]["route"] == "dummy_domain_saving"
     assert result["write_result"]["saved_count"] == 0
 
 

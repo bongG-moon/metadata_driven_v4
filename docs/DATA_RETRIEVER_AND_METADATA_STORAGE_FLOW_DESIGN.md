@@ -13,7 +13,7 @@ Target workspace: `C:\Users\qkekt\Desktop\meta_driven_v4`
 ## 0. Non-Negotiable Rules
 
 - `domain_knowledge.txt`, `data_catalog.txt`, `main_variable.txt` 원문을 임의로 hand-edit JSON으로 바꿔 MongoDB에 직접 저장하지 않는다.
-- txt 입력은 authoring flow의 `raw_text` 입력이다. 구조화는 `refine -> authoring JSON -> normalizer -> duplicate/similarity -> review -> writer`를 통과해야 한다.
+- txt 입력은 saving flow의 `raw_text` 입력이다. 구조화는 `refine -> saving JSON -> normalizer -> duplicate/similarity -> review -> writer`를 통과해야 한다.
 - 등록 당시 원문 보존이 필요하면 MongoDB 문서에 `registration_trace.raw_text` 또는 별도 audit record로 남긴다. 단 main runtime loader가 읽는 핵심 metadata shape는 lean하게 유지한다.
 - `data retriever flow`는 사용자 질문을 다시 해석하지 않는다. 입력은 `intent_plan.retrieval_jobs`와 selected table catalog 계약이다.
 - source credential, token, password, MongoDB URI는 metadata에 저장하지 않는다. env/backend secret store에서만 읽는다.
@@ -340,9 +340,9 @@ Metadata 저장 flow는 세 종류다.
 
 | Flow | Input file/source | Mongo key | Stores |
 | --- | --- | --- | --- |
-| `domain_authoring_flow` | `domain_knowledge.txt` blocks | `section + key` | process groups, product terms, quantity/metric/status terms, recipes, function-case drafts |
-| `table_catalog_authoring_flow` | `data_catalog.txt` blocks | `dataset_key` | dataset family, source type/config, query/API contract, filter/column mapping |
-| `main_flow_filters_authoring_flow` | `main_variable.txt` blocks | `filter_key` | DATE, OPER_NAME, product/equipment/lot standard filter concepts |
+| `domain_saving_flow` | `domain_knowledge.txt` blocks | `section + key` | process groups, product terms, quantity/metric/status terms, recipes, function-case drafts |
+| `table_catalog_saving_flow` | `data_catalog.txt` blocks | `dataset_key` | dataset family, source type/config, query/API contract, filter/column mapping |
+| `main_flow_filters_saving_flow` | `main_variable.txt` blocks | `filter_key` | DATE, OPER_NAME, product/equipment/lot standard filter concepts |
 
 운영 UI는 세 flow를 그대로 노출하지 않는다. 사용자는 하나의 metadata 등록 화면에 자연어를 넣고, backend/router가 target flow를 선택한다.
 
@@ -362,24 +362,24 @@ MONGODB_RESULT_COLLECTION=agent_v4_result_store
 
 실제 구현 기본값도 위 이름을 따른다. writer/loader는 prefix 조합이 아니라 full collection name을 입력받고, 입력이 비어 있으면 같은 환경변수를 사용한다.
 
-### 2.3 Common Authoring Flow
+### 2.3 Common Saving Flow
 
 권장 flow:
 
 ```text
-00 Authoring Request Loader
+00 Saving Request Loader
 -> 01 Existing Metadata Loader
 -> 02 Text Refinement Variables Builder
 -> Text Refinement LLM
 -> 03 Text Refinement Normalizer
--> 04 Authoring Variables Builder
+-> 04 Saving Variables Builder
 -> Authoring JSON LLM
--> 05 Authoring Result Normalizer
+-> 05 Saving Result Normalizer
 -> 06 Duplicate/Similarity Checker
 -> 07 Review Variables Builder
 -> Review LLM
 -> 08 Review Writer
--> 09 Authoring Response Builder
+-> 09 Saving Response Builder
 ```
 
 ### 2.4 Common Payload
@@ -428,18 +428,18 @@ Payload rules:
 
 | Node | Responsibility | Key Rejects |
 | --- | --- | --- |
-| `00 Authoring Request Loader` | raw text, metadata type, duplicate action, dry-run flag 정리 | raw text empty, unknown metadata type |
+| `00 Saving Request Loader` | raw text, metadata type, duplicate action, dry-run flag 정리 | raw text empty, unknown metadata type |
 | `01 Existing Metadata Loader` | existing item summary load for duplicate check | full collection prompt dump |
 | `02 Text Refinement Variables Builder` | refinement prompt variables 구성 | schema 강제 과다 주입 |
 | `03 Text Refinement Normalizer` | refined text, missing info, assumptions 추출 | LLM prose only without parseable structure |
-| `04 Authoring Variables Builder` | authoring context 구성 | unrelated metadata 전체 포함 |
-| `05 Authoring Result Normalizer` | candidate item list 정규화 | invented physical columns/query, unsupported section/source type |
+| `04 Saving Variables Builder` | authoring context 구성 | unrelated metadata 전체 포함 |
+| `05 Saving Result Normalizer` | candidate item list 정규화 | invented physical columns/query, unsupported section/source type |
 | `06 Duplicate/Similarity Checker` | same key/alias/condition/source collision 탐지 | conflict 무시하고 writer 직행 |
 | `07 Review Variables Builder` | review input JSON 구성 | full prompt/secret 포함 |
 | `08 Review Writer` | review normalize, duplicate decision 적용, MongoDB upsert | review fail, duplicate ask, secret, missing required |
-| `09 Authoring Response Builder` | Korean result message/API response 생성 | 저장하지 않았는데 저장 성공 메시지 |
+| `09 Saving Response Builder` | Korean result message/API response 생성 | 저장하지 않았는데 저장 성공 메시지 |
 
-### 2.6 Domain Authoring Flow
+### 2.6 Domain Saving Flow
 
 Allowed sections:
 
@@ -480,7 +480,7 @@ Domain examples from current raw input:
 - "예시는 규칙 설명을 위한 예시"라고 적힌 블록은 예시 공정을 별도 process group item으로 저장하지 않는다.
 - BOH rule처럼 요청 기준일과 실제 조회 DATE가 다른 규칙은 `analysis_recipes` 또는 date-scope rule로 보존한다.
 
-### 2.7 Table Catalog Authoring Flow
+### 2.7 Table Catalog Saving Flow
 
 Table catalog writer required fields:
 
@@ -527,7 +527,7 @@ Naming decision needed:
 - docs validation uses `equipment_status`, while current `data_catalog.txt` says `equipment_assign`.
 - Do not silently rename. Authoring review should surface this as either alias/display name decision or dataset_key replacement decision.
 
-### 2.8 Main Flow Filters Authoring Flow
+### 2.8 Main Flow Filters Saving Flow
 
 Main filter writer required fields:
 
@@ -599,13 +599,13 @@ Warnings that may not block:
 
 ### 2.10 Batch Onboarding From Current TXT Files
 
-Batch onboarding should still use the authoring flow; it should not be a direct JSON conversion script.
+Batch onboarding should still use the saving flow; it should not be a direct JSON conversion script.
 
 Recommended stages:
 
 1. Split raw txt into candidate blocks using explicit headings, marker comments, and blank-line groups.
-2. Send each block to the matching authoring flow with `dry_run=true`.
-3. Save dry-run review reports locally under `validation_runs/metadata_authoring_dry_run/<timestamp>/`.
+2. Send each block to the matching saving flow with `dry_run=true`.
+3. Save dry-run review reports locally under `validation_runs/metadata_saving_dry_run/<timestamp>/`.
 4. Group results into `ready`, `needs_more_input`, `duplicate_decision`, `blocked`.
 5. Present review summary to the user.
 6. Only after approval, run writer against the v4 MongoDB collections.
@@ -661,7 +661,7 @@ Important boundaries:
 - Data analysis Langflow의 `01A~01C MongoDB Metadata Loader`는 domain/table catalog/main variable을 각각 `status=active` 문서만 제한 수량으로 읽고, `01D Metadata Candidates Builder`가 의도분석 LLM 호출 전에 후보 JSON으로 결합한다.
 - Retriever may re-read selected table catalog documents by `dataset_key` if needed, but it must not carry full metadata downstream.
 - `05 MongoDB Previous Result Loader`로 복원한 이전 결과 rows는 새 retrieval 결과가 없으면 pandas 단계까지 유지한다.
-- Authoring flow may create draft metadata, but main runtime should load only `status=active` unless a validation mode explicitly includes draft/reviewed items.
+- Saving flow may create draft metadata, but main runtime should load only `status=active` unless a validation mode explicitly includes draft/reviewed items.
 
 ## 4. Implementation Order
 
@@ -686,7 +686,7 @@ Gate:
 
 Deliverables:
 
-- three authoring flow skeletons
+- three saving flow skeletons
 - common writer utilities copied/adapted only where standalone-safe
 - dry-run batch onboarding command for the three txt files
 - review report output
@@ -748,7 +748,7 @@ Recommended sub-agent roles for implementation:
 
 | Role | Ownership | Output |
 | --- | --- | --- |
-| Metadata Storage Worker | `domain_authoring_flow`, `table_catalog_authoring_flow`, `main_flow_filters_authoring_flow`, writer tests | dry-run authoring flow and txt onboarding report |
+| Metadata Storage Worker | `domain_saving_flow`, `table_catalog_saving_flow`, `main_flow_filters_saving_flow`, writer tests | dry-run saving flow and txt onboarding report |
 | Data Retriever Worker | retriever validator/router/adapters/merger/payload adapter | dummy-first retriever flow and adapter tests |
 | Validation Worker | regression matrix, payload bloat tests, Mongo dry-run tests | local gate scripts and expected contracts |
 | Integration Reviewer | boundary review across authoring, metadata loader, retriever, pandas prompt | findings before live Mongo/LLM run |
@@ -760,7 +760,7 @@ Workers must use disjoint write scopes and must not revert changes from other wo
 1. Confirm v4 MongoDB database and collection names.
 2. Add `.env.example` for v4 names and live source flags.
 3. Scaffold shared schema contracts.
-4. Implement metadata authoring dry-run path.
+4. Implement metadata saving dry-run path.
 5. Run dry-run onboarding for `domain_knowledge.txt`, `data_catalog.txt`, `main_variable.txt`.
 6. Review blocked/warning items, especially dataset naming and suspicious mappings.
 7. Implement data retriever dummy path.

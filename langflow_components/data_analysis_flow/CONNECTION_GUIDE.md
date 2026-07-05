@@ -33,7 +33,7 @@
 - Function Case 선택 정보: `15 pandas 변수 생성기.function_case_selection_json`을 `16 pandas Prompt Template.function_case_selection_json`에 연결한다.
 - 특화 함수 코드: 사용자가 pandas 실행 노드에 직접 입력하지 않는다. 실제 함수 정의 코드는 `function_case_helper_code_input_example.py` 내용을 `16 pandas Prompt Template.function_case_helper_code`에 붙여넣어 전달한다.
 - `16 pandas Prompt Template.function_case_helper_code` 수동 테스트용 복사 파일: `function_case_helper_code_input_example.py`
-- Domain Authoring Flow용 function case 등록 지시: repo root의 `domain_knowledge.txt` 맨 아래 `pandas function case 등록 규칙` 블록
+- Domain Saving Flow용 function case 등록 지시: repo root의 `domain_knowledge.txt` 맨 아래 `pandas function case 등록 규칙` 블록
 - `domain_knowledge.txt`의 등록 지시는 MongoDB에 저장할 helper 선택 metadata만 다룬다. 실제 helper 코드는 `function_case_helper_code_input_example.py`에 있고, 16번 prompt가 생성 pandas 코드에 포함해야 한다.
 - 현재 지원 helper는 `match_product_tokens(input_text, frame, token_columns=None, output_order=None)`와 형식 확인용 `sample_passthrough_helper(input_text, frame, note=None)`이다.
 

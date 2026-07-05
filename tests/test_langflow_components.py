@@ -168,6 +168,16 @@ def load_module(path: Path):
     return module
 
 
+def _component_outputs(module):
+    component_classes = [
+        value
+        for value in vars(module).values()
+        if isinstance(value, type) and value.__module__ == module.__name__ and hasattr(value, "outputs")
+    ]
+    assert len(component_classes) == 1
+    return component_classes[0].outputs
+
+
 def test_langflow_components_do_not_import_project_helpers():
     forbidden = {"reference_runtime", "langflow_components", "utils", "helpers"}
     assert COMPONENT_FILES
@@ -1968,11 +1978,11 @@ def test_intent_normalizer_dedupes_single_and_multiple_function_cases():
     assert [step["operation"] for step in normalized["intent_plan"]["pandas_execution_plan"][:1]] == ["apply_pandas_function_case"]
 
 
-def test_specialized_function_examples_match_runtime_and_domain_authoring_contracts():
+def test_specialized_function_examples_match_runtime_and_domain_saving_contracts():
     removed_domain_md = (
         ROOT
         / "langflow_components"
-        / "domain_authoring_flow"
+        / "domain_saving_flow"
         / "pandas_function_cases_raw_text_input_example.md"
     )
     removed_context_json = (
@@ -2458,15 +2468,15 @@ def test_langflow_prompt_templates_are_external_files_for_agent_nodes():
         ROOT / "langflow_components" / "data_analysis_flow" / "03_intent_prompt_template_ko.md",
         ROOT / "langflow_components" / "data_analysis_flow" / "16_pandas_prompt_template_ko.md",
         ROOT / "langflow_components" / "data_analysis_flow" / "19_answer_prompt_template_ko.md",
-        ROOT / "langflow_components" / "domain_authoring_flow" / "01_text_refinement_prompt_template_ko.md",
-        ROOT / "langflow_components" / "domain_authoring_flow" / "03_authoring_prompt_template_ko.md",
-        ROOT / "langflow_components" / "domain_authoring_flow" / "06_review_prompt_template_ko.md",
-        ROOT / "langflow_components" / "table_catalog_authoring_flow" / "01_text_refinement_prompt_template_ko.md",
-        ROOT / "langflow_components" / "table_catalog_authoring_flow" / "03_authoring_prompt_template_ko.md",
-        ROOT / "langflow_components" / "table_catalog_authoring_flow" / "06_review_prompt_template_ko.md",
-        ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "01_text_refinement_prompt_template_ko.md",
-        ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "03_authoring_prompt_template_ko.md",
-        ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "06_review_prompt_template_ko.md",
+        ROOT / "langflow_components" / "domain_saving_flow" / "01_text_refinement_prompt_template_ko.md",
+        ROOT / "langflow_components" / "domain_saving_flow" / "03_saving_prompt_template_ko.md",
+        ROOT / "langflow_components" / "domain_saving_flow" / "06_review_prompt_template_ko.md",
+        ROOT / "langflow_components" / "table_catalog_saving_flow" / "01_text_refinement_prompt_template_ko.md",
+        ROOT / "langflow_components" / "table_catalog_saving_flow" / "03_saving_prompt_template_ko.md",
+        ROOT / "langflow_components" / "table_catalog_saving_flow" / "06_review_prompt_template_ko.md",
+        ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "01_text_refinement_prompt_template_ko.md",
+        ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "03_saving_prompt_template_ko.md",
+        ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "06_review_prompt_template_ko.md",
     ]
     for path in prompt_files:
         text = path.read_text(encoding="utf-8")
@@ -2474,22 +2484,24 @@ def test_langflow_prompt_templates_are_external_files_for_agent_nodes():
 
     for guide_name in [
         "data_analysis_flow",
-        "domain_authoring_flow",
-        "table_catalog_authoring_flow",
-        "main_flow_filters_authoring_flow",
+        "domain_saving_flow",
+        "table_catalog_saving_flow",
+        "main_flow_filters_saving_flow",
     ]:
         guide = (ROOT / "langflow_components" / guide_name / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
         assert "Langflow Prompt Template" in guide
         assert "Langflow Agent/LLM" in guide
 
 
-def test_metadata_authoring_guide_uses_current_writer_ports():
-    guide = (ROOT / "docs" / "METADATA_AUTHORING_FLOW_GUIDE.md").read_text(encoding="utf-8")
+def test_metadata_saving_guide_uses_current_writer_ports():
+    guide = (ROOT / "docs" / "METADATA_SAVING_FLOW_GUIDE.md").read_text(encoding="utf-8")
 
     assert "MongoDB Writer.authoring_payload" not in guide
     assert "MongoDB Writer.review_payload" not in guide
     assert "Review Writer.review_response" in guide
-    assert "API Adapter.api_response" in guide
+    assert "Response Normalizer.payload" in guide
+    assert "Message Adapter.message" in guide
+    assert "API Response Builder.display_message" in guide
 
 
 def test_data_analysis_connection_guide_intent_numbers_are_contiguous():
@@ -2597,15 +2609,15 @@ def test_prompt_variable_builder_output_order_matches_prompt_input_order():
         ("data_analysis_flow/16_pandas_prompt_template_ko.md", "data_analysis_flow/15_pandas_variables_builder.py"),
         ("data_analysis_flow/17b_pandas_repair_prompt_template_ko.md", "data_analysis_flow/17a_pandas_repair_variables_builder.py"),
         ("data_analysis_flow/19_answer_prompt_template_ko.md", "data_analysis_flow/18_answer_variables_builder.py"),
-        ("domain_authoring_flow/01_text_refinement_prompt_template_ko.md", "domain_authoring_flow/01_domain_text_refinement_variables_builder.py"),
-        ("domain_authoring_flow/03_authoring_prompt_template_ko.md", "domain_authoring_flow/03_domain_authoring_variables_builder.py"),
-        ("domain_authoring_flow/06_review_prompt_template_ko.md", "domain_authoring_flow/06_domain_review_variables_builder.py"),
-        ("table_catalog_authoring_flow/01_text_refinement_prompt_template_ko.md", "table_catalog_authoring_flow/01_table_catalog_text_refinement_variables_builder.py"),
-        ("table_catalog_authoring_flow/03_authoring_prompt_template_ko.md", "table_catalog_authoring_flow/03_table_catalog_authoring_variables_builder.py"),
-        ("table_catalog_authoring_flow/06_review_prompt_template_ko.md", "table_catalog_authoring_flow/06_table_catalog_review_variables_builder.py"),
-        ("main_flow_filters_authoring_flow/01_text_refinement_prompt_template_ko.md", "main_flow_filters_authoring_flow/01_main_flow_filter_text_refinement_variables_builder.py"),
-        ("main_flow_filters_authoring_flow/03_authoring_prompt_template_ko.md", "main_flow_filters_authoring_flow/03_main_flow_filter_authoring_variables_builder.py"),
-        ("main_flow_filters_authoring_flow/06_review_prompt_template_ko.md", "main_flow_filters_authoring_flow/06_main_flow_filter_review_variables_builder.py"),
+        ("domain_saving_flow/01_text_refinement_prompt_template_ko.md", "domain_saving_flow/01_domain_text_refinement_variables_builder.py"),
+        ("domain_saving_flow/03_saving_prompt_template_ko.md", "domain_saving_flow/03_domain_saving_variables_builder.py"),
+        ("domain_saving_flow/06_review_prompt_template_ko.md", "domain_saving_flow/06_domain_review_variables_builder.py"),
+        ("table_catalog_saving_flow/01_text_refinement_prompt_template_ko.md", "table_catalog_saving_flow/01_table_catalog_text_refinement_variables_builder.py"),
+        ("table_catalog_saving_flow/03_saving_prompt_template_ko.md", "table_catalog_saving_flow/03_table_catalog_saving_variables_builder.py"),
+        ("table_catalog_saving_flow/06_review_prompt_template_ko.md", "table_catalog_saving_flow/06_table_catalog_review_variables_builder.py"),
+        ("main_flow_filters_saving_flow/01_text_refinement_prompt_template_ko.md", "main_flow_filters_saving_flow/01_main_flow_filter_text_refinement_variables_builder.py"),
+        ("main_flow_filters_saving_flow/03_saving_prompt_template_ko.md", "main_flow_filters_saving_flow/03_main_flow_filter_saving_variables_builder.py"),
+        ("main_flow_filters_saving_flow/06_review_prompt_template_ko.md", "main_flow_filters_saving_flow/06_main_flow_filter_review_variables_builder.py"),
     ]
     manual_prompt_variables = {
         "data_analysis_flow/03_intent_prompt_template_ko.md": {"specialized_prompt"},
@@ -2698,10 +2710,10 @@ def test_message_output_ports_declare_message_type():
             assert "Message" in type_names, f"{path.name}:{node.lineno} Message output has wrong types={type_names}"
 
 
-def test_domain_langflow_authoring_blocks_source_config_in_dry_run():
-    request_loader = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "00_domain_authoring_request_loader.py")
-    normalizer = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "04_domain_authoring_result_normalizer.py")
-    writer = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "07_domain_review_writer.py")
+def test_domain_langflow_saving_blocks_source_config_in_dry_run():
+    request_loader = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "00_domain_saving_request_loader.py")
+    normalizer = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "04_domain_saving_result_normalizer.py")
+    writer = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "07_domain_review_writer.py")
     payload = request_loader.build_request("BAD domain", "ask", "true")
     payload = normalizer.normalize_authoring(
         payload,
@@ -2723,9 +2735,9 @@ def test_domain_langflow_authoring_blocks_source_config_in_dry_run():
 
 
 def test_domain_writer_keeps_deterministic_blockers_even_when_review_is_ready():
-    request_loader = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "00_domain_authoring_request_loader.py")
-    normalizer = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "04_domain_authoring_result_normalizer.py")
-    writer = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "07_domain_review_writer.py")
+    request_loader = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "00_domain_saving_request_loader.py")
+    normalizer = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "04_domain_saving_result_normalizer.py")
+    writer = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "07_domain_review_writer.py")
     payload = request_loader.build_request("BAD domain", "ask", "true")
     payload = normalizer.normalize_authoring(
         payload,
@@ -2739,9 +2751,9 @@ def test_domain_writer_keeps_deterministic_blockers_even_when_review_is_ready():
 
 
 def test_table_catalog_langflow_writer_blocks_truncated_query():
-    request_loader = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "00_table_catalog_authoring_request_loader.py")
-    normalizer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "04_table_catalog_authoring_result_normalizer.py")
-    writer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "07_table_catalog_review_writer.py")
+    request_loader = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "00_table_catalog_saving_request_loader.py")
+    normalizer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "04_table_catalog_saving_result_normalizer.py")
+    writer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "07_table_catalog_review_writer.py")
     payload = request_loader.build_request("bad query", "ask", "true")
     payload = normalizer.normalize_authoring(
         payload,
@@ -2765,9 +2777,9 @@ def test_table_catalog_langflow_writer_blocks_truncated_query():
 
 
 def test_table_catalog_writer_allows_sql_line_comments_and_preserves_query():
-    request_loader = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "00_table_catalog_authoring_request_loader.py")
-    normalizer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "04_table_catalog_authoring_result_normalizer.py")
-    writer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "07_table_catalog_review_writer.py")
+    request_loader = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "00_table_catalog_saving_request_loader.py")
+    normalizer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "04_table_catalog_saving_result_normalizer.py")
+    writer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "07_table_catalog_review_writer.py")
     sql = "--쿼리 작성\nSELECT WORK_DATE, OPER_NAME, WIP\nFROM WIP_TABLE\nWHERE WORK_DATE = {DATE}"
     payload = request_loader.build_request("commented query", "ask", "true")
     payload = normalizer.normalize_authoring(
@@ -2792,9 +2804,9 @@ def test_table_catalog_writer_allows_sql_line_comments_and_preserves_query():
 
 
 def test_table_catalog_writer_allows_with_cte_query():
-    request_loader = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "00_table_catalog_authoring_request_loader.py")
-    normalizer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "04_table_catalog_authoring_result_normalizer.py")
-    writer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "07_table_catalog_review_writer.py")
+    request_loader = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "00_table_catalog_saving_request_loader.py")
+    normalizer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "04_table_catalog_saving_result_normalizer.py")
+    writer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "07_table_catalog_review_writer.py")
     sql = "WITH base AS (\n  SELECT WORK_DATE, OPER_NAME, WIP FROM WIP_TABLE\n)\nSELECT * FROM base WHERE WORK_DATE = {DATE}"
     payload = request_loader.build_request("with query", "ask", "true")
     payload = normalizer.normalize_authoring(
@@ -2819,12 +2831,12 @@ def test_table_catalog_writer_allows_with_cte_query():
 
 
 def test_table_and_filter_writers_respect_negative_review_response():
-    table_request_loader = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "00_table_catalog_authoring_request_loader.py")
-    table_normalizer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "04_table_catalog_authoring_result_normalizer.py")
-    table_writer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "07_table_catalog_review_writer.py")
-    filter_request_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "00_main_flow_filter_authoring_request_loader.py")
-    filter_normalizer = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "04_main_flow_filter_authoring_result_normalizer.py")
-    filter_writer = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "07_main_flow_filter_review_writer.py")
+    table_request_loader = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "00_table_catalog_saving_request_loader.py")
+    table_normalizer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "04_table_catalog_saving_result_normalizer.py")
+    table_writer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "07_table_catalog_review_writer.py")
+    filter_request_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "00_main_flow_filter_saving_request_loader.py")
+    filter_normalizer = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "04_main_flow_filter_saving_result_normalizer.py")
+    filter_writer = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "07_main_flow_filter_review_writer.py")
     table_payload = table_request_loader.build_request("wip_today", "ask", "true")
     table_payload = table_normalizer.normalize_authoring(
         table_payload,
@@ -2859,15 +2871,15 @@ def test_table_and_filter_writers_respect_negative_review_response():
 def test_authoring_writers_use_v4_mongo_env_defaults(monkeypatch):
     store = install_fake_pymongo(monkeypatch)
     set_v4_mongo_env(monkeypatch)
-    domain_request_loader = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "00_domain_authoring_request_loader.py")
-    domain_normalizer = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "04_domain_authoring_result_normalizer.py")
-    domain_writer = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "07_domain_review_writer.py")
-    table_request_loader = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "00_table_catalog_authoring_request_loader.py")
-    table_normalizer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "04_table_catalog_authoring_result_normalizer.py")
-    table_writer = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "07_table_catalog_review_writer.py")
-    filter_request_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "00_main_flow_filter_authoring_request_loader.py")
-    filter_normalizer = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "04_main_flow_filter_authoring_result_normalizer.py")
-    filter_writer = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "07_main_flow_filter_review_writer.py")
+    domain_request_loader = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "00_domain_saving_request_loader.py")
+    domain_normalizer = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "04_domain_saving_result_normalizer.py")
+    domain_writer = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "07_domain_review_writer.py")
+    table_request_loader = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "00_table_catalog_saving_request_loader.py")
+    table_normalizer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "04_table_catalog_saving_result_normalizer.py")
+    table_writer = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "07_table_catalog_review_writer.py")
+    filter_request_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "00_main_flow_filter_saving_request_loader.py")
+    filter_normalizer = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "04_main_flow_filter_saving_result_normalizer.py")
+    filter_writer = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "07_main_flow_filter_review_writer.py")
 
     domain_payload = domain_request_loader.build_request("DA는 D/A1 공정입니다.", "ask", "false")
     domain_payload = domain_normalizer.normalize_authoring(domain_payload, {"items": [{"section": "process_groups", "key": "DA", "payload": {"processes": ["D/A1"]}}]})
@@ -2912,9 +2924,9 @@ def test_authoring_existing_item_loaders_use_v4_mongo_env_defaults(monkeypatch):
         "agent_v4_table_catalog_items": {"table_catalog:wip_today": {"_id": "table_catalog:wip_today", "dataset_key": "wip_today", "payload": {}}},
         "agent_v4_main_flow_filters": {"main_flow_filter:DATE": {"_id": "main_flow_filter:DATE", "filter_key": "DATE", "payload": {}}},
     }
-    domain_loader = load_module(ROOT / "langflow_components" / "domain_authoring_flow" / "00_domain_existing_items_loader.py")
-    table_loader = load_module(ROOT / "langflow_components" / "table_catalog_authoring_flow" / "00_table_catalog_existing_items_loader.py")
-    filter_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "00_main_flow_filter_existing_items_loader.py")
+    domain_loader = load_module(ROOT / "langflow_components" / "domain_saving_flow" / "00_domain_existing_items_loader.py")
+    table_loader = load_module(ROOT / "langflow_components" / "table_catalog_saving_flow" / "00_table_catalog_existing_items_loader.py")
+    filter_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "00_main_flow_filter_existing_items_loader.py")
 
     domain_result = domain_loader.load_existing_items()
     table_result = table_loader.load_existing_items()
@@ -2991,9 +3003,9 @@ def test_langflow_writer_non_dry_run_requires_explicit_mongo_config(monkeypatch)
         "MONGODB_RESULT_COLLECTION",
     ):
         monkeypatch.delenv(env_name, raising=False)
-    request_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "00_main_flow_filter_authoring_request_loader.py")
-    normalizer = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "04_main_flow_filter_authoring_result_normalizer.py")
-    writer = load_module(ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "07_main_flow_filter_review_writer.py")
+    request_loader = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "00_main_flow_filter_saving_request_loader.py")
+    normalizer = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "04_main_flow_filter_saving_result_normalizer.py")
+    writer = load_module(ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "07_main_flow_filter_review_writer.py")
     payload = request_loader.build_request("DATE는 기준일 필터야.", "ask", "false")
     payload = normalizer.normalize_authoring(
         payload,
@@ -3019,37 +3031,127 @@ def test_langflow_writer_non_dry_run_requires_explicit_mongo_config(monkeypatch)
     assert result["write_result"]["errors"][0]["type"] == "missing_mongo_config"
 
 
-def test_metadata_authoring_api_adapters_emit_structured_api_message():
-    adapter_specs = [
-        (
-            ROOT / "langflow_components" / "domain_authoring_flow" / "09_domain_authoring_api_adapter.py",
-            "domain",
-        ),
-        (
-            ROOT / "langflow_components" / "table_catalog_authoring_flow" / "09_table_catalog_authoring_api_adapter.py",
-            "table_catalog",
-        ),
-        (
-            ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "09_main_flow_filter_authoring_api_adapter.py",
-            "main_flow_filter",
-        ),
+def test_metadata_saving_response_message_and_api_nodes_are_separated():
+    specs = [
+        {
+            "metadata_type": "domain",
+            "response_path": ROOT
+            / "langflow_components"
+            / "domain_saving_flow"
+            / "08_domain_saving_response_builder.py",
+            "message_path": ROOT
+            / "langflow_components"
+            / "domain_saving_flow"
+            / "09_domain_saving_message_adapter.py",
+            "api_path": ROOT
+            / "langflow_components"
+            / "domain_saving_flow"
+            / "10_domain_saving_api_response_builder.py",
+            "items": [
+                {
+                    "section": "process_groups",
+                    "key": "DA",
+                    "payload": {"display_name": "D/A"},
+                }
+            ],
+        },
+        {
+            "metadata_type": "table_catalog",
+            "response_path": ROOT
+            / "langflow_components"
+            / "table_catalog_saving_flow"
+            / "08_table_catalog_saving_response_builder.py",
+            "message_path": ROOT
+            / "langflow_components"
+            / "table_catalog_saving_flow"
+            / "09_table_catalog_saving_message_adapter.py",
+            "api_path": ROOT
+            / "langflow_components"
+            / "table_catalog_saving_flow"
+            / "10_table_catalog_saving_api_response_builder.py",
+            "items": [
+                {
+                    "dataset_key": "production_today",
+                    "payload": {
+                        "display_name": "Production Today",
+                        "dataset_family": "production",
+                        "source_type": "oracle",
+                        "required_params": ["DATE"],
+                    },
+                }
+            ],
+        },
+        {
+            "metadata_type": "main_flow_filter",
+            "response_path": ROOT
+            / "langflow_components"
+            / "main_flow_filters_saving_flow"
+            / "08_main_flow_filter_saving_response_builder.py",
+            "message_path": ROOT
+            / "langflow_components"
+            / "main_flow_filters_saving_flow"
+            / "09_main_flow_filter_saving_message_adapter.py",
+            "api_path": ROOT
+            / "langflow_components"
+            / "main_flow_filters_saving_flow"
+            / "10_main_flow_filter_saving_api_response_builder.py",
+            "items": [
+                {
+                    "filter_key": "DATE",
+                    "payload": {
+                        "display_name": "기준일",
+                        "operator": "eq",
+                        "value_type": "date",
+                        "value_shape": "scalar",
+                    },
+                }
+            ],
+        },
     ]
-    for path, metadata_type in adapter_specs:
-        module = load_module(path)
-        wrapped = module.build_api_payload({"message": "저장했습니다.", "success": True})
 
-        assert wrapped["api_response"]["response_type"] == "metadata_authoring"
-        assert wrapped["api_response"]["metadata_type"] == metadata_type
-        assert wrapped["api_response"]["message"] == "저장했습니다."
+    for spec in specs:
+        response_module = load_module(spec["response_path"])
+        message_module = load_module(spec["message_path"])
+        api_module = load_module(spec["api_path"])
 
-        component_classes = [
-            value
-            for value in vars(module).values()
-            if isinstance(value, type) and value.__module__ == module.__name__ and hasattr(value, "outputs")
-        ]
-        assert len(component_classes) == 1
-        output_names = [item.kwargs.get("name") for item in component_classes[0].outputs]
-        assert output_names == ["api_payload", "api_message"]
+        payload = response_module.build_response(
+            {
+                "metadata_type": spec["metadata_type"],
+                "items": spec["items"],
+                "write_result": {
+                    "success": True,
+                    "ready_to_save": True,
+                    "dry_run": True,
+                    "saved_count": 0,
+                    "would_save_count": len(spec["items"]),
+                    "message": "드라이런입니다. MongoDB에는 저장하지 않았습니다.",
+                },
+                "review": {"ready_to_save": True, "errors": [], "supplement_requests": []},
+                "trace": {"raw_text_preview": "테스트 원문"},
+            }
+        )
+        message = message_module.build_message(payload)
+        api_response = api_module.build_api_response(payload, message)
+
+        assert payload["response_type"] == "metadata_authoring"
+        assert payload["metadata_type"] == spec["metadata_type"]
+        assert payload["answer_sections"]["target_table"]["row_count"] == len(spec["items"])
+        assert "### 등록 결과" in message
+        assert "### 한눈에 보기" in message
+        assert "### 등록 대상" in message
+        assert "### 다음 단계" in message
+        assert api_response["response_type"] == "metadata_authoring"
+        assert api_response["metadata_type"] == spec["metadata_type"]
+        assert api_response["message"] == message
+        assert api_response["display_message"] == message
+        assert api_response["answer_sections"]["target_table"]["row_count"] == len(spec["items"])
+
+        response_outputs = [item.kwargs.get("name") for item in _component_outputs(response_module)]
+        message_outputs = [item.kwargs.get("name") for item in _component_outputs(message_module)]
+        api_outputs = [item.kwargs.get("name") for item in _component_outputs(api_module)]
+        assert response_outputs == ["payload_out"]
+        assert message_outputs == ["message"]
+        assert api_outputs == ["api_response", "api_message"]
 
 
 def test_dummy_data_analysis_flow_emits_data_analysis_contract():
@@ -3240,6 +3342,95 @@ def test_metadata_qa_sections_support_process_group_and_data_redirect():
     assert "### 권장 실행 경로" in redirect_message
 
 
+def test_metadata_qa_available_sources_keeps_complete_context_table():
+    normalizer = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "04_metadata_qa_response_normalizer.py")
+    message_adapter = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "05_metadata_qa_message_adapter.py")
+    rows = [
+        {
+            "metadata_type": "table_catalog",
+            "key": f"dataset_{index}",
+            "display_name": f"Dataset {index}",
+            "source_type": "oracle",
+            "required_params": "DATE",
+        }
+        for index in range(1, 8)
+    ]
+    payload = {
+        "request": {"question": "지금 조회 가능한 데이터셋 목록과 필수 조건을 표로 보여줘"},
+        "metadata_qa_context": {
+            "answer_mode": "available_sources",
+            "candidate_rows": rows,
+            "source_refs": [{"metadata_type": "table_catalog", "key": row["key"]} for row in rows],
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    llm_response = json.dumps(
+        {
+            "answer_type": "available_sources",
+            "answer_message": "현재 조회 가능한 데이터셋 목록입니다.",
+            "source_refs": [{"metadata_type": "table_catalog", "key": row["key"]} for row in rows[:5]],
+            "answer_sections": {
+                "summary": {"headline": "현재 조회 가능한 데이터셋 목록입니다."},
+                "detail_table": {
+                    "title": "조회 가능한 데이터셋 목록",
+                    "columns": ["key", "display_name", "source_type", "required_params"],
+                    "rows": rows[:5],
+                    "row_count": 5,
+                },
+                "related_items": [{"metadata_type": "table_catalog", "key": row["key"]} for row in rows[:5]],
+            },
+        },
+        ensure_ascii=False,
+    )
+
+    answer = normalizer.normalize_metadata_qa_response(payload, llm_response)
+
+    assert "7" in answer["answer_message"]
+    assert answer["answer_sections"]["detail_table"]["row_count"] == 7
+    assert len(answer["answer_sections"]["detail_table"]["rows"]) == 7
+    assert answer["answer_sections"]["detail_table"]["columns"] == ["데이터셋", "데이터셋 키", "분류", "연결 방식", "DB/소스", "필수 조건"]
+    assert "metadata_type" not in answer["answer_sections"]["detail_table"]["columns"]
+    assert answer["answer_sections"]["key_points"]
+    assert answer["answer_sections"]["related_items"] == []
+    assert answer["answer_sections"]["show_related_items"] is False
+    assert len(answer["metadata_qa"]["source_refs"]) == 7
+    assert answer["data"]["row_count"] == 7
+    assert answer["trace"]["inspection"]["metadata_qa_response"]["used_context_table"] is True
+    message = message_adapter.build_message(answer)
+    assert "### 한눈에 보기" in message
+    assert "### 다음에 물어볼 수 있는 질문" in message
+    assert "### 사용한 메타데이터" not in message
+    assert "metadata_type" not in message
+
+
+def test_metadata_qa_available_sources_question_selects_all_datasets_even_with_small_limit():
+    context_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "02_metadata_qa_context_builder.py")
+    table_items = {
+        "table_catalog_items": [
+            {
+                "dataset_key": f"dataset_{index}",
+                "payload": {
+                    "display_name": f"Dataset {index}",
+                    "source_type": "oracle",
+                    "required_params": ["DATE"],
+                },
+            }
+            for index in range(1, 10)
+        ]
+    }
+    payload = {
+        "request": {"question": "지금 조회 가능한 데이터셋 목록과 각 데이터셋의 연결 방식, 필수 조건을 표로 보여줘"},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    context_payload = context_builder.build_metadata_qa_context(payload, {}, table_items, {}, max_items="5")
+
+    assert context_payload["metadata_route"]["answer_mode"] == "available_sources"
+    assert context_payload["trace"]["inspection"]["metadata_qa_context"]["dataset_match_count"] == 9
+    assert len(context_payload["metadata_qa_context"]["candidate_rows"]) == 9
+    assert [row["key"] for row in context_payload["metadata_qa_context"]["candidate_rows"]] == [f"dataset_{index}" for index in range(1, 10)]
+
+
 def test_metadata_qa_variables_keep_static_policy_inside_prompt_template():
     variables_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "03_metadata_qa_variables_builder.py")
     prompt_text = (ROOT / "langflow_components" / "metadata_qa_flow" / "03_metadata_qa_prompt_template_ko.md").read_text(encoding="utf-8")
@@ -3253,24 +3444,24 @@ def test_metadata_qa_variables_keep_static_policy_inside_prompt_template():
     assert "응답 정책:" in prompt_text
 
 
-def test_dummy_metadata_authoring_flows_preserve_raw_text_and_do_not_save():
+def test_dummy_metadata_saving_flows_preserve_raw_text_and_do_not_save():
     specs = [
         (
-            "dummy_domain_authoring_flow",
-            "00_dummy_domain_authoring_request_loader.py",
-            "01_dummy_domain_authoring_response_builder.py",
+            "dummy_domain_saving_flow",
+            "00_dummy_domain_saving_request_loader.py",
+            "01_dummy_domain_saving_response_builder.py",
             "domain",
         ),
         (
-            "dummy_table_catalog_authoring_flow",
-            "00_dummy_table_catalog_authoring_request_loader.py",
-            "01_dummy_table_catalog_authoring_response_builder.py",
+            "dummy_table_catalog_saving_flow",
+            "00_dummy_table_catalog_saving_request_loader.py",
+            "01_dummy_table_catalog_saving_response_builder.py",
             "table_catalog",
         ),
         (
-            "dummy_main_flow_filter_authoring_flow",
-            "00_dummy_main_flow_filter_authoring_request_loader.py",
-            "01_dummy_main_flow_filter_authoring_response_builder.py",
+            "dummy_main_flow_filter_saving_flow",
+            "00_dummy_main_flow_filter_saving_request_loader.py",
+            "01_dummy_main_flow_filter_saving_response_builder.py",
             "main_flow_filter",
         ),
     ]
@@ -3307,7 +3498,7 @@ def test_router_flow_final_structure_uses_smart_router_docs_only():
     assert "Chat Output 하나만 써야 하는 경우" in connection_guide
     assert "selected_flow`는 Run Flow에 변수로 연결하는 값이 아니라" in connection_guide
     assert "`data_analysis` | `data_analysis_flow`" in connection_guide
-    assert "`dummy_main_flow_filter_authoring` | `dummy_main_flow_filter_authoring_flow`" in connection_guide
+    assert "`dummy_main_flow_filter_saving` | `dummy_main_flow_filter_saving_flow`" in connection_guide
     assert "`flow_error` |" not in connection_guide
     assert "`flow_error`는 Smart Router routes table에 넣는 route가 아니다" in connection_guide
 

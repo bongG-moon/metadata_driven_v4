@@ -41,9 +41,9 @@ class LangflowSettings:
     metadata_qa_api_url: str = ""
     report_generation_api_url: str = ""
     operations_diagnosis_api_url: str = ""
-    domain_authoring_api_url: str = ""
-    table_catalog_authoring_api_url: str = ""
-    main_flow_filter_authoring_api_url: str = ""
+    domain_saving_api_url: str = ""
+    table_catalog_saving_api_url: str = ""
+    main_flow_filter_saving_api_url: str = ""
     input_type: str = "chat"
     output_type: str = "chat"
     timeout: int = 180
@@ -74,13 +74,28 @@ class LangflowSettings:
             or _flow_run_url(base_url, _env("LANGFLOW_REPORT_GENERATION_FLOW_ID", local_env)),
             operations_diagnosis_api_url=_env("LANGFLOW_OPERATIONS_DIAGNOSIS_API_URL", local_env)
             or _flow_run_url(base_url, _env("LANGFLOW_OPERATIONS_DIAGNOSIS_FLOW_ID", local_env)),
-            domain_authoring_api_url=_env("LANGFLOW_DOMAIN_AUTHORING_API_URL", local_env)
-            or _flow_run_url(base_url, _env("LANGFLOW_DOMAIN_AUTHORING_FLOW_ID", local_env)),
-            table_catalog_authoring_api_url=_env("LANGFLOW_TABLE_CATALOG_AUTHORING_API_URL", local_env)
-            or _flow_run_url(base_url, _env("LANGFLOW_TABLE_CATALOG_AUTHORING_FLOW_ID", local_env)),
-            main_flow_filter_authoring_api_url=_env("LANGFLOW_MAIN_FILTER_AUTHORING_API_URL", local_env)
+            domain_saving_api_url=_env("LANGFLOW_DOMAIN_SAVING_API_URL", local_env)
+            or _env("LANGFLOW_DOMAIN_AUTHORING_API_URL", local_env)
+            or _flow_run_url(
+                base_url,
+                _env("LANGFLOW_DOMAIN_SAVING_FLOW_ID", local_env) or _env("LANGFLOW_DOMAIN_AUTHORING_FLOW_ID", local_env),
+            ),
+            table_catalog_saving_api_url=_env("LANGFLOW_TABLE_CATALOG_SAVING_API_URL", local_env)
+            or _env("LANGFLOW_TABLE_CATALOG_AUTHORING_API_URL", local_env)
+            or _flow_run_url(
+                base_url,
+                _env("LANGFLOW_TABLE_CATALOG_SAVING_FLOW_ID", local_env)
+                or _env("LANGFLOW_TABLE_CATALOG_AUTHORING_FLOW_ID", local_env),
+            ),
+            main_flow_filter_saving_api_url=_env("LANGFLOW_MAIN_FILTER_SAVING_API_URL", local_env)
+            or _env("LANGFLOW_MAIN_FLOW_FILTER_SAVING_API_URL", local_env)
+            or _env("LANGFLOW_MAIN_FILTER_AUTHORING_API_URL", local_env)
             or _env("LANGFLOW_MAIN_FLOW_FILTER_AUTHORING_API_URL", local_env)
-            or _flow_run_url(base_url, _env("LANGFLOW_MAIN_FILTER_AUTHORING_FLOW_ID", local_env)),
+            or _flow_run_url(
+                base_url,
+                _env("LANGFLOW_MAIN_FILTER_SAVING_FLOW_ID", local_env)
+                or _env("LANGFLOW_MAIN_FILTER_AUTHORING_FLOW_ID", local_env),
+            ),
             input_type=_env("LANGFLOW_INPUT_TYPE", local_env) or "chat",
             output_type=_env("LANGFLOW_OUTPUT_TYPE", local_env) or "chat",
             timeout=_int_env("LANGFLOW_TIMEOUT_SECONDS", 180, local_env),
@@ -102,9 +117,9 @@ class LangflowSettings:
     def authoring_url(self, metadata_type: str) -> str:
         kind = normalize_metadata_type(metadata_type)
         return {
-            "domain": self.domain_authoring_api_url,
-            "table_catalog": self.table_catalog_authoring_api_url,
-            "main_flow_filter": self.main_flow_filter_authoring_api_url,
+            "domain": self.domain_saving_api_url,
+            "table_catalog": self.table_catalog_saving_api_url,
+            "main_flow_filter": self.main_flow_filter_saving_api_url,
         }[kind]
 
     def configured_summary(self) -> dict[str, bool]:
@@ -115,9 +130,9 @@ class LangflowSettings:
             "metadata_qa": bool(self.metadata_qa_api_url),
             "report_generation": bool(self.report_generation_api_url),
             "operations_diagnosis": bool(self.operations_diagnosis_api_url),
-            "domain": bool(self.domain_authoring_api_url),
-            "table_catalog": bool(self.table_catalog_authoring_api_url),
-            "main_flow_filter": bool(self.main_flow_filter_authoring_api_url),
+            "domain": bool(self.domain_saving_api_url),
+            "table_catalog": bool(self.table_catalog_saving_api_url),
+            "main_flow_filter": bool(self.main_flow_filter_saving_api_url),
             "session_state": self.session_store == "mongodb" and bool(self.mongo_uri),
         }
 
@@ -229,7 +244,7 @@ class LangflowApiClient:
         kind = normalize_metadata_type(metadata_type)
         api_url = self.settings.authoring_url(kind)
         if not api_url:
-            raise ValueError(f"{kind} authoring API URL 또는 flow id가 설정되지 않았습니다.")
+            raise ValueError(f"{kind} saving API URL 또는 flow id가 설정되지 않았습니다.")
         raw_response = call_langflow_api(
             api_url,
             api_key=self.settings.api_key,
@@ -410,12 +425,18 @@ def normalize_route_response(api_response: Any) -> dict[str, Any]:
             "data_analysis": "data_analysis_flow",
             "dummy_data_analysis": "dummy_data_analysis_flow",
             "dummy_metadata_qa": "dummy_metadata_qa_flow",
-            "domain_authoring": "domain_authoring_flow",
-            "dummy_domain_authoring": "dummy_domain_authoring_flow",
-            "table_catalog_authoring": "table_catalog_authoring_flow",
-            "dummy_table_catalog_authoring": "dummy_table_catalog_authoring_flow",
-            "main_flow_filter_authoring": "main_flow_filters_authoring_flow",
-            "dummy_main_flow_filter_authoring": "dummy_main_flow_filter_authoring_flow",
+            "domain_saving": "domain_saving_flow",
+            "domain_authoring": "domain_saving_flow",
+            "dummy_domain_saving": "dummy_domain_saving_flow",
+            "dummy_domain_authoring": "dummy_domain_saving_flow",
+            "table_catalog_saving": "table_catalog_saving_flow",
+            "table_catalog_authoring": "table_catalog_saving_flow",
+            "dummy_table_catalog_saving": "dummy_table_catalog_saving_flow",
+            "dummy_table_catalog_authoring": "dummy_table_catalog_saving_flow",
+            "main_flow_filter_saving": "main_flow_filters_saving_flow",
+            "main_flow_filter_authoring": "main_flow_filters_saving_flow",
+            "dummy_main_flow_filter_saving": "dummy_main_flow_filter_saving_flow",
+            "dummy_main_flow_filter_authoring": "dummy_main_flow_filter_saving_flow",
             "report_generation": "report_generation_flow",
             "operations_diagnosis": "operations_diagnosis_flow",
         }.get(route, "data_analysis_flow")
@@ -596,6 +617,12 @@ def _apply_selected_flow_defaults(result: dict[str, Any], selected_flow: str) ->
 
 def _is_authoring_selected_flow(selected_flow: str) -> bool:
     return str(selected_flow or "") in {
+        "domain_saving_flow",
+        "dummy_domain_saving_flow",
+        "table_catalog_saving_flow",
+        "dummy_table_catalog_saving_flow",
+        "main_flow_filters_saving_flow",
+        "dummy_main_flow_filter_saving_flow",
         "domain_authoring_flow",
         "dummy_domain_authoring_flow",
         "table_catalog_authoring_flow",
@@ -953,12 +980,18 @@ def _route_from_selected_flow(selected_flow: str) -> str:
         "dummy_metadata_qa_flow": "dummy_metadata_qa",
         "data_analysis_flow": "data_analysis",
         "dummy_data_analysis_flow": "dummy_data_analysis",
-        "domain_authoring_flow": "domain_authoring",
-        "dummy_domain_authoring_flow": "dummy_domain_authoring",
-        "table_catalog_authoring_flow": "table_catalog_authoring",
-        "dummy_table_catalog_authoring_flow": "dummy_table_catalog_authoring",
-        "main_flow_filters_authoring_flow": "main_flow_filter_authoring",
-        "dummy_main_flow_filter_authoring_flow": "dummy_main_flow_filter_authoring",
+        "domain_saving_flow": "domain_saving",
+        "domain_authoring_flow": "domain_saving",
+        "dummy_domain_saving_flow": "dummy_domain_saving",
+        "dummy_domain_authoring_flow": "dummy_domain_saving",
+        "table_catalog_saving_flow": "table_catalog_saving",
+        "table_catalog_authoring_flow": "table_catalog_saving",
+        "dummy_table_catalog_saving_flow": "dummy_table_catalog_saving",
+        "dummy_table_catalog_authoring_flow": "dummy_table_catalog_saving",
+        "main_flow_filters_saving_flow": "main_flow_filter_saving",
+        "main_flow_filters_authoring_flow": "main_flow_filter_saving",
+        "dummy_main_flow_filter_saving_flow": "dummy_main_flow_filter_saving",
+        "dummy_main_flow_filter_authoring_flow": "dummy_main_flow_filter_saving",
         "report_generation_flow": "report_generation",
         "operations_diagnosis_flow": "operations_diagnosis",
     }.get(str(selected_flow or ""), "")

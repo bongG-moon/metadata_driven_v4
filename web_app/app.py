@@ -49,26 +49,26 @@ AUTHORING_TYPE_OPTIONS = {
     "domain": {
         "label": "Domain",
         "title": "Domain 지식 등록",
-        "description": "업무 용어, 공정 그룹, 제품 조건, metric, join rule을 Langflow domain authoring flow로 변환/검수/저장합니다.",
-        "settings_attr": "domain_authoring_api_url",
+        "description": "업무 용어, 공정 그룹, 제품 조건, metric, join rule을 Langflow domain saving flow로 변환/검수/저장합니다.",
+        "settings_attr": "domain_saving_api_url",
     },
     "table_catalog": {
         "label": "Data Catalog",
         "title": "Data Catalog 등록",
-        "description": "dataset, source, tool, 컬럼, filter mapping 정보를 Langflow table catalog authoring flow로 등록합니다.",
-        "settings_attr": "table_catalog_authoring_api_url",
+        "description": "dataset, source, tool, 컬럼, filter mapping 정보를 Langflow table catalog saving flow로 등록합니다.",
+        "settings_attr": "table_catalog_saving_api_url",
     },
     "main_flow_filter": {
         "label": "Main Flow Filter",
         "title": "Main Flow Filter 등록",
         "description": "날짜, 공정, MODE, 제품 속성처럼 여러 dataset에서 공통으로 쓰는 표준 의미 필터를 등록합니다.",
-        "settings_attr": "main_flow_filter_authoring_api_url",
+        "settings_attr": "main_flow_filter_saving_api_url",
     },
 }
 AUTHORING_EXAMPLE_PATHS = {
-    "domain": REPO_ROOT / "langflow_components" / "domain_authoring_flow" / "raw_text_input_example.md",
-    "table_catalog": REPO_ROOT / "langflow_components" / "table_catalog_authoring_flow" / "raw_text_input_example.md",
-    "main_flow_filter": REPO_ROOT / "langflow_components" / "main_flow_filters_authoring_flow" / "raw_text_input_example.md",
+    "domain": REPO_ROOT / "langflow_components" / "domain_saving_flow" / "raw_text_input_example.md",
+    "table_catalog": REPO_ROOT / "langflow_components" / "table_catalog_saving_flow" / "raw_text_input_example.md",
+    "main_flow_filter": REPO_ROOT / "langflow_components" / "main_flow_filters_saving_flow" / "raw_text_input_example.md",
 }
 AUTHORING_EXAMPLES = {
     "domain": "W/B공정은 W/B1부터 W/B6까지야. 재공 수량은 WIP 컬럼을 합산해.",
@@ -397,16 +397,16 @@ def settings_sidebar() -> dict[str, Any]:
             ]
         )
 
-    with st.sidebar.expander("Authoring Flow API 설정", expanded=False):
+    with st.sidebar.expander("Saving Flow API 설정", expanded=False):
         st.markdown(
-            '<div class="small-note">메타데이터 등록 화면은 각 Langflow authoring flow의 Run API를 호출합니다.</div>',
+            '<div class="small-note">메타데이터 등록 화면은 각 Langflow saving flow의 Run API를 호출합니다.</div>',
             unsafe_allow_html=True,
         )
         sidebar_config_rows(
             [
-                {"label": "Domain Flow", "env": "LANGFLOW_DOMAIN_AUTHORING_API_URL / LANGFLOW_DOMAIN_AUTHORING_FLOW_ID", "status": api_settings.domain_authoring_api_url},
-                {"label": "Data Catalog Flow", "env": "LANGFLOW_TABLE_CATALOG_AUTHORING_API_URL / LANGFLOW_TABLE_CATALOG_AUTHORING_FLOW_ID", "status": api_settings.table_catalog_authoring_api_url},
-                {"label": "Main Filter Flow", "env": "LANGFLOW_MAIN_FILTER_AUTHORING_API_URL / LANGFLOW_MAIN_FILTER_AUTHORING_FLOW_ID", "status": api_settings.main_flow_filter_authoring_api_url},
+                {"label": "Domain Flow", "env": "LANGFLOW_DOMAIN_SAVING_API_URL / LANGFLOW_DOMAIN_SAVING_FLOW_ID", "status": api_settings.domain_saving_api_url},
+                {"label": "Data Catalog Flow", "env": "LANGFLOW_TABLE_CATALOG_SAVING_API_URL / LANGFLOW_TABLE_CATALOG_SAVING_FLOW_ID", "status": api_settings.table_catalog_saving_api_url},
+                {"label": "Main Filter Flow", "env": "LANGFLOW_MAIN_FILTER_SAVING_API_URL / LANGFLOW_MAIN_FILTER_SAVING_FLOW_ID", "status": api_settings.main_flow_filter_saving_api_url},
             ]
         )
 
@@ -1190,7 +1190,7 @@ def authoring_input_payload(raw_text: str, review_notes: str) -> str:
 
 def render_metadata_registration(settings: dict[str, Any]) -> None:
     st.title(PAGE_METADATA)
-    st.caption("Langflow authoring flow API를 호출해 원문 입력부터 변환, 검증, MongoDB 저장 결과까지 한 화면에서 확인합니다.")
+    st.caption("Langflow saving flow API를 호출해 원문 입력부터 변환, 검증, MongoDB 저장 결과까지 한 화면에서 확인합니다.")
     labels = [meta["label"] for meta in AUTHORING_TYPE_OPTIONS.values()]
     selected_label = st.radio("등록 유형", labels, horizontal=True, label_visibility="collapsed", key="authoring_type_label")
     flow_type = authoring_type_from_label(selected_label)
@@ -1216,7 +1216,7 @@ def render_metadata_registration(settings: dict[str, Any]) -> None:
         height=96,
         placeholder="예: 기존 항목과 충돌하면 보완 요청으로 돌려줘.",
     )
-    execute_clicked = st.button("Langflow Authoring Flow 실행", type="primary", width="stretch", disabled=not api_url)
+    execute_clicked = st.button("Langflow Saving Flow 실행", type="primary", width="stretch", disabled=not api_url)
     render_inline_status("", "저장 여부와 update mode는 현재 Langflow canvas의 Writer 설정을 따릅니다.")
 
     if execute_clicked:
@@ -1435,11 +1435,11 @@ def render_authoring_result(result: dict[str, Any], key_prefix: str) -> None:
     with tabs[4]:
         render_compact_json(result.get("api_response") or result.get("raw_response") or result, max_height=520)
         st.download_button(
-            "Authoring 결과 JSON 다운로드",
+            "Saving 결과 JSON 다운로드",
             data=json_text(result.get("api_response") or result.get("raw_response") or result),
-            file_name=f"langflow_authoring_{key_prefix}.json",
+            file_name=f"langflow_saving_{key_prefix}.json",
             mime="application/json",
-            key=f"{key_prefix}_download_authoring_result",
+            key=f"{key_prefix}_download_saving_result",
             width="stretch",
         )
 
@@ -1560,7 +1560,7 @@ def metadata_registration_trace(item: dict[str, Any]) -> dict[str, str]:
     return {key: str(value) for key, value in result.items() if str(value or "").strip()}
 
 
-domain_authoring_trace = metadata_registration_trace
+domain_saving_trace = metadata_registration_trace
 
 
 def render_metadata_registration_trace(item: dict[str, Any], key_prefix: str) -> None:

@@ -42,7 +42,7 @@ PKG OUT은 제품별 생산실적 중 PKG 완료 조건을 우선 확인하고, 
 
 정상 흐름은 아래 순서다.
 
-1. `domain_knowledge.txt` 또는 domain authoring flow를 통해 `pandas_function_cases` metadata를 등록한다.
+1. `domain_knowledge.txt` 또는 domain saving flow를 통해 `pandas_function_cases` metadata를 등록한다.
 2. `01a MongoDB 도메인 메타데이터 로더`가 해당 metadata를 읽는다.
 3. `01d 메타데이터 후보 생성기`가 의도 분석 LLM에 후보로 전달한다.
 4. `03 의도 분석 Prompt Template`이 필요한 경우 `intent_plan.pandas_function_cases` 배열을 출력하게 한다.
@@ -95,7 +95,7 @@ signature: sample_passthrough_helper(input_text, frame, note=None)
 - DataFrame을 변경하지 않고 copy를 반환한다.
 - 실제 운영 분석에서는 metadata가 명시적으로 선택한 경우에만 사용한다.
 
-Domain Authoring Flow에 넣을 raw text는 repo root의 `domain_knowledge.txt` 맨 아래 `pandas function case 등록 규칙` 블록에 포함되어 있다. 이 블록은 helper 구현이 아니라 metadata 등록용 선택 규칙만 담는다.
+Domain Saving Flow에 넣을 raw text는 repo root의 `domain_knowledge.txt` 맨 아래 `pandas function case 등록 규칙` 블록에 포함되어 있다. 이 블록은 helper 구현이 아니라 metadata 등록용 선택 규칙만 담는다.
 
 ## 4. 의도 분석 LLM이 출력해야 하는 형태
 

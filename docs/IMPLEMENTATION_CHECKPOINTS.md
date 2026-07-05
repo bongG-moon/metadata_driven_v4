@@ -23,11 +23,11 @@ Instruction check:
 
 Implemented:
 
-- `reference_runtime/metadata_authoring.py`
-- `langflow_components/domain_authoring_flow/*_prompt_template_ko.md`
-- `langflow_components/table_catalog_authoring_flow/*_prompt_template_ko.md`
-- `langflow_components/main_flow_filters_authoring_flow/*_prompt_template_ko.md`
-- `tools/metadata_authoring_dry_run.py`
+- `reference_runtime/metadata_saving.py`
+- `langflow_components/domain_saving_flow/*_prompt_template_ko.md`
+- `langflow_components/table_catalog_saving_flow/*_prompt_template_ko.md`
+- `langflow_components/main_flow_filters_saving_flow/*_prompt_template_ko.md`
+- `tools/metadata_saving_dry_run.py`
 
 Instruction check:
 
@@ -42,7 +42,7 @@ Instruction check:
 Verification:
 
 - `python -m pytest tests -q` -> 12 passed
-- `python tools\metadata_authoring_dry_run.py --workspace .`
+- `python tools\metadata_saving_dry_run.py --workspace .`
   - `written_to_mongodb=false`
   - domain blocks: 51
   - table catalog blocks: 42
@@ -82,10 +82,10 @@ Verification:
 
 Implemented:
 
-- domain authoring flow numbered components: `00`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`
-- table catalog authoring flow numbered components: `00`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`
-- main flow filter authoring flow numbered components: `00`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`
-- connection guides for all three authoring flows
+- domain saving flow numbered components: `00`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`
+- table catalog saving flow numbered components: `00`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`
+- main flow filter saving flow numbered components: `00`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`
+- connection guides for all three saving flows
 
 Instruction check:
 
@@ -106,7 +106,7 @@ Verification:
 
 - `python -m compileall -q reference_runtime tools tests langflow_components` -> pass
 - `python -m pytest tests -q` -> 24 passed
-- `python tools\metadata_authoring_dry_run.py --workspace .`
+- `python tools\metadata_saving_dry_run.py --workspace .`
   - `written_to_mongodb=false`
   - domain blocks: 51
   - table catalog blocks: 14

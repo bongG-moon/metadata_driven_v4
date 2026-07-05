@@ -52,6 +52,10 @@ def _message_from_answer_sections(payload: dict[str, Any], answer_sections: dict
     if answer:
         sections.append("### 답변\n" + answer)
 
+    key_points_section = _key_points_section(answer_sections.get("key_points"))
+    if key_points_section:
+        sections.append(key_points_section)
+
     detail_section = _detail_table_section(_dict(answer_sections.get("detail_table")))
     if detail_section:
         sections.append(detail_section)
@@ -68,14 +72,24 @@ def _message_from_answer_sections(payload: dict[str, Any], answer_sections: dict
     if route_hint_section:
         sections.append(route_hint_section)
 
-    related_section = _refs_section(answer_sections.get("related_items") or _dict(payload.get("metadata_qa")).get("source_refs"))
-    if related_section:
-        sections.append(related_section)
+    if bool(answer_sections.get("show_related_items")):
+        related_section = _refs_section(answer_sections.get("related_items") or _dict(payload.get("metadata_qa")).get("source_refs"))
+        if related_section:
+            sections.append(related_section)
 
     warning_section = _section_warnings(answer_sections.get("warnings")) or _warning_section(_dict(payload.get("trace")))
     if warning_section:
         sections.append(warning_section)
     return sections
+
+
+def _key_points_section(value: Any) -> str:
+    points = [str(item).strip() for item in value if str(item or "").strip()] if isinstance(value, list) else []
+    if not points:
+        return ""
+    lines = ["### 한눈에 보기"]
+    lines.extend(f"- {point}" for point in points[:6])
+    return "\n".join(lines)
 
 
 def _detail_table_section(detail_table: dict[str, Any]) -> str:
@@ -84,7 +98,8 @@ def _detail_table_section(detail_table: dict[str, Any]) -> str:
     if not rows:
         return ""
     title = str(detail_table.get("title") or "관련 메타데이터").strip()
-    preview_rows = rows[:TABLE_LIMIT]
+    display_limit = _int(detail_table.get("display_limit"), TABLE_LIMIT)
+    preview_rows = rows[:display_limit]
     row_count = int(detail_table.get("row_count") or len(rows))
     note = f"\n\n총 {row_count}건 중 {len(preview_rows)}건을 표시했습니다." if row_count > len(preview_rows) else f"\n\n총 {row_count}건입니다."
     return f"### {title}\n" + _markdown_table(preview_rows, columns) + note
@@ -94,7 +109,7 @@ def _usage_examples_section(value: Any) -> str:
     examples = [str(item).strip() for item in value if str(item or "").strip()] if isinstance(value, list) else []
     if not examples:
         return ""
-    lines = ["### 사용 예시"]
+    lines = ["### 다음에 물어볼 수 있는 질문"]
     lines.extend(f"- {example}" for example in examples[:5])
     return "\n".join(lines)
 
@@ -223,6 +238,13 @@ def _display(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, default=str)
     return "" if value is None else str(value)
+
+
+def _int(value: Any, default: int) -> int:
+    try:
+        return max(1, int(value))
+    except Exception:
+        return default
 
 
 class MetadataQaMessageAdapter(Component):

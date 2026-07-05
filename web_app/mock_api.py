@@ -149,7 +149,7 @@ class MockApiClient:
                 "last_response": deepcopy(response),
                 "session_id": session_id,
             }
-            response["pending_authoring_id"] = pending_id
+            response["pending_saving_id"] = pending_id
         return response
 
     def validation_questions(self) -> list[dict[str, Any]]:

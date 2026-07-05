@@ -9,6 +9,14 @@ from lfx.custom.custom_component.component import Component
 from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
+AUTHORITATIVE_CONTEXT_TABLE_TYPES = {
+    "available_sources",
+    "required_params",
+    "calculation_logic_list",
+    "question_to_dataset",
+}
+ALWAYS_USE_CONTEXT_TABLE_TYPES = {"available_sources"}
+
 
 def normalize_metadata_qa_response(payload_value: Any, llm_response_value: Any = "") -> dict[str, Any]:
     payload = _payload(payload_value)
@@ -20,13 +28,21 @@ def normalize_metadata_qa_response(payload_value: Any, llm_response_value: Any =
     answer_message = str(parsed.get("answer_message") or parsed.get("answer") or fallback["answer_message"]).strip()
     summary = str(parsed.get("summary") or fallback["summary"]).strip()
     parsed_sections = _dict(parsed.get("answer_sections"))
-    table = _dict(parsed.get("table")) or _dict(parsed_sections.get("detail_table")) or fallback["table"]
+    parsed_table = _dict(parsed.get("table")) or _dict(parsed_sections.get("detail_table"))
+    fallback_table = _service_table(answer_type, fallback["table"])
+    use_context_table = _should_use_context_table(answer_type, context, parsed_table, fallback_table)
+    if use_context_table:
+        answer_message = str(fallback["answer_message"]).strip()
+        summary = str(fallback["summary"]).strip()
+    table = fallback_table if use_context_table else (parsed_table or fallback_table)
     columns = _string_list(table.get("columns")) or _columns_from_rows(_row_list(table.get("rows")))
     rows = _row_list(table.get("rows"))
-    source_refs = _list(parsed.get("source_refs")) or _list(context.get("source_refs"))
+    source_refs = _source_refs_for_answer(answer_type, context, parsed, use_context_table)
     warnings = _list(parsed.get("warnings"))
     sql_blocks = _list(parsed_sections.get("sql_blocks")) or _list(parsed.get("sql_blocks")) or fallback.get("sql_blocks", [])
     answer_sections = parsed_sections or fallback.get("answer_sections") or _build_answer_sections(answer_type, answer_message, summary, table, sql_blocks, source_refs, context, warnings)
+    if use_context_table:
+        answer_sections = _sync_answer_sections_from_context(answer_sections, answer_type, answer_message, summary, table, source_refs)
 
     next_payload = deepcopy(payload)
     next_payload["response_type"] = "metadata_qa"
@@ -60,9 +76,68 @@ def normalize_metadata_qa_response(payload_value: Any, llm_response_value: Any =
         "answer_type": answer_type,
         "row_count": len(rows),
         "used_llm_response": bool(parsed),
+        "used_context_table": use_context_table,
     }
     next_payload["trace"] = trace
     return next_payload
+
+
+def _should_use_context_table(answer_type: str, context: dict[str, Any], parsed_table: dict[str, Any], fallback_table: dict[str, Any]) -> bool:
+    context_mode = str(context.get("answer_mode") or "").strip()
+    if answer_type in ALWAYS_USE_CONTEXT_TABLE_TYPES or context_mode in ALWAYS_USE_CONTEXT_TABLE_TYPES:
+        return bool(_row_list(fallback_table.get("rows")))
+    if answer_type not in AUTHORITATIVE_CONTEXT_TABLE_TYPES and context_mode not in AUTHORITATIVE_CONTEXT_TABLE_TYPES:
+        return False
+    fallback_rows = _row_list(fallback_table.get("rows"))
+    if not fallback_rows:
+        return False
+    parsed_rows = _row_list(parsed_table.get("rows"))
+    return len(parsed_rows) < len(fallback_rows)
+
+
+def _source_refs_for_answer(answer_type: str, context: dict[str, Any], parsed: dict[str, Any], use_context_table: bool) -> list[Any]:
+    context_refs = _list(context.get("source_refs"))
+    parsed_refs = _list(parsed.get("source_refs"))
+    context_mode = str(context.get("answer_mode") or "").strip()
+    if answer_type in ALWAYS_USE_CONTEXT_TABLE_TYPES or context_mode in ALWAYS_USE_CONTEXT_TABLE_TYPES:
+        return context_refs
+    if use_context_table or answer_type in AUTHORITATIVE_CONTEXT_TABLE_TYPES or context_mode in AUTHORITATIVE_CONTEXT_TABLE_TYPES:
+        return context_refs if len(context_refs) >= len(parsed_refs) else parsed_refs
+    return parsed_refs or context_refs
+
+
+def _sync_answer_sections_from_context(
+    answer_sections: dict[str, Any],
+    answer_type: str,
+    answer_message: str,
+    summary: str,
+    table: dict[str, Any],
+    source_refs: list[Any],
+) -> dict[str, Any]:
+    sections = deepcopy(answer_sections) if isinstance(answer_sections, dict) else {}
+    rows = _row_list(table.get("rows"))
+    if not rows:
+        return sections
+    columns = _string_list(table.get("columns")) or _columns_from_rows(rows)
+    current = _dict(sections.get("detail_table"))
+    sections["summary"] = {"headline": answer_message, "description": summary}
+    sections["key_points"] = _key_points(answer_type, rows)
+    title = _table_title(answer_type) if answer_type in {"available_sources"} else str(current.get("title") or _table_title(answer_type))
+    sections["detail_table"] = {
+        "title": title,
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "display_limit": _display_limit(answer_type),
+    }
+    sections["usage_examples"] = _usage_examples(answer_type, {})
+    sections["related_items"] = [] if answer_type in {"available_sources"} else [ref for ref in source_refs if isinstance(ref, dict)]
+    sections["show_related_items"] = answer_type not in {"available_sources"}
+    return sections
+
+
+def _display_limit(answer_type: str) -> int:
+    return 50 if answer_type in {"available_sources"} else 12
 
 
 def _fallback_answer(question: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -85,7 +160,7 @@ def _fallback_answer(question: str, context: dict[str, Any]) -> dict[str, Any]:
         message = f"{target}에 등록된 조회 설정과 query_template 기준으로 정리했습니다."
         return _fallback_payload(answer_type, message, {"columns": _columns_from_rows(rows), "rows": rows}, sql_blocks, source_refs, context)
     if answer_mode == "available_sources":
-        message = f"현재 질문 기준으로 조회 가능한 데이터셋 후보 {len(rows)}개를 정리했습니다. 각 데이터셋의 연결 방식과 필수 조건은 표를 확인하세요."
+        message = _available_sources_message(rows)
         return _fallback_payload(answer_type, message, {"columns": _columns_from_rows(rows), "rows": rows}, [], source_refs, context)
     if answer_mode == "dataset_detail":
         target = str(rows[0].get("display_name") or rows[0].get("key") or "요청한 데이터셋") if rows else "요청한 데이터셋"
@@ -151,18 +226,109 @@ def _build_answer_sections(
     columns = _string_list(table.get("columns")) or _columns_from_rows(rows)
     return {
         "summary": {"headline": answer_message, "description": summary},
+        "key_points": _key_points(answer_type, rows),
         "detail_table": {
             "title": _table_title(answer_type),
             "columns": columns,
             "rows": rows,
             "row_count": len(rows),
+            "display_limit": _display_limit(answer_type),
         },
         "sql_blocks": [block for block in sql_blocks if isinstance(block, dict)],
         "usage_examples": _usage_examples(answer_type, context),
-        "related_items": [ref for ref in source_refs if isinstance(ref, dict)][:10],
+        "related_items": [] if answer_type in {"available_sources"} else [ref for ref in source_refs if isinstance(ref, dict)][:10],
+        "show_related_items": answer_type not in {"available_sources"},
         "route_hint": _route_hint(answer_type),
         "warnings": [warning for warning in warnings if isinstance(warning, dict)],
     }
+
+
+def _service_table(answer_type: str, table: dict[str, Any]) -> dict[str, Any]:
+    rows = _row_list(table.get("rows"))
+    if answer_type == "available_sources":
+        return {
+            "columns": ["데이터셋", "데이터셋 키", "분류", "연결 방식", "DB/소스", "필수 조건"],
+            "rows": [_available_source_row(row) for row in rows],
+        }
+    return table
+
+
+def _available_source_row(row: dict[str, Any]) -> dict[str, Any]:
+    source_type = str(row.get("source_type") or "").strip()
+    db_source = str(row.get("db_key") or "").strip()
+    if not db_source and source_type:
+        db_source = _source_type_label(source_type)
+    required_params = str(row.get("required_params") or "").strip()
+    result = {
+            "데이터셋": row.get("display_name") or row.get("key"),
+            "데이터셋 키": row.get("key"),
+            "분류": _family_label(row.get("dataset_family")),
+        "연결 방식": _source_type_label(source_type),
+        "DB/소스": db_source,
+        "필수 조건": required_params or "없음",
+    }
+    return {key: item for key, item in result.items() if item not in (None, "", [], {})}
+
+
+def _source_type_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    labels = {"oracle": "Oracle", "goodocs": "Goodocs"}
+    return labels.get(text.lower(), text)
+
+
+def _family_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    labels = {
+        "production": "생산",
+        "wip": "재공",
+        "plan": "계획",
+        "equipment": "장비",
+        "hold": "HOLD",
+    }
+    return labels.get(text.lower(), text)
+
+
+def _available_sources_message(rows: list[dict[str, Any]]) -> str:
+    rows = [_available_source_row(row) for row in rows] if rows and "연결 방식" not in rows[0] else rows
+    total = len(rows)
+    source_counts = _count_by(rows, "연결 방식")
+    required_count = sum(1 for row in rows if str(row.get("필수 조건") or "").strip() not in {"", "없음"})
+    no_required_count = total - required_count
+    source_text = ", ".join(f"{key} {value}개" for key, value in source_counts.items() if key) or "연결 방식 미등록"
+    return (
+        f"현재 등록된 조회 데이터셋은 총 {total}개입니다. "
+        f"연결 방식은 {source_text}로 구성되어 있고, "
+        f"필수 조건이 있는 데이터셋은 {required_count}개, 별도 필수 조건이 없는 데이터셋은 {no_required_count}개입니다."
+    )
+
+
+def _key_points(answer_type: str, rows: list[dict[str, Any]]) -> list[str]:
+    if answer_type != "available_sources" or not rows:
+        return []
+    source_counts = _count_by(rows, "연결 방식")
+    required_rows = [row for row in rows if str(row.get("필수 조건") or "").strip() not in {"", "없음"}]
+    points = [f"총 {len(rows)}개 데이터셋이 등록되어 있습니다."]
+    if source_counts:
+        points.append("연결 방식: " + ", ".join(f"{key} {value}개" for key, value in source_counts.items() if key))
+    if required_rows:
+        params = sorted({str(row.get("필수 조건") or "").strip() for row in required_rows if str(row.get("필수 조건") or "").strip()})
+        points.append("필수 조건이 있는 데이터셋은 " + f"{len(required_rows)}개이며, 사용되는 조건은 {', '.join(params)}입니다.")
+    points.append("필수 조건이 '없음'인 데이터셋은 별도 파라미터 없이 조회 설정이 가능하도록 등록된 항목입니다.")
+    return points
+
+
+def _count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = str(row.get(key) or "").strip()
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def _table_title(answer_type: str) -> str:
@@ -185,7 +351,11 @@ def _table_title(answer_type: str) -> str:
 def _usage_examples(answer_type: str, context: dict[str, Any]) -> list[str]:
     question = str(context.get("question") or "").strip()
     examples = {
-        "available_sources": ["오늘 DA공정 생산량 알려줘", "현재 재공이 많은 제품 알려줘"],
+        "available_sources": [
+            "production_today 데이터셋의 쿼리문을 보여줘",
+            "wip_today 데이터셋의 필수 조건과 용도를 알려줘",
+            "생산량 분석에는 어떤 데이터셋을 써야 해?",
+        ],
         "dataset_detail": ["이 데이터로 답할 수 있는 대표 질문을 알려줘"],
         "required_params": ["어제 기준으로 다시 조회해줘"],
         "term_definition": ["생산량 기준으로 제품별 상위 5개 알려줘"],

@@ -27,7 +27,7 @@
 | 담당 | 제안 요약 | 핵심 근거 |
 | --- | --- | --- |
 | Router/Smart Router 담당 | direct answer, clarification, error를 별도 flow로 만들지 않는다. direct/clarification은 Smart Router message branch로 처리하고, error는 route가 아니라 실행 결과 상태로 다룬다. | Router가 런타임 오류를 사용자 의도처럼 분기하면 의미가 섞인다. flow route의 `Route Message`를 채우면 원문 질문이 Run Flow로 가지 않는다. |
-| Dummy Flow 담당 | dummy는 질문 echo가 아니라 실제 data analysis/metadata QA/authoring flow의 응답 계약을 닮은 fixture형 응답을 반환한다. | 단순 echo로는 Router 연결만 확인되고 Web/Playground 표, developer 진단, state, API 계약 검증이 안 된다. |
+| Dummy Flow 담당 | dummy는 질문 echo가 아니라 실제 data analysis/metadata QA/saving flow의 응답 계약을 닮은 fixture형 응답을 반환한다. | 단순 echo로는 Router 연결만 확인되고 Web/Playground 표, developer 진단, state, API 계약 검증이 안 된다. |
 | Metadata QA 담당 | `metadata_qa_flow`를 새로 만들고 MongoDB의 domain/table catalog/main filter 3 collection만 읽어 서비스형 답변을 만든다. | data analysis flow를 재사용하면 retrieval/pandas/result-store까지 불필요하게 탄다. 전체 metadata/raw trace를 LLM에 넣으면 token 낭비와 노출 위험이 크다. |
 
 ## 3. 상호 비판과 최종 판단
@@ -54,7 +54,7 @@
 2. direct/clarification은 Smart Router의 `Route Message` 또는 `Else Message`로 처리한다.
 3. Web/API 구조화 응답은 Router가 새로 감싸지 않고, 실제 실행된 각 subflow의 기존 `message`/`api_response` 계약을 그대로 사용한다.
 4. `flow_error`는 Smart Router route table에 넣지 않는다. 각 subflow가 `status=error`, `errors`, `message`를 반환하고 Web/Playground에서 그대로 보여준다.
-5. authoring route는 이미 domain/table catalog/main filter flow가 분리되어 있으므로, 이 구조를 유지한다.
+5. saving route는 이미 domain/table catalog/main filter flow가 분리되어 있으므로, 이 구조를 유지한다.
 6. 단일 Chat Output이 꼭 필요할 때만 `Notify/Listen` 또는 별도 collector를 검토한다. 기본은 branch별 Chat Output이다.
 
 ## 4. 항목별 개선 계획
@@ -103,7 +103,7 @@ direct/clarification은 Route Message/Else Message를 반드시 채운다.
 
 - `data_analysis_flow`: 기존 `status=error`, `trace.errors`, `message` 계약 사용
 - `metadata_qa_flow`: 새 flow의 API 응답 생성기에서 `status=error`, `trace.errors`, `message` 반환
-- authoring flows: 기존 authoring API adapter의 오류 응답 사용
+- saving flows: 기존 authoring API adapter의 오류 응답 사용
 - dummy flows: 실제 저장/조회 실패처럼 보이지 않도록 `status=ok` 또는 `status=skipped`와 경고만 사용
 
 ## 4.2 Dummy Flow 응답 개선
@@ -175,7 +175,7 @@ dummy는 실제 LLM/pandas를 실행하지 않는다.
 - dummy가 실제 MongoDB에 저장했다고 표현하지 않는다.
 - dummy data_ref는 클릭 가능한 실제 링크처럼 속이지 않는다.
 - `trace.inspection.result_store.status=skipped`처럼 명확히 남긴다.
-- authoring dummy는 `dry_run=true`, `saved_count=0`, `would_save_count`를 사용한다.
+- saving dummy는 `dry_run=true`, `saved_count=0`, `would_save_count`를 사용한다.
 
 ## 4.3 Metadata QA Flow 구현 계획
 
@@ -423,7 +423,7 @@ python -m compileall -q langflow_components web_app tests
 
 1. `dummy_data_analysis_flow`에 대표 질문 fixture를 추가한다.
 2. `dummy_metadata_qa_flow`는 실제 metadata QA 답변 형태 fixture를 반환하도록 보강한다.
-3. dummy authoring flows는 저장 성공처럼 보이지 않도록 `dry_run/skipped/would_save_count`를 명확히 한다.
+3. dummy saving flows는 저장 성공처럼 보이지 않도록 `dry_run/skipped/would_save_count`를 명확히 한다.
 
 검증:
 
@@ -465,7 +465,7 @@ POP 제품은 도메인 정보가 어떻게 등록되어 있어?
 | --- | --- | --- |
 | 오늘 DA공정 생산량 알려줘 | data_analysis | data analysis flow 실행 |
 | 생산량 관련 도메인 정보 보여줘 | metadata_qa | metadata QA 답변 |
-| POP 제품 조건 등록해줘 | domain_authoring | domain 저장 flow 실행 |
+| POP 제품 조건 등록해줘 | domain_saving | domain 저장 flow 실행 |
 | 더미 분석으로 연결 테스트 | dummy_data_analysis | 빠른 dummy 응답 |
 | 무슨 말인지 모르겠어 | clarification | 추가 질문 요청 |
 
@@ -503,14 +503,14 @@ Chat Input
   -> Smart Router
      -> data_analysis route -> Run Flow(data_analysis_flow) -> Chat Output
      -> metadata_qa route -> Run Flow(metadata_qa_flow) -> Chat Output
-     -> domain_authoring route -> Run Flow(domain_authoring_flow) -> Chat Output
-     -> table_catalog_authoring route -> Run Flow(table_catalog_authoring_flow) -> Chat Output
-     -> main_flow_filter_authoring route -> Run Flow(main_flow_filters_authoring_flow) -> Chat Output
+     -> domain_saving route -> Run Flow(domain_saving_flow) -> Chat Output
+     -> table_catalog_saving route -> Run Flow(table_catalog_saving_flow) -> Chat Output
+     -> main_flow_filter_saving route -> Run Flow(main_flow_filters_saving_flow) -> Chat Output
      -> dummy_data_analysis route -> Run Flow(dummy_data_analysis_flow) -> Chat Output
      -> dummy_metadata_qa route -> Run Flow(dummy_metadata_qa_flow) -> Chat Output
-     -> dummy_domain_authoring route -> Run Flow(dummy_domain_authoring_flow) -> Chat Output
-     -> dummy_table_catalog_authoring route -> Run Flow(dummy_table_catalog_authoring_flow) -> Chat Output
-     -> dummy_main_flow_filter_authoring route -> Run Flow(dummy_main_flow_filter_authoring_flow) -> Chat Output
+     -> dummy_domain_saving route -> Run Flow(dummy_domain_saving_flow) -> Chat Output
+     -> dummy_table_catalog_saving route -> Run Flow(dummy_table_catalog_saving_flow) -> Chat Output
+     -> dummy_main_flow_filter_saving route -> Run Flow(dummy_main_flow_filter_saving_flow) -> Chat Output
      -> direct/clarification route -> Smart Router Message -> Chat Output
 ```
 

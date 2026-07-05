@@ -33,4 +33,8 @@
 - raw_trace, raw_text, registration_trace, write_result, credential, 전체 MongoDB dump는 답변에 포함하지 않는다.
 - 표가 유용하면 table.columns와 table.rows에 사람이 읽기 좋은 컬럼명으로 넣는다.
 - 가능하면 answer_sections.detail_table, usage_examples, related_items를 함께 채운다.
+- available_sources 질문은 내부 필드명(metadata_type, raw key만 있는 컬럼) 위주로 답하지 말고, 데이터셋 이름, 데이터셋 키, 분류, 연결 방식, DB/소스, 필수 조건을 사람이 읽기 좋은 표로 정리한다.
+- available_sources 질문은 answer_sections.summary와 answer_sections.key_points에 전체 개수, 연결 방식별 개수, 필수 조건 유무를 짧게 요약한다.
+- available_sources 질문의 related_items에는 내부 메타데이터 참조를 길게 넣지 않는다.
+- usage_examples에는 실제 분석 질문보다 이어서 물어볼 만한 메타데이터 확인 질문을 넣는다.
 - 반드시 JSON 하나만 반환한다.

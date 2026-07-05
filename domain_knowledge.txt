@@ -1,7 +1,7 @@
 
 ## 항목별 입력 기준
 
-아래 블록들은 Domain Authoring Flow에 하나씩 넣기 위한 기준 입력입니다.
+아래 블록들은 Domain Saving Flow에 하나씩 넣기 위한 기준 입력입니다.
 
 
 DP 또는 D/P 공정 그룹은 OPER_NAME 값 WET1, WET2, L/T1, L/T2, B/G1, B/G2, H/S1, H/S2, W/S1, W/S2, WSD1, WSD2, WEC1, WEC2, WLS1, WLS2, WVI, UV, C/C1을 포함해.

@@ -291,22 +291,22 @@ Execution adapter는 실행 전 `route`, `selected_flow`, `session_id`, `input_v
 - metadata summary만 사용한다.
 - direct response와 API response를 구분한다.
 
-### 4.4 Metadata Authoring Flows
+### 4.4 Metadata Saving Flows
 
-세 authoring flow를 분리한다.
+세 saving flow를 분리한다.
 
-- `domain_authoring_flow`: 업무 용어, 공정 그룹, 제품 조건, 수량/metric, analysis recipe, function case.
-- `table_catalog_authoring_flow`: dataset, source type, query/API config, filter mapping, standard column alias.
-- `main_flow_filters_authoring_flow`: DATE, OPER_NAME, 제품 속성, 설비, LOT 등 표준 filter 개념.
+- `domain_saving_flow`: 업무 용어, 공정 그룹, 제품 조건, 수량/metric, analysis recipe, function case.
+- `table_catalog_saving_flow`: dataset, source type, query/API config, filter mapping, standard column alias.
+- `main_flow_filters_saving_flow`: DATE, OPER_NAME, 제품 속성, 설비, LOT 등 표준 filter 개념.
 
 운영 UI/API는 세 flow 이름을 현업 관리자에게 노출하지 않는다. 관리자는 하나의 "메타데이터 등록" 진입점에 자연어를 입력하고, 시스템이 내부적으로 target type을 분류한다.
 
-관리자용 단일 authoring entrypoint:
+관리자용 단일 saving entrypoint:
 
 ```text
 자연어 입력
--> authoring router가 domain/table/filter/special-analysis-draft 분류
--> 해당 authoring flow 실행
+-> saving router가 domain/table/filter/special-analysis-draft 분류
+-> 해당 saving flow 실행
 -> 한국어 검토 카드 표시
 -> 저장/보강/중복 처리 선택
 ```
@@ -325,7 +325,7 @@ Execution adapter는 실행 전 `route`, `selected_flow`, `session_id`, `input_v
 ```text
 raw natural language
 -> text refinement
--> authoring JSON generation
+-> saving JSON generation
 -> normalization
 -> duplicate/similarity check
 -> review
@@ -371,7 +371,7 @@ Domain collection은 제조 업무의 의미를 담는다.
 요구사항:
 
 - `section + key`가 저장 기준이다.
-- 사용자가 key를 몰라도 authoring normalizer가 생성할 수 있어야 한다.
+- 사용자가 key를 몰라도 saving normalizer가 생성할 수 있어야 한다.
 - `gbn`은 legacy 호환으로 읽을 수 있지만 신규 문서/응답에는 `section`을 우선한다.
 - source 조회 방식, SQL, API endpoint는 domain에 넣지 않는다.
 
@@ -1028,7 +1028,7 @@ Acceptance:
 - applied filters/date/dataset이 trace에 남는다.
 - 사용자에게 내부 key나 function case 이름을 강요하지 않는다.
 
-### 7.9 Natural Language Metadata Authoring
+### 7.9 Natural Language Metadata Saving
 
 기능:
 
@@ -1100,7 +1100,7 @@ Prompt는 stage별로 작고 명확해야 한다.
 - hidden helper import
 - unrelated function cases
 - answer-writing instruction
-- domain authoring instruction
+- domain saving instruction
 - "주어진 데이터를 자유롭게 분석해서 알아서 답을 만들라"는 open-ended instruction
 - 의도 분석에서 확정하지 않은 join/filter/group/metric을 pandas prompt에서 새로 만들게 하는 instruction
 
@@ -1331,7 +1331,7 @@ Negative regression:
 | Standalone component | no sibling import, unique IO, parser init, sample payload run | component contract tests | local/staging | yes |
 | Router envelope | valid route/api/session/input and normalized response | router contract tests | local/staging | yes |
 | Payload compactness | no prompt leak, no duplicate rows, bounded state | payload bloat report | local/staging/prod | yes |
-| Metadata authoring | natural-language in, review before write | authoring flow tests | local/staging | yes |
+| Metadata authoring | natural-language in, review before write | saving flow tests | local/staging | yes |
 | Product-token safety | no unrelated POP/filter injection | negative regression | local/staging/prod | yes |
 | Primitive fallback | only explicit step_plan operations | primitive fixture tests | local/staging | yes |
 | Regression questions | plan/scope/schema before answer text | validation matrix | local/staging/prod | yes |
@@ -1383,7 +1383,7 @@ Negative regression:
 구현:
 
 - domain/table/filter metadata loader
-- natural-language authoring flows
+- natural-language saving flows
 - duplicate/similarity/review/writer
 - key backfill
 
@@ -1466,7 +1466,7 @@ Negative regression:
 - answer LLM이 표를 임의 생성하고 deterministic adapter가 검증하지 않음.
 - pandas code LLM에 source 정보만 주고 분석 순서와 처리 계획을 알아서 만들게 함.
 - `intent_plan.pandas_execution_plan` 없이 join/filter/group/metric logic을 pandas prompt나 executor에서 새로 해석함.
-- metadata authoring에서 사용자가 internal key를 알아야 저장됨.
+- metadata saving에서 사용자가 internal key를 알아야 저장됨.
 - review 실패나 ambiguity를 조용히 성공으로 처리함.
 - validation이 final Korean answer 문자열만 검사함.
 
@@ -1505,7 +1505,7 @@ Negative regression:
 | Role | Focus | Result |
 | --- | --- | --- |
 | Architecture Reviewer | Langflow split, standalone, payload contract, common/specialized boundary | Revised: standalone deployment mode, router envelope, retriever drop rule, function-case boundary, payload thresholds added |
-| Manufacturing UX Reviewer | 현업 자연어 사용성, authoring friction, answer/clarification 품질 | Revised: single authoring entrypoint, review card, duplicate labels, clarification contract, answer trust cues added |
+| Manufacturing UX Reviewer | 현업 자연어 사용성, saving friction, answer/clarification 품질 | Revised: single saving entrypoint, review card, duplicate labels, clarification contract, answer trust cues added |
 | QA Reviewer | acceptance criteria, validation gates, regression coverage, release risk | Revised: validation matrix reference, payload report contract, UX/negative regression, coverage table, release gate matrix, ops checklist added |
 
 ## 15. 다음 구현자가 가장 먼저 볼 체크리스트

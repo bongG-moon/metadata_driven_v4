@@ -14,26 +14,6 @@ TABLE_PREVIEW_LIMIT = 10
 CELL_TEXT_LIMIT = 120
 VALUE_TEXT_LIMIT = 900
 DEFAULT_DOWNLOAD_BASE_URL = "http://localhost:8765"
-SERVICE_COLUMN_LABELS = {
-    "OPER_NAME": "공정",
-    "OPER_NM": "공정",
-    "TOTAL_PRODUCTION": "생산량",
-    "PRODUCTION": "생산량",
-    "PKG_OUT_QTY": "PKG OUT 실적",
-    "INPUT_QTY": "투입수량",
-    "TOTAL_WIP": "재공수량",
-    "BOH_WIP": "아침재공",
-    "WIP": "재공수량",
-    "WIP_PER_INPUT": "투입 대비 WIP",
-    "ASSIGN_QTY": "ASSIGN 대수",
-    "ASSIGN_COUNT": "ASSIGN 대수",
-    "wip_sum": "WIP 합계",
-    "production_sum": "생산량",
-    "input_sum": "투입수량",
-    "MCP_NO": "MCP NO",
-    "WORK_DATE": "기준일",
-    "WORK_DT": "기준일",
-}
 
 
 def build_message(payload_value: Any, download_base_url: Any = "", include_diagnostics: Any = False) -> str:
@@ -41,11 +21,21 @@ def build_message(payload_value: Any, download_base_url: Any = "", include_diagn
     if not payload:
         return ""
     diagnostics_enabled = _truthy(include_diagnostics)
+    answer_sections = payload.get("answer_sections") if isinstance(payload.get("answer_sections"), dict) else {}
+
+    if answer_sections:
+        sections = _message_sections_from_answer_sections(payload, answer_sections, download_base_url)
+        if diagnostics_enabled:
+            for section in (_intent_section(payload), _retrieval_section(payload), _pandas_section(payload)):
+                if section:
+                    sections.append(section)
+        if sections:
+            return "\n\n".join(sections)
 
     sections: list[str] = []
     answer = str(payload.get("answer_message") or "").strip()
     if answer:
-        sections.append("### 답변\n" + _escape_markdown_tilde(answer))
+        sections.append("### 답변\n" + _answer_markdown(answer))
 
     result_table_section = "" if _contains_markdown_table(answer) else _result_table_section(payload)
     for section in (
@@ -68,6 +58,107 @@ def build_message(payload_value: Any, download_base_url: Any = "", include_diagn
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
+def _message_sections_from_answer_sections(payload: dict[str, Any], answer_sections: dict[str, Any], download_base_url: Any = "") -> list[str]:
+    sections: list[str] = []
+    summary = answer_sections.get("summary") if isinstance(answer_sections.get("summary"), dict) else {}
+    answer = str(summary.get("headline") or payload.get("answer_message") or "").strip()
+    if answer:
+        sections.append("### 답변\n" + _answer_markdown(answer))
+
+    if not _contains_markdown_table(answer):
+        result_table = _result_table_section_from_answer_sections(answer_sections)
+        if result_table:
+            sections.append(result_table)
+
+    applied = _applied_criteria_section_from_answer_sections(answer_sections)
+    if applied:
+        sections.append(applied)
+
+    for section in (
+        _step_outputs_section(payload),
+        _function_case_results_section(payload),
+        _download_links_section(payload, download_base_url),
+        _notice_section_from_answer_sections(answer_sections),
+        _next_questions_section_from_answer_sections(answer_sections),
+    ):
+        if section:
+            sections.append(section)
+    return sections
+
+
+def _result_table_section_from_answer_sections(answer_sections: dict[str, Any]) -> str:
+    result_table = answer_sections.get("result_table") if isinstance(answer_sections.get("result_table"), dict) else {}
+    rows = result_table.get("display_rows")
+    if not isinstance(rows, list) or not rows:
+        rows = result_table.get("rows")
+    rows = rows if isinstance(rows, list) else []
+    columns = result_table.get("columns") if isinstance(result_table.get("columns"), list) else []
+    display_columns = _string_list(result_table.get("display_columns"))
+    column_labels = _dict_value(result_table.get("column_labels"))
+    row_count = _safe_int(result_table.get("row_count"), len(rows))
+    preview_limit = _safe_int(result_table.get("preview_limit"), TABLE_PREVIEW_LIMIT)
+
+    if not rows and not columns:
+        return ""
+    if not columns:
+        columns = _columns_from_rows(rows)
+    columns = _display_columns(columns, rows, display_columns)
+    if not rows:
+        column_text = ", ".join(str(column) for column in columns) if columns else "없음"
+        return "### 결과 테이블\n표시할 결과 행이 없습니다.\n\n- 컬럼: `" + column_text + "`"
+
+    preview_rows = rows[:preview_limit]
+    note = f"\n\n총 {row_count}건 중 {len(preview_rows)}건을 표시했습니다."
+    if row_count <= len(preview_rows):
+        note = f"\n\n총 {row_count}건입니다."
+    return "### 결과 테이블\n" + _markdown_table(preview_rows, columns, column_labels) + note
+
+
+def _applied_criteria_section_from_answer_sections(answer_sections: dict[str, Any]) -> str:
+    criteria = answer_sections.get("applied_criteria") if isinstance(answer_sections.get("applied_criteria"), dict) else {}
+    if not criteria:
+        return ""
+    lines = ["### 적용 기준"]
+    for label, key in (
+        ("사용 데이터", "datasets"),
+        ("조회 필수 조건", "required_params"),
+        ("분석 조건", "analysis_filters"),
+        ("조회 단계 필터", "retrieval_filters"),
+        ("그룹 기준", "group_by"),
+        ("계산 지표", "metrics"),
+    ):
+        value = criteria.get(key)
+        if value not in (None, "", [], {}):
+            lines.append(f"- {label}: `{_display_value(value)}`")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _notice_section_from_answer_sections(answer_sections: dict[str, Any]) -> str:
+    notices = answer_sections.get("notices")
+    notices = notices if isinstance(notices, list) else []
+    if not notices:
+        return ""
+    lines = ["### 참고"]
+    for item in notices[:8]:
+        if isinstance(item, dict):
+            message = str(item.get("message") or item.get("type") or "").strip()
+        else:
+            message = str(item or "").strip()
+        if message:
+            lines.append(f"- {_escape_markdown_tilde(message)}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _next_questions_section_from_answer_sections(answer_sections: dict[str, Any]) -> str:
+    questions = answer_sections.get("next_questions")
+    questions = [str(item).strip() for item in questions if str(item or "").strip()] if isinstance(questions, list) else []
+    if not questions:
+        return ""
+    lines = ["### 다음에 볼 만한 질문"]
+    lines.extend(f"- {_escape_markdown_tilde(question)}" for question in questions[:3])
+    return "\n".join(lines)
+
+
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}
@@ -84,17 +175,44 @@ def _contains_markdown_table(text: str) -> bool:
     return False
 
 
+def _answer_markdown(text: Any) -> str:
+    return _escape_markdown_tilde(_readable_answer_text(str(text or "").strip()))
+
+
+def _readable_answer_text(text: str) -> str:
+    clean = re.sub(r"[ \t]+", " ", str(text or "").strip())
+    if not clean:
+        return ""
+    if "\n" in clean or _contains_markdown_table(clean):
+        return clean
+    sentences = _split_sentences(clean)
+    if len(sentences) >= 3:
+        return "\n\n".join(sentences)
+    if len(clean) <= 180:
+        return clean
+    if len(sentences) <= 2:
+        return clean
+    return "\n\n".join(sentences)
+
+
+def _split_sentences(text: str) -> list[str]:
+    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+(?=\S)", text) if item.strip()]
+    return sentences if sentences else [text]
+
+
 def _result_table_section(payload: dict[str, Any]) -> str:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     rows = data.get("rows") if isinstance(data.get("rows"), list) else []
     columns = data.get("columns") if isinstance(data.get("columns"), list) else []
+    display_columns = _string_list(data.get("display_columns"))
+    column_labels = _dict_value(data.get("column_labels"))
     row_count = int(data.get("row_count") or len(rows) or 0)
 
     if not rows and not columns and not data:
         return ""
     if not columns:
         columns = _columns_from_rows(rows)
-    columns = _service_columns(columns, rows)
+    columns = _display_columns(columns, rows, display_columns)
     if not rows:
         column_text = ", ".join(str(column) for column in columns) if columns else "없음"
         return "### 결과 테이블\n표시할 결과 행이 없습니다.\n\n- 컬럼: `" + column_text + "`"
@@ -103,7 +221,7 @@ def _result_table_section(payload: dict[str, Any]) -> str:
     note = f"\n\n총 {row_count}건 중 {len(preview_rows)}건을 표시했습니다."
     if row_count <= len(preview_rows):
         note = f"\n\n총 {row_count}건입니다."
-    return "### 결과 테이블\n" + _markdown_table(preview_rows, columns) + note
+    return "### 결과 테이블\n" + _markdown_table(preview_rows, columns, column_labels) + note
 
 
 def _step_outputs_section(payload: dict[str, Any]) -> str:
@@ -117,12 +235,14 @@ def _step_outputs_section(payload: dict[str, Any]) -> str:
         label = str(item.get("description") or item.get("key") or item.get("role") or "중간 결과").strip()
         row_count = item.get("row_count")
         columns = item.get("columns") if isinstance(item.get("columns"), list) else []
+        display_columns = _string_list(item.get("display_columns"))
+        column_labels = _dict_value(item.get("column_labels"))
         preview_rows = item.get("preview_rows") if isinstance(item.get("preview_rows"), list) else []
         lines.append(f"- {label}: 행 수 `{_display_value(row_count)}`")
         if columns:
             lines.append(f"  - 컬럼: `{_display_value(columns)}`")
         if preview_rows:
-            lines.append(_markdown_table(preview_rows[:3], columns))
+            lines.append(_markdown_table(preview_rows[:3], _display_columns(columns, preview_rows, display_columns), column_labels))
     return "\n".join(lines)
 
 
@@ -130,9 +250,8 @@ def _function_case_results_section(payload: dict[str, Any]) -> str:
     results = _analysis_items(payload, "function_case_results")
     if not results:
         return ""
-    title = "### 제품/조건 매핑 결과" if _looks_product_mapping_results(results) else "### 분석 근거"
-    lines = [title]
-    seen_product_mappings: set[str] = set()
+    lines = ["### 분석 근거"]
+    seen_previews: set[str] = set()
     for item in results[:6]:
         if not isinstance(item, dict):
             continue
@@ -142,40 +261,63 @@ def _function_case_results_section(payload: dict[str, Any]) -> str:
         matched_count = item.get("matched_count", item.get("row_count"))
         columns = item.get("columns") if isinstance(item.get("columns"), list) else []
         preview_rows = item.get("preview_rows") if isinstance(item.get("preview_rows"), list) else []
-        compact_rows, compact_columns = _compact_function_case_preview(preview_rows, columns, function_name)
-        if _is_product_token_function(function_name):
-            dedupe_key = json.dumps({"input_text": input_text, "rows": compact_rows}, ensure_ascii=False, sort_keys=True, default=str)
-            if dedupe_key in seen_product_mappings:
-                continue
-            seen_product_mappings.add(dedupe_key)
-        display_count = len(compact_rows) if _is_product_token_function(function_name) and compact_rows else matched_count
-        prefix = "제품 표현"
+        display_columns = _string_list(item.get("display_columns"))
+        if function_name == "match_product_tokens" and not display_columns:
+            display_columns = _function_case_product_columns(columns, preview_rows)
+        column_labels = _dict_value(item.get("column_labels"))
+        compact_rows, compact_columns = _compact_function_case_preview(preview_rows, columns, display_columns)
+        dedupe_key = json.dumps({"function_name": function_name, "input_text": input_text, "rows": compact_rows}, ensure_ascii=False, sort_keys=True, default=str)
+        if dedupe_key in seen_previews:
+            continue
+        seen_previews.add(dedupe_key)
+        display_count = matched_count if matched_count not in (None, "") else len(compact_rows)
+        label = description or function_name
+        lines.append("")
+        lines.append(f"**{_escape_markdown_tilde(label)}**")
         if input_text:
-            prefix += f" `{_escape_markdown_tilde(input_text)}`"
-        suffix = f" ({description})" if description and not _is_product_token_function(function_name) else ""
-        unit = "개 제품" if _is_product_token_function(function_name) else "건"
-        lines.append(f"- {prefix} 기준으로 `{_display_value(display_count)}`{unit}이 매칭되었습니다.{suffix}")
+            lines.append(f"- 입력: `{_escape_markdown_tilde(input_text)}`")
+        lines.append(f"- 전체 매칭: `{_display_value(display_count)}`건")
         if compact_rows:
-            lines.append(_markdown_table(compact_rows[:3], compact_columns))
+            preview_count = len(compact_rows[:3])
+            lines.append(f"- 미리보기: `{preview_count}`건 표시")
+            lines.append("")
+            lines.append(_markdown_table(compact_rows[:3], compact_columns, column_labels))
     return "\n".join(lines)
 
 
-def _looks_product_mapping_results(results: list[Any]) -> bool:
-    functions = [str(item.get("function_name") or "") for item in results if isinstance(item, dict)]
-    return bool(functions) and all(_is_product_token_function(function_name) for function_name in functions)
+def _function_case_product_columns(columns: list[Any], rows: list[Any]) -> list[str]:
+    existing = [str(column) for column in columns if str(column or "").strip()]
+    if not existing:
+        existing = _columns_from_rows(rows)
+    priority = [
+        "TECH",
+        "DENSITY",
+        "DEN",
+        "MODE",
+        "ORG",
+        "PKG1",
+        "PKG_TYPE1",
+        "PKG2",
+        "PKG_TYPE2",
+        "LEAD",
+        "MCP_NO",
+        "DEVICE",
+        "DEVICE_DESC",
+        "OPER_NAME",
+        "WIP",
+        "PRODUCTION",
+    ]
+    return [column for column in priority if column in existing]
 
 
-def _is_product_token_function(function_name: str) -> bool:
-    return str(function_name or "").strip() == "match_product_tokens"
-
-
-def _compact_function_case_preview(rows: list[Any], columns: list[Any], function_name: str) -> tuple[list[dict[str, Any]], list[str]]:
-    if not _is_product_token_function(function_name):
-        clean_columns = _service_columns([str(column) for column in columns], rows)
-        return [row for row in rows if isinstance(row, dict)], clean_columns
-    compact_columns = _product_identity_columns(rows)
+def _compact_function_case_preview(rows: list[Any], columns: list[Any], display_columns: list[str] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+    existing = [str(column) for column in columns if str(column or "").strip()]
+    if not existing:
+        existing = _columns_from_rows(rows)
+    preferred = [str(column) for column in (display_columns or []) if str(column or "").strip()]
+    compact_columns = [column for column in preferred if column in existing] if preferred else _display_columns(existing, rows, [])
     if not compact_columns:
-        compact_columns = _columns_from_rows(rows)
+        compact_columns = existing or _columns_from_rows(rows)
     seen: set[tuple[Any, ...]] = set()
     compact_rows: list[dict[str, Any]] = []
     for row in rows:
@@ -188,30 +330,6 @@ def _compact_function_case_preview(rows: list[Any], columns: list[Any], function
         seen.add(key)
         compact_rows.append(compact_row)
     return compact_rows, compact_columns
-
-
-def _product_identity_columns(rows: list[Any]) -> list[str]:
-    columns: list[str] = []
-    for candidates in (
-        ("TECH",),
-        ("DEN", "DENSITY"),
-        ("MODE",),
-        ("ORG",),
-        ("PKG_TYPE1", "PKG1"),
-        ("PKG_TYPE2", "PKG2"),
-        ("LEAD",),
-        ("MCP_NO",),
-        ("DEVICE",),
-    ):
-        for candidate in candidates:
-            if _row_has_column(rows, candidate):
-                columns.append(candidate)
-                break
-    return columns
-
-
-def _row_has_column(rows: list[Any], column: str) -> bool:
-    return any(isinstance(row, dict) and column in row for row in rows)
 
 
 def _analysis_items(payload: dict[str, Any], key: str) -> list[Any]:
@@ -451,11 +569,11 @@ def _source_result_label(source: Any) -> str:
     return ", ".join(parts) if parts else _display_value(source)
 
 
-def _markdown_table(rows: list[Any], columns: list[Any]) -> str:
+def _markdown_table(rows: list[Any], columns: list[Any], column_labels: dict[str, Any] | None = None) -> str:
     cleaned_columns = [str(column) for column in columns if str(column or "").strip()]
     if not cleaned_columns:
         cleaned_columns = _columns_from_rows(rows)
-    header = "| " + " | ".join(_escape_table_cell(_display_column_label(column)) for column in cleaned_columns) + " |"
+    header = "| " + " | ".join(_escape_table_cell(_display_column_label(column, column_labels)) for column in cleaned_columns) + " |"
     divider = "| " + " | ".join("---" for _ in cleaned_columns) + " |"
     body = []
     for row in rows:
@@ -464,53 +582,21 @@ def _markdown_table(rows: list[Any], columns: list[Any]) -> str:
     return "\n".join([header, divider] + body)
 
 
-def _service_columns(columns: list[Any], rows: list[Any]) -> list[str]:
+def _display_columns(columns: list[Any], rows: list[Any], preferred_columns: list[str] | None = None) -> list[str]:
     existing = [str(column) for column in columns if str(column or "").strip()]
     if not existing:
         existing = _columns_from_rows(rows)
-    priority = [
-        "기준일",
-        "WORK_DATE",
-        "WORK_DT",
-        "공정",
-        "OPER_NAME",
-        "TECH",
-        "DEN",
-        "DENSITY",
-        "MODE",
-        "ORG",
-        "PKG1",
-        "PKG_TYPE1",
-        "PKG2",
-        "PKG_TYPE2",
-        "LEAD",
-        "MCP NO",
-        "MCP_NO",
-        "Device",
-        "DEVICE",
-        "TOTAL_PRODUCTION",
-        "PRODUCTION",
-        "PKG_OUT_QTY",
-        "INPUT_QTY",
-        "BOH_WIP",
-        "TOTAL_WIP",
-        "WIP",
-        "WIP_PER_INPUT",
-        "생산 실적",
-        "재공 수량",
-        "INPUT 수량",
-        "결과값",
-        "지표",
-        "값",
-    ]
-    ordered = [column for column in priority if column in existing]
+    preferred = [str(column) for column in (preferred_columns or []) if str(column or "").strip()]
+    ordered = [column for column in preferred if column in existing]
     ordered.extend(column for column in existing if column not in ordered)
     return ordered
 
 
-def _display_column_label(column: Any) -> str:
+def _display_column_label(column: Any, column_labels: dict[str, Any] | None = None) -> str:
     text = str(column or "")
-    return SERVICE_COLUMN_LABELS.get(text, text)
+    labels = column_labels or {}
+    label = labels.get(text)
+    return str(label) if label not in (None, "") else text
 
 
 def _columns_from_rows(rows: list[Any]) -> list[str]:
@@ -577,6 +663,21 @@ def _display_text(value: Any) -> str:
 
 def _list_value(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item) for item in value if str(item or "").strip()] if isinstance(value, list) else []
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
 
 
 def _truncate(text: str, limit: int) -> str:

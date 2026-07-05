@@ -22,6 +22,8 @@ def build_api_response(payload_value: Any, display_message_value: Any = "") -> d
         "message": display_message,
         "answer_message": answer_message,
         "display_message": display_message,
+        "answer_type": payload.get("answer_type") or payload.get("metadata_qa", {}).get("answer_type", ""),
+        "answer_sections": payload.get("answer_sections", {}),
         "request": payload.get("request", {}),
         "metadata_route": payload.get("metadata_route", {}),
         "metadata_qa": payload.get("metadata_qa", {}),

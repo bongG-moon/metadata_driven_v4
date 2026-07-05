@@ -109,8 +109,24 @@ def _infer_answer_mode(question: str) -> str:
     lowered = question.lower()
     if any(token in lowered for token in ("쿼리", "sql", "query", "select", "with문")):
         return "dataset_sql"
-    if any(token in lowered for token in ("조회 가능", "조회가능", "연결방식", "필수 조건", "필수조건", "데이터들이", "데이터셋", "data catalog")):
+    if _looks_like_data_value_question(lowered):
+        return "data_analysis_redirect"
+    if any(token in lowered for token in ("필수 파라미터", "필수조건", "필수 조건", "required param", "required_param")):
+        return "required_params"
+    if any(token in lowered for token in ("조회 가능", "조회가능", "연결방식", "데이터들이", "데이터셋", "data catalog")):
         return "available_sources"
+    if any(token in lowered for token in ("어떤 데이터", "무슨 데이터", "어느 데이터", "어떤 테이블", "무슨 테이블", "어떤 source", "무슨 source", "어떤 소스")):
+        return "question_to_dataset"
+    if any(token in lowered for token in ("공정 그룹", "세부 공정", "포함", "차수", "공정에는")) and "공정" in lowered:
+        return "process_group"
+    if any(token in lowered for token in ("제품 조건", "제품군", "hbm", "mobile", "pop", "tsv", "3ds")):
+        return "product_condition"
+    if any(token in lowered for token in ("제품 표현", "제품 token", "제품 토큰", "어떻게 찾", "매칭", "token")):
+        return "product_token_rule"
+    if any(token in lowered for token in ("어떤 컬럼", "무슨 컬럼", "컬럼이야", "의미", "정의", "용어")):
+        return "term_definition"
+    if any(token in lowered for token in ("뭐야", "무엇", "설명", "어떤 데이터야", "어떤 source야", "어떤 소스야")) and any(token in lowered for token in ("today", "history", "production", "wip", "target", "equipment", "lot", "hold", "_")):
+        return "dataset_detail"
     if any(token in lowered for token in ("계산 로직", "계산", "로직", "recipe", "function", "함수")):
         return "calculation_logic_list"
     if "pop" in lowered:
@@ -120,14 +136,29 @@ def _infer_answer_mode(question: str) -> str:
     return "general_metadata_search"
 
 
+def _looks_like_data_value_question(lowered: str) -> bool:
+    if any(token in lowered for token in ("메타데이터", "metadata", "등록", "정의", "무슨 컬럼", "어떤 컬럼", "쿼리", "sql", "query", "데이터셋", "필수 조건")):
+        return False
+    has_time_or_target = any(token in lowered for token in ("오늘", "어제", "전일", "금일", "현시간", "현재", "/", "월", "일"))
+    has_metric = any(token in lowered for token in ("생산량", "생산 실적", "실적", "재공", "수량", "투입", "input", "output", "out", "assign", "장비"))
+    asks_value = any(token in lowered for token in ("알려줘", "확인", "보여줘", "몇", "상위", "많은"))
+    return has_metric and asks_value and has_time_or_target
+
+
 def _select_domain_items(question: str, answer_mode: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     if answer_mode == "calculation_logic_list":
         selected = [item for item in items if str(item.get("section") or "") in CALCULATION_SECTIONS]
         return selected[:limit]
-    if answer_mode == "product_domain_info":
+    if answer_mode in {"product_domain_info", "product_condition", "product_token_rule"}:
         return _ranked(question + " pop product 제품", items, limit)
-    if answer_mode == "domain_info":
+    if answer_mode == "process_group":
+        return _ranked(question + " process_groups 공정", items, limit)
+    if answer_mode == "term_definition":
+        return _ranked(question + " quantity_terms metric_terms analysis_recipes", items, limit)
+    if answer_mode in {"domain_info", "question_to_dataset"}:
         return _ranked(question, items, limit)
+    if answer_mode == "data_analysis_redirect":
+        return []
     selected = _ranked(question, items, limit)
     return selected if selected else items[: min(limit, 5)]
 
@@ -135,9 +166,11 @@ def _select_domain_items(question: str, answer_mode: str, items: list[dict[str, 
 def _select_table_items(question: str, answer_mode: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     if answer_mode == "available_sources":
         return items[:limit]
-    if answer_mode == "dataset_sql":
+    if answer_mode in {"dataset_sql", "dataset_detail", "required_params", "question_to_dataset"}:
         selected = _ranked(question, items, limit)
         return selected if selected else items[: min(limit, 5)]
+    if answer_mode == "data_analysis_redirect":
+        return []
     selected = _ranked(question, items, limit)
     return selected[: min(limit, 5)]
 
@@ -145,6 +178,10 @@ def _select_table_items(question: str, answer_mode: str, items: list[dict[str, A
 def _select_filter_items(question: str, answer_mode: str, items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     if answer_mode == "available_sources":
         return items[:limit]
+    if answer_mode in {"required_params", "term_definition", "question_to_dataset"}:
+        return _ranked(question, items, min(limit, 6))
+    if answer_mode == "data_analysis_redirect":
+        return []
     return _ranked(question, items, min(limit, 6))
 
 
@@ -182,10 +219,21 @@ def _tokens(text: str) -> set[str]:
 def _candidate_rows(answer_mode: str, domain_items: list[dict[str, Any]], table_items: list[dict[str, Any]], filter_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if answer_mode in {"dataset_sql", "available_sources"}:
         return [_dataset_row(item) for item in table_items]
+    if answer_mode == "dataset_detail":
+        return [_dataset_detail_row(item) for item in table_items]
+    if answer_mode == "required_params":
+        return [_required_param_row(item) for item in table_items] + [_filter_row(item) for item in filter_items]
+    if answer_mode == "question_to_dataset":
+        rows = [_dataset_row(item) for item in table_items]
+        rows.extend(_domain_row(item, include_section=True) for item in domain_items)
+        rows.extend(_filter_row(item) for item in filter_items)
+        return rows
     if answer_mode == "calculation_logic_list":
         return [_domain_row(item, include_section=True) for item in domain_items]
-    if answer_mode == "product_domain_info":
+    if answer_mode in {"product_domain_info", "product_condition", "product_token_rule", "process_group", "term_definition"}:
         return [_domain_row(item, include_section=True) for item in domain_items]
+    if answer_mode == "data_analysis_redirect":
+        return []
     rows = [_domain_row(item, include_section=True) for item in domain_items]
     rows.extend(_filter_row(item) for item in filter_items)
     rows.extend(_dataset_row(item) for item in table_items)
@@ -207,6 +255,54 @@ def _dataset_row(item: dict[str, Any]) -> dict[str, Any]:
             "description": payload.get("description"),
         }
     )
+
+
+def _dataset_detail_row(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _dict(item.get("payload"))
+    source_config = _dict(payload.get("source_config"))
+    return _omit_empty(
+        {
+            "metadata_type": "table_catalog",
+            "key": item.get("dataset_key") or item.get("key"),
+            "display_name": payload.get("display_name") or item.get("display_name"),
+            "dataset_family": payload.get("dataset_family"),
+            "source_type": payload.get("source_type") or source_config.get("source_type"),
+            "db_key": source_config.get("db_key"),
+            "required_params": _compact_list(payload.get("required_params")),
+            "quantity_columns": _quantity_columns(payload),
+            "filter_mappings": _compact_list(payload.get("filter_mappings")),
+            "description": payload.get("description"),
+        }
+    )
+
+
+def _required_param_row(item: dict[str, Any]) -> dict[str, Any]:
+    payload = _dict(item.get("payload"))
+    source_config = _dict(payload.get("source_config"))
+    return _omit_empty(
+        {
+            "metadata_type": "table_catalog",
+            "key": item.get("dataset_key") or item.get("key"),
+            "display_name": payload.get("display_name") or item.get("display_name"),
+            "required_params": _compact_list(payload.get("required_params")),
+            "source_type": payload.get("source_type") or source_config.get("source_type"),
+            "db_key": source_config.get("db_key"),
+            "filter_mappings": _compact_list(payload.get("filter_mappings")),
+        }
+    )
+
+
+def _quantity_columns(payload: dict[str, Any]) -> str:
+    columns = []
+    for key in ("quantity_column", "quantity_columns", "metric_columns", "measure_columns", "value_columns"):
+        value = payload.get(key)
+        if value not in (None, "", [], {}):
+            columns.append(_compact_list(value))
+    for key in ("column", "aggregation_column"):
+        value = payload.get(key)
+        if value not in (None, "", [], {}) and str(value) not in columns:
+            columns.append(str(value))
+    return ", ".join(item for item in columns if item)
 
 
 def _domain_row(item: dict[str, Any], include_section: bool = False) -> dict[str, Any]:

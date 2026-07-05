@@ -89,7 +89,7 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
     def _has_rows(mask):
         return mask is not None and bool(mask.any())
 
-    # 지정한 역할군의 컬럼들에서 token을 exact/contains/bidirectional 방식으로 찾는다.
+    # 지정한 역할군의 컬럼들에서 token을 exact 또는 prefix 방식으로 찾는다.
     def _match(roles, token, mode):
         selected_columns = []
         for role in roles:
@@ -103,27 +103,12 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
                 current = values == token
             elif mode == 'contains':
                 current = values.str.contains(token, na=False, regex=False)
+            elif mode == 'starts_with':
+                current = values.str.startswith(token, na=False)
             else:
-                current = values.str.contains(token, na=False, regex=False) | values.map(lambda value: bool(value) and value in token)
+                current = values == token
             combined = current if combined is None else (combined | current)
         return combined
-
-    # token 모양을 보고 우선 매칭할 제품 속성 역할을 선택한다.
-    # 예: 96 -> LEAD, 16G -> DEN, DDR4 -> MODE, FCBGA -> PKG1.
-    def _preferred(token):
-        if token.isdigit():
-            return ['LEAD'], 'exact'
-        if token.endswith('G') and token[:-1].isdigit():
-            return ['DEN'], 'contains_bidirectional'
-        if 'DDR' in token or token.startswith('LP'):
-            return ['MODE'], 'contains_bidirectional'
-        if token.endswith('BGA') or token in {'FBGA', 'FCBGA', 'VFBGA', 'UFBGA', 'LFBGA', 'TFBGA', 'WFBGA'}:
-            return ['PKG1'], 'contains_bidirectional'
-        if token in {'SDP', 'DDP', 'QDP', 'ODP'}:
-            return ['PKG2'], 'contains_bidirectional'
-        if token.isalpha() and len(token) <= 3:
-            return ['TECH', 'FAMILY'], 'contains_bidirectional'
-        return [], 'contains_bidirectional'
 
     # token 하나를 DataFrame mask로 변환한다.
     # 특수 규칙은 여기서 처리한다.
@@ -133,54 +118,58 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
         if not token:
             return None
 
-        # FC78, FC96: PKG1은 FCBGA이고 LEAD는 숫자 부분이다.
+        # FC+숫자: PKG1은 FCBGA이고 LEAD는 숫자 부분이다. 예: FC12, FC78, FC344.
         if token.startswith('FC') and token[2:].isdigit():
-            pkg_mask = _match(['PKG1'], 'FCBGA', 'contains')
+            pkg_mask = _match(['PKG1'], 'FCBGA', 'exact')
             lead_mask = _match(['LEAD'], token[2:], 'exact')
             return None if pkg_mask is None or lead_mask is None else (pkg_mask & lead_mask)
 
-        # F78, F96: FCBGA/VFBGA/UFBGA 등 package 종류를 특정하지 않고 LEAD만 적용한다.
+        # F+숫자: FCBGA/VFBGA/UFBGA 등 package 종류를 특정하지 않고 LEAD만 적용한다. 예: F12, F78, F344.
         if token.startswith('F') and token[1:].isdigit():
             return _match(['LEAD'], token[1:], 'exact')
 
-        # L-218, A-663: MCP_NO 앞부분만 입력해도 포함 조건으로 매칭한다.
-        if raw_text.startswith('A-') or raw_text.startswith('L-'):
-            return _match(['MCP_NO'], token, 'contains')
+        # 영문 1자리-숫자3자리(+선택 영숫자) 패턴: MCP_NO 앞부분 입력으로 보고 prefix 조건으로 매칭한다. 예: L-218, B-123, Z-000.
+        if _looks_mcp_no_prefix(raw_text):
+            return _match(['MCP_NO'], token, 'starts_with')
 
-        # x16, X8: 우선 ORG 컬럼에서 x를 제거한 숫자로 매칭한다.
+        # X+숫자: 우선 ORG 컬럼에서 x를 제거한 숫자로 매칭한다. 예: x8, X16, x24.
         if token.startswith('X') and token[1:].isdigit():
-            org_mask = _match(['ORG'], token[1:], 'exact')
-            if _has_rows(org_mask):
-                return org_mask
+            return _match(['ORG'], token[1:], 'exact')
 
-        # token 형태별 우선 역할에서 먼저 찾고, 실패하면 전체 제품 속성 컬럼으로 fallback한다.
-        roles, mode = _preferred(token)
-        preferred_mask = _match(roles, token, mode) if roles else None
-        if _has_rows(preferred_mask):
-            return preferred_mask
-        matched = _match(['ALL'], token, 'contains_bidirectional')
-        if _has_rows(matched):
-            return matched
+        # token 모양으로 컬럼 역할을 먼저 제한하지 않고, 모든 구조화 제품 후보 속성 컬럼에서 exact 매칭한다.
+        # DEVICE_DESC는 자유 텍스트 설명 컬럼이므로 token 포함 여부를 보조적으로 확인한다.
+        matched = _match(['ALL'], token, 'exact')
+        desc_matched = _match(['DEVICE_DESC'], token, 'contains')
+        if matched is None:
+            matched = desc_matched
+        elif desc_matched is not None:
+            matched = matched | desc_matched
+        return matched if _has_rows(matched) else None
 
-        # 컬럼과 직접 매칭되지 않았지만 token 안에 X가 있으면 X를 제거하고 다시 매칭한다.
-        if 'X' in token:
-            without_x = token.replace('X', '')
-            if without_x:
-                org_mask = _match(['ORG'], without_x, 'exact')
-                if _has_rows(org_mask):
-                    return org_mask
-                return _match(['ALL'], without_x, 'contains_bidirectional')
-        return matched
+    def _looks_mcp_no_prefix(value):
+        text = str(value or '').strip().upper()
+        if '-' not in text:
+            return False
+        prefix, suffix = text.split('-', 1)
+        if len(prefix) != 1 or not ('A' <= prefix <= 'Z'):
+            return False
+        if len(suffix) < 3 or not suffix[:3].isdigit():
+            return False
+        return all(('A' <= ch <= 'Z') or ('0' <= ch <= '9') for ch in suffix[3:])
 
     # 콤마로 나뉜 제품 묶음은 OR로 결합하고, 한 제품 안의 token들은 AND로 결합한다.
     final_mask = None
     for group in groups:
         group_mask = None
+        group_failed = False
         for token in group:
             current = _token_mask(token)
             if current is None:
-                continue
+                group_failed = True
+                break
             group_mask = current if group_mask is None else (group_mask & current)
+        if (group_failed or group_mask is None) and group:
+            group_mask = result.index.to_series().map(lambda _: False)
         if group_mask is not None:
             final_mask = group_mask if final_mask is None else (final_mask | group_mask)
 

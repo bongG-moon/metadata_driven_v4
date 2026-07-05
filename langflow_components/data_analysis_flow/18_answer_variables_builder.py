@@ -114,6 +114,9 @@ def _answer_context(payload: dict[str, Any]) -> dict[str, Any]:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     step_outputs = _list(analysis.get("step_outputs")) or _list(pandas_execution.get("step_outputs"))
     function_case_results = _list(analysis.get("function_case_results")) or _list(pandas_execution.get("function_case_results"))
+    rows = _list(data.get("rows"))
+    columns = _list(data.get("columns")) or _columns_from_rows(rows)
+    metric_columns = _metric_columns(columns, rows)
     return {
         "number_display_policy": {
             "under_10000": "comma_full_number",
@@ -123,12 +126,145 @@ def _answer_context(payload: dict[str, Any]) -> dict[str, Any]:
         "result_shape": _omit_empty(
             {
                 "row_count": data.get("row_count", analysis.get("row_count")),
-                "columns": data.get("columns") or analysis.get("columns"),
+                "columns": columns or analysis.get("columns"),
+            }
+        ),
+        "applied_criteria": _applied_criteria(payload),
+        "result_interpretation_hints": _omit_empty(
+            {
+                "is_empty_result": _int(data.get("row_count"), len(rows)) == 0 and not rows,
+                "has_zero_values": _has_zero_values(rows),
+                "primary_metric_columns": metric_columns,
+                "primary_dimension_columns": _dimension_columns(columns, metric_columns),
             }
         ),
         "step_outputs": deepcopy(step_outputs),
         "function_case_results": deepcopy(function_case_results),
+        "next_question_candidates": _next_question_candidates(data),
     }
+
+
+def _applied_criteria(payload: dict[str, Any]) -> dict[str, Any]:
+    plan = _dict(payload.get("intent_plan"))
+    required_params: dict[str, Any] = {}
+    analysis_filters: dict[str, Any] = {}
+    datasets: list[dict[str, Any]] = []
+    for job in _list(plan.get("retrieval_jobs")):
+        if not isinstance(job, dict):
+            continue
+        alias = str(job.get("source_alias") or job.get("dataset_key") or "").strip()
+        dataset_key = str(job.get("dataset_key") or "").strip()
+        if dataset_key or alias:
+            datasets.append(_omit_empty({"dataset_key": dataset_key, "source_alias": alias, "source_type": job.get("source_type")}))
+        params = _dict(job.get("required_params"))
+        if params:
+            required_params[alias or dataset_key or f"job_{len(required_params) + 1}"] = deepcopy(params)
+        filters = _dict(job.get("filters"))
+        if filters:
+            analysis_filters[alias or dataset_key or f"job_{len(analysis_filters) + 1}"] = deepcopy(filters)
+    for source in _list(payload.get("source_results")):
+        if not isinstance(source, dict):
+            continue
+        alias = str(source.get("source_alias") or source.get("dataset_key") or "").strip()
+        dataset_key = str(source.get("dataset_key") or "").strip()
+        params = _dict(source.get("applied_params"))
+        if params:
+            required_params[alias or dataset_key or f"source_{len(required_params) + 1}"] = deepcopy(params)
+        filters = _dict(source.get("pandas_filters")) or _dict(source.get("applied_filters"))
+        if filters:
+            analysis_filters[alias or dataset_key or f"source_{len(analysis_filters) + 1}"] = deepcopy(filters)
+    return _omit_empty(
+        {
+            "required_params": required_params,
+            "analysis_filters": analysis_filters,
+            "datasets": _dedupe_dicts(datasets),
+            "group_by": _group_by_columns(_list(plan.get("pandas_execution_plan"))),
+        }
+    )
+
+
+def _columns_from_rows(rows: list[Any]) -> list[str]:
+    columns: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in row:
+            text = str(key)
+            if text not in columns:
+                columns.append(text)
+    return columns
+
+
+def _has_zero_values(rows: list[Any]) -> bool:
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for value in row.values():
+            if isinstance(value, bool):
+                continue
+            try:
+                if float(value) == 0:
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def _metric_columns(columns: list[Any], rows: list[Any]) -> list[str]:
+    result: list[str] = []
+    for column in columns:
+        text = str(column)
+        if _column_has_numeric_value(rows, text):
+            result.append(text)
+    return result
+
+
+def _dimension_columns(columns: list[Any], metric_columns: list[str]) -> list[str]:
+    metric_set = set(metric_columns)
+    return [str(column) for column in columns if str(column) not in metric_set]
+
+
+def _column_has_numeric_value(rows: list[Any], column: str) -> bool:
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        value = row.get(column)
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, str):
+            continue
+        try:
+            number = float(value)
+        except Exception:
+            continue
+        if number != number:
+            continue
+        return True
+    return False
+
+
+def _group_by_columns(pandas_plan: list[Any]) -> list[str]:
+    columns: list[str] = []
+    for step in pandas_plan:
+        if not isinstance(step, dict):
+            continue
+        for key in ("groupby_columns", "group_by", "group_by_columns", "group_columns"):
+            value = step.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    text = str(item or "").strip()
+                    if text and text not in columns:
+                        columns.append(text)
+            elif isinstance(value, str) and value.strip() and value.strip() not in columns:
+                columns.append(value.strip())
+    return columns
+
+
+def _next_question_candidates(data: dict[str, Any]) -> list[str]:
+    row_count = _int(data.get("row_count"), len(_list(data.get("rows"))))
+    if row_count <= 0:
+        return ["조건을 넓혀서 다시 조회할까요?"]
+    return ["이 결과를 제품별 또는 공정별로 더 나눠볼까요?", "원본 데이터 기준으로 상세 행을 확인할까요?"]
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -139,8 +275,27 @@ def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
 def _omit_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if _has_compact_value(item)}
+
+
+def _dedupe_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for item in items:
+        signature = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        result.append(item)
+    return result
 
 
 def _has_compact_value(value: Any) -> bool:

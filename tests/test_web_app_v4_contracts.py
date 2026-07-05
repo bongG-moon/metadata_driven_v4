@@ -198,6 +198,30 @@ def test_web_display_table_uses_auto_k_number_policy() -> None:
 
     displayed = display_table_frame(frame, "auto_k")
 
+    assert displayed.loc[0, "WIP"] == "9,850"
+    assert displayed.loc[0, "PRODUCTION"] == "12.4K"
+
+
+def test_web_display_table_uses_explicit_answer_section_labels_only() -> None:
+    from web_app.app import result_table_display_options
+
+    frame = pd.DataFrame(
+        [
+            {"DEVICE": "DEV-A", "WIP": 9850, "PRODUCTION": 12400},
+        ]
+    )
+    result = {
+        "answer_sections": {
+            "result_table": {
+                "column_labels": {"WIP": "재공수량", "PRODUCTION": "생산량"},
+                "display_columns": ["PRODUCTION", "DEVICE", "WIP"],
+            }
+        }
+    }
+
+    displayed = display_table_frame(frame, "auto_k", **result_table_display_options(result))
+
+    assert list(displayed.columns) == ["생산량", "DEVICE", "재공수량"]
     assert displayed.loc[0, "재공수량"] == "9,850"
     assert displayed.loc[0, "생산량"] == "12.4K"
 

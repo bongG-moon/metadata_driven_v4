@@ -373,6 +373,8 @@ def normalize_query_response(api_response: Any) -> dict[str, Any]:
         "plain_answer_message": plain_answer,
         "display_message": answer,
         "message": answer,
+        "answer_sections": _as_dict(payload.get("answer_sections")),
+        "answer_type": str(payload.get("answer_type") or ""),
         "data": data,
         "applied_scope": applied_scope,
         "intent_plan": intent_plan or intent,

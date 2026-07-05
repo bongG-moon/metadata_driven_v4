@@ -23,8 +23,18 @@ def build_variables(payload_value: Any) -> dict[str, str]:
 
 def _output_schema() -> dict[str, Any]:
     return {
+        "answer_type": "string",
         "answer_message": "string",
         "summary": "string",
+        "answer_sections": {
+            "summary": {"headline": "string", "description": "string"},
+            "detail_table": {"title": "string", "columns": ["string"], "rows": [{"column": "value"}]},
+            "sql_blocks": [{"label": "string", "sql": "string"}],
+            "usage_examples": ["string"],
+            "related_items": [{"metadata_type": "string", "key": "string"}],
+            "route_hint": {"target_route": "string", "message": "string"},
+            "warnings": [{"type": "string", "message": "string"}],
+        },
         "table": {"columns": ["string"], "rows": [{"column": "value"}]},
         "source_refs": [{"metadata_type": "string", "key": "string"}],
         "warnings": [{"type": "string", "message": "string"}],

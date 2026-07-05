@@ -175,7 +175,7 @@ def token_variant_cases() -> list[dict[str, Any]]:
             input_text="FC78",
             filters={"OPER_NAME": {"operator": "eq", "value": "W/B1"}},
             columns=["DEVICE", "PKG1", "LEAD", "WIP"],
-            expected_devices=["CP-X8"],
+            expected_devices=["CP-X8", "DEV-SP-DDR5-FCBGA78"],
         ),
         token_case(
             case_id="f78_lead_only",
@@ -183,7 +183,7 @@ def token_variant_cases() -> list[dict[str, Any]]:
             input_text="F78",
             filters={"OPER_NAME": {"operator": "eq", "value": "W/B1"}},
             columns=["DEVICE", "PKG1", "LEAD", "WIP"],
-            expected_devices=["CP-X8", "CP-F78-V"],
+            expected_devices=["CP-X8", "CP-F78-V", "DEV-SP-DDR5-FCBGA78"],
         ),
         token_case(
             case_id="fc96_pkg_and_lead",

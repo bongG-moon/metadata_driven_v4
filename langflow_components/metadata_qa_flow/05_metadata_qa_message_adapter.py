@@ -16,6 +16,12 @@ def build_message(payload_value: Any) -> str:
     payload = _payload(payload_value)
     if not payload:
         return ""
+    answer_sections = payload.get("answer_sections") if isinstance(payload.get("answer_sections"), dict) else {}
+    if answer_sections:
+        sections = _message_from_answer_sections(payload, answer_sections)
+        if sections:
+            return "\n\n".join(sections)
+
     sections = []
     answer = str(payload.get("answer_message") or payload.get("message") or "").strip()
     if answer:
@@ -37,6 +43,85 @@ def build_message(payload_value: Any) -> str:
     if warning_section:
         sections.append(warning_section)
     return "\n\n".join(sections) if sections else json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _message_from_answer_sections(payload: dict[str, Any], answer_sections: dict[str, Any]) -> list[str]:
+    sections: list[str] = []
+    summary = _dict(answer_sections.get("summary"))
+    answer = str(summary.get("headline") or payload.get("answer_message") or payload.get("message") or "").strip()
+    if answer:
+        sections.append("### 답변\n" + answer)
+
+    detail_section = _detail_table_section(_dict(answer_sections.get("detail_table")))
+    if detail_section:
+        sections.append(detail_section)
+
+    sql_section = _sql_section(answer_sections.get("sql_blocks"))
+    if sql_section:
+        sections.append(sql_section)
+
+    examples_section = _usage_examples_section(answer_sections.get("usage_examples"))
+    if examples_section:
+        sections.append(examples_section)
+
+    route_hint_section = _route_hint_section(_dict(answer_sections.get("route_hint")))
+    if route_hint_section:
+        sections.append(route_hint_section)
+
+    related_section = _refs_section(answer_sections.get("related_items") or _dict(payload.get("metadata_qa")).get("source_refs"))
+    if related_section:
+        sections.append(related_section)
+
+    warning_section = _section_warnings(answer_sections.get("warnings")) or _warning_section(_dict(payload.get("trace")))
+    if warning_section:
+        sections.append(warning_section)
+    return sections
+
+
+def _detail_table_section(detail_table: dict[str, Any]) -> str:
+    rows = _row_list(detail_table.get("rows"))
+    columns = _string_list(detail_table.get("columns")) or _columns_from_rows(rows)
+    if not rows:
+        return ""
+    title = str(detail_table.get("title") or "관련 메타데이터").strip()
+    preview_rows = rows[:TABLE_LIMIT]
+    row_count = int(detail_table.get("row_count") or len(rows))
+    note = f"\n\n총 {row_count}건 중 {len(preview_rows)}건을 표시했습니다." if row_count > len(preview_rows) else f"\n\n총 {row_count}건입니다."
+    return f"### {title}\n" + _markdown_table(preview_rows, columns) + note
+
+
+def _usage_examples_section(value: Any) -> str:
+    examples = [str(item).strip() for item in value if str(item or "").strip()] if isinstance(value, list) else []
+    if not examples:
+        return ""
+    lines = ["### 사용 예시"]
+    lines.extend(f"- {example}" for example in examples[:5])
+    return "\n".join(lines)
+
+
+def _route_hint_section(route_hint: dict[str, Any]) -> str:
+    if not route_hint:
+        return ""
+    message = str(route_hint.get("message") or "").strip()
+    target_route = str(route_hint.get("target_route") or "").strip()
+    lines = ["### 권장 실행 경로"]
+    if target_route:
+        lines.append(f"- 대상 route: `{target_route}`")
+    if message:
+        lines.append(f"- 안내: {message}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _section_warnings(value: Any) -> str:
+    warnings = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    if not warnings:
+        return ""
+    lines = ["### 참고"]
+    for item in warnings[:8]:
+        message = str(item.get("message") or item.get("type") or "").strip()
+        if message:
+            lines.append(f"- {message}")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _sql_section(sql_blocks_value: Any) -> str:

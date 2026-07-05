@@ -807,7 +807,7 @@ def test_data_analysis_langflow_dummy_path_reaches_api_response():
     assert "pandas 필터" in playground_message
     assert "### pandas 코드/실행" in playground_message
     assert "df = sources['wip_data']" in playground_message
-    assert "| 공정 | WIP 합계 |" in playground_message
+    assert "| OPER_NAME | wip_sum |" in playground_message
 
 
 def test_answer_message_adapter_result_table_uses_ten_row_preview():
@@ -849,7 +849,7 @@ def test_answer_message_adapter_formats_numbers_and_shows_recorded_outputs():
                     "function_name": "sample_helper",
                     "input_text": "DEV-A",
                     "description": "특화 함수 결과",
-                    "matched_count": 1,
+                    "matched_count": 12,
                     "columns": ["DEVICE", "WIP"],
                     "preview_rows": [{"DEVICE": "DEV-A", "WIP": 12000}],
                 }
@@ -869,6 +869,217 @@ def test_answer_message_adapter_formats_numbers_and_shows_recorded_outputs():
     assert "### 분석 근거" in message
     assert "12K" in message
     assert "9,850" in message
+
+
+def test_answer_message_adapter_compacts_product_token_match_preview():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "analysis": {
+            "status": "ok",
+            "function_case_results": [
+                {
+                    "function_name": "match_product_tokens",
+                    "input_text": "RG 8G DDR4 x16 96 FCBGA SDP",
+                    "description": "제품 속성 token 매칭 결과",
+                    "matched_count": 12,
+                    "columns": [
+                        "WORK_DATE",
+                        "SHIFT",
+                        "FACTORY",
+                        "FAB",
+                        "TECH",
+                        "DENSITY",
+                        "MODE",
+                        "ORG",
+                        "PKG1",
+                        "PKG2",
+                        "LEAD",
+                        "MCP_NO",
+                        "DEVICE",
+                        "DEVICE_DESC",
+                        "WIP",
+                    ],
+                    "preview_rows": [
+                        {
+                            "WORK_DATE": "20260705",
+                            "SHIFT": "1",
+                            "FACTORY": "PNT",
+                            "FAB": "PKG",
+                            "TECH": "RG",
+                            "DENSITY": "8G",
+                            "MODE": "DDR4",
+                            "ORG": "16",
+                            "PKG1": "FCBGA",
+                            "PKG2": "SDP",
+                            "LEAD": "96",
+                            "MCP_NO": "L-218K8H",
+                            "DEVICE": "RG-X16",
+                            "DEVICE_DESC": "RG 8G DDR4 X16 96 FCBGA SDP",
+                            "WIP": 10,
+                        }
+                    ],
+                }
+            ],
+        },
+        "data": {"columns": [], "rows": [], "row_count": 0},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert "**제품 속성 token 매칭 결과**" in message
+    assert "- 입력: `RG 8G DDR4 x16 96 FCBGA SDP`" in message
+    assert "- 전체 매칭: `12`건" in message
+    assert "- 미리보기: `1`건 표시" in message
+    assert "\n\n| TECH | DENSITY | MODE | ORG | PKG1 | PKG2 | LEAD | MCP_NO | DEVICE | DEVICE_DESC | WIP |" in message
+    assert "| TECH | DENSITY | MODE | ORG | PKG1 | PKG2 | LEAD | MCP_NO | DEVICE | DEVICE_DESC | WIP |" in message
+    assert "WORK_DATE" not in message
+    assert "SHIFT" not in message
+    assert "FACTORY" not in message
+
+
+def test_answer_message_adapter_splits_long_plain_answer_into_paragraphs():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    long_answer = (
+        "오늘 DA 공정에서 제품별로 총 4개 제품의 생산량이 집계되었습니다. "
+        "가장 많은 생산량을 보인 제품은 DEV002로 1,785개 생산되었습니다. "
+        "이 외 DEV001은 1,341개, DEV003은 455개, DEV004는 307개 생산되었습니다. "
+        "이는 DA 공정 생산량 데이터를 기준으로 분석한 결과입니다."
+    )
+    payload = {
+        "answer_message": long_answer,
+        "data": {"columns": [], "rows": [], "row_count": 0},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert "집계되었습니다.\n\n가장 많은 생산량" in message
+    assert "생산되었습니다.\n\n이 외" in message
+    assert "생산되었습니다.\n\n이는 DA" in message
+
+
+def test_answer_message_adapter_uses_explicit_column_labels_only():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    module_text = (ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py").read_text(encoding="utf-8")
+
+    assert "SERVICE_COLUMN_LABELS" not in module_text
+    assert "_product_identity_columns" not in module_text
+    assert '"TOTAL_PRODUCTION":' not in module_text
+
+    payload = {
+        "answer_sections": {
+            "summary": {"headline": "표시명 테스트입니다."},
+            "result_table": {
+                "columns": ["RAW_DIM", "RAW_VALUE"],
+                "display_columns": ["RAW_VALUE", "RAW_DIM"],
+                "column_labels": {"RAW_DIM": "분류", "RAW_VALUE": "값"},
+                "rows": [{"RAW_DIM": "A", "RAW_VALUE": 12000}],
+                "display_rows": [{"RAW_DIM": "A", "RAW_VALUE": "12K"}],
+                "row_count": 1,
+            },
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    message = message_adapter.build_message(payload)
+
+    assert "| 값 | 분류 |" in message
+    assert "| 12K | A |" in message
+
+
+def test_data_analysis_answer_response_builds_sections_for_api_and_message():
+    answer_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "20_answer_response_builder.py")
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    api_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "22_api_response_builder.py")
+    payload = {
+        "request": {"question": "현재 재공이 가장 많은 제품 알려줘"},
+        "intent_plan": {
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "wip_today",
+                    "source_alias": "wip_data",
+                    "source_type": "oracle",
+                    "required_params": {"DATE": "20260705"},
+                    "filters": {"OPER_NAME": {"operator": "in", "value": ["D/A1", "D/A2"]}},
+                }
+            ],
+            "pandas_execution_plan": [{"groupby_columns": ["DEVICE"], "aggregate_column": "WIP"}],
+        },
+        "source_results": [
+            {
+                "dataset_key": "wip_today",
+                "source_alias": "wip_data",
+                "source_type": "oracle",
+                "row_count": 3,
+                "applied_params": {"DATE": "20260705"},
+                "pandas_filters": {"OPER_NAME": {"operator": "in", "value": ["D/A1", "D/A2"]}},
+            }
+        ],
+        "analysis": {
+            "status": "ok",
+            "step_outputs": [
+                {
+                    "key": "top_wip_product",
+                    "description": "현재 재공이 가장 많은 제품",
+                    "row_count": 1,
+                    "columns": ["DEVICE", "WIP"],
+                    "preview_rows": [{"DEVICE": "DEV-A", "WIP": 12500}],
+                }
+            ],
+        },
+        "data": {
+            "columns": ["DEVICE", "WIP"],
+            "rows": [{"DEVICE": "DEV-A", "WIP": 12500}],
+            "row_count": 1,
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {"pandas_execution": {"generated_code": "result = df"}}},
+    }
+
+    payload = answer_builder.build_answer_response(payload, "현재 재공이 가장 많은 제품은 DEV-A이고, 재공수량은 12.5K입니다.")
+    message = message_adapter.build_message(payload)
+    diagnostic_message = message_adapter.build_message(payload, "", True)
+    api_response = api_builder.build_api_response(payload, message)
+
+    assert payload["answer_sections"]["result_table"]["display_rows"][0]["WIP"] == "12.5K"
+    assert payload["answer_sections"]["result_table"]["rows"][0]["WIP"] == 12500
+    assert payload["answer_sections"]["applied_criteria"]["required_params"]["wip_data"] == {"DATE": "20260705"}
+    assert "### 적용 기준" in message
+    assert "### pandas 코드/실행" not in message
+    assert "### pandas 코드/실행" in diagnostic_message
+    assert api_response["answer_sections"]["result_table"]["row_count"] == 1
+    assert api_response["answer_sections"]["result_table"]["rows"][0]["WIP"] == 12500
+
+
+def test_answer_response_accepts_19_special_guidance_display_metadata():
+    answer_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "20_answer_response_builder.py")
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "data": {
+            "columns": ["OPER_NAME", "wip_sum"],
+            "rows": [{"OPER_NAME": "D/A1", "wip_sum": 12500}],
+            "row_count": 1,
+        },
+        "analysis": {"status": "ok"},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    llm_answer = {
+        "answer_message": "D/A1 공정의 WIP 합계는 12.5K입니다.",
+        "answer_sections": {
+            "result_table": {
+                "column_labels": {"OPER_NAME": "공정", "wip_sum": "WIP 합계"},
+                "display_columns": ["wip_sum", "OPER_NAME"],
+            }
+        },
+    }
+
+    payload = answer_builder.build_answer_response(payload, llm_answer)
+    message = message_adapter.build_message(payload)
+
+    assert payload["answer_sections"]["result_table"]["column_labels"] == {"OPER_NAME": "공정", "wip_sum": "WIP 합계"}
+    assert payload["answer_sections"]["result_table"]["display_columns"] == ["wip_sum", "OPER_NAME"]
+    assert "| WIP 합계 | 공정 |" in message
+    assert "| 12.5K | D/A1 |" in message
 
 
 def test_intent_normalizer_parses_langflow_message_text_with_nested_json():
@@ -1022,9 +1233,9 @@ def test_pandas_executor_prepends_non_required_filters_before_aggregation():
         },
         "runtime_sources": {
             "production_data": [
-                {"WORK_DATE": "20260701", "OPER_NAME": "D/A1", "TECH": "1Z", "DEN": "16G", "MODE": "LPDDR5", "PKG_TYPE1": "LFBGA", "PKG_TYPE2": "POP", "LEAD": "200", "MCP_NO": "MCP001", "DEVICE": "DEV001", "PRODUCTION": 1000},
-                {"WORK_DATE": "20260701", "OPER_NAME": "D/A2", "TECH": "1A", "DEN": "24G", "MODE": "HBM3E", "PKG_TYPE1": "HBM", "PKG_TYPE2": "TSV", "LEAD": "300", "MCP_NO": "MCPHBM", "DEVICE": "DEV-HBM", "PRODUCTION": 700},
-                {"WORK_DATE": "20260701", "OPER_NAME": "W/B1", "TECH": "1B", "DEN": "32G", "MODE": "LPDDR5X", "PKG_TYPE1": "UFBGA", "PKG_TYPE2": "MOBILE", "LEAD": "180", "MCP_NO": "MCP002", "DEVICE": "DEV002", "PRODUCTION": 650},
+                {"WORK_DATE": "20260701", "OPER_NAME": "D/A1", "TECH": "1Z", "DEN": "16G", "MODE": "LPDDR5", "PKG_TYPE1": "LFBGA", "PKG_TYPE2": "POP", "LEAD": "200", "MCP_NO": "M-001", "DEVICE": "DEV001", "PRODUCTION": 1000},
+                {"WORK_DATE": "20260701", "OPER_NAME": "D/A2", "TECH": "1A", "DEN": "24G", "MODE": "HBM3E", "PKG_TYPE1": "HBM", "PKG_TYPE2": "TSV", "LEAD": "300", "MCP_NO": "H-001", "DEVICE": "DEV-HBM", "PRODUCTION": 700},
+                {"WORK_DATE": "20260701", "OPER_NAME": "W/B1", "TECH": "1B", "DEN": "32G", "MODE": "LPDDR5X", "PKG_TYPE1": "UFBGA", "PKG_TYPE2": "MOBILE", "LEAD": "180", "MCP_NO": "M-002", "DEVICE": "DEV002", "PRODUCTION": 650},
             ]
         },
         "trace": {"warnings": [], "errors": [], "inspection": {}},
@@ -1108,7 +1319,8 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
 
     message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
     helper_message = message_adapter.build_message(helper_result)
-    assert "### 제품/조건 매핑 결과" in helper_message
+    assert "### 분석 근거" in helper_message
+    assert "제품 속성 token 매칭 결과" in helper_message
     assert "DA 16G GDDR6 180" in helper_message
     assert "def match_product_tokens" not in helper_message
     helper_diagnostic_message = message_adapter.build_message(helper_result, "", True)
@@ -1172,6 +1384,150 @@ def test_match_product_tokens_handles_org_x_lead_mcp_and_multiple_products():
     assert [row["DEVICE"] for row in fc96["data"]["rows"]] == ["RG-X16", "RG-WRONG-ORG", "CP-WRONG-LEAD"]
     assert [row["DEVICE"] for row in f96["data"]["rows"]] == ["RG-X16", "RG-F96-V", "RG-WRONG-ORG", "CP-WRONG-LEAD"]
     assert [row["MCP_NO"] for row in mcp["data"]["rows"]] == ["L-218K8H", "L-216A1", "A-663Z9"]
+
+
+def test_match_product_tokens_scans_all_candidate_columns_without_preferred_role_lock():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "product_data": [
+                {"TECH": "RG", "DENSITY": "8G", "MODE": "DDR4", "ORG": "8", "LEAD": "96", "DEVICE": "TECH-RG", "DEVICE_DESC": "plain", "WIP": 1},
+                {"TECH": "XX", "DENSITY": "4G", "MODE": "SDR", "ORG": "4", "LEAD": "12", "DEVICE": "RG", "DEVICE_DESC": "RG SPECIAL", "WIP": 2},
+                {"TECH": "ZZ", "DENSITY": "8G", "MODE": "SDR", "ORG": "16", "LEAD": "12", "DEVICE": "ONLY-16", "DEVICE_DESC": "group 16", "WIP": 3},
+                {"TECH": "ZZ", "DENSITY": "16G", "MODE": "SDR", "ORG": "8", "LEAD": "12", "DEVICE": "DEN-16G", "DEVICE_DESC": "density product", "WIP": 4},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    rg_result = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('RG', sources['product_data'])\nresult = df[['DEVICE']]"},
+    )
+    density_result = pandas_executor.execute_pandas_code(
+        payload,
+        {"code": function_case_source("match_product_tokens") + "\n\ndf = match_product_tokens('16G', sources['product_data'])\nresult = df[['DEVICE']]"},
+    )
+
+    assert rg_result["analysis"]["status"] == "ok"
+    assert [row["DEVICE"] for row in rg_result["data"]["rows"]] == ["TECH-RG", "RG"]
+    assert [row["DEVICE"] for row in density_result["data"]["rows"]] == ["DEN-16G"]
+
+
+def test_match_product_tokens_generalizes_special_pattern_rules():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "product_data": [
+                {"PKG1": "FCBGA", "LEAD": "12", "ORG": "24", "MCP_NO": "L-999A1", "DEVICE": "FC12-X24-L999"},
+                {"PKG1": "VFBGA", "LEAD": "12", "ORG": "24", "MCP_NO": "A-777Z1", "DEVICE": "F12-X24-A777"},
+                {"PKG1": "FCBGA", "LEAD": "20", "ORG": "16", "MCP_NO": "L-200B1", "DEVICE": "FC20-X16-L200"},
+                {"PKG1": "UFBGA", "LEAD": "344", "ORG": "8", "MCP_NO": "A-344C1", "DEVICE": "F344-UFBGA"},
+                {"PKG1": "FCBGA", "LEAD": "344", "ORG": "24", "MCP_NO": "L-344D1", "DEVICE": "FC344-FCBGA"},
+                {"PKG1": "BGA", "LEAD": "55", "ORG": "4", "MCP_NO": "B-123C1", "DEVICE": "B123-MCP"},
+                {"PKG1": "BGA", "LEAD": "56", "ORG": "4", "MCP_NO": "Z-000D1", "DEVICE": "Z000-MCP"},
+                {"PKG1": "BGA", "LEAD": "57", "ORG": "4", "MCP_NO": "Q-555A9", "DEVICE": "Q555-MCP"},
+                {"PKG1": "BGA", "LEAD": "24", "ORG": "99", "MCP_NO": "N-024X1", "DEVICE": "LEAD24-NOT-X24"},
+                {"TECH": "SP", "DENSITY": "16G", "MODE": "DDR5", "ORG": "4", "PKG1": "FCBGA", "PKG2": "SDP", "LEAD": "78", "MCP_NO": "", "DEVICE": "DEV-SP-DDR5-FCBGA78", "DEVICE_DESC": "SP 16G DDR5 2ND X4 78 FCBGA SDP"},
+                {"TECH": "ZZ", "DENSITY": "99G", "MODE": "DDR5", "ORG": "4", "PKG1": "FCBGA", "PKG2": "SDP", "LEAD": "78", "MCP_NO": "S-111A1", "DEVICE": "MCP-PREFIX-CONTROL"},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    cases = {
+        "FC12": ["FC12-X24-L999"],
+        "FC20": ["FC20-X16-L200"],
+        "F344": ["F344-UFBGA", "FC344-FCBGA"],
+        "x24": ["FC12-X24-L999", "F12-X24-A777", "FC344-FCBGA"],
+        "L-999": ["FC12-X24-L999"],
+        "A-777": ["F12-X24-A777"],
+        "B-123": ["B123-MCP"],
+        "Z-000": ["Z000-MCP"],
+        "Q-555": ["Q555-MCP"],
+        "x99": ["LEAD24-NOT-X24"],
+        "SP 16G DDR5 2ND X4 78 FCBGA SDP": ["DEV-SP-DDR5-FCBGA78"],
+    }
+
+    for query, expected_devices in cases.items():
+        result = pandas_executor.execute_pandas_code(
+            payload,
+            {
+                "code": (
+                    function_case_source("match_product_tokens")
+                    + f"\n\ndf = match_product_tokens({query!r}, sources['product_data'])\n"
+                    + "result = df[['DEVICE']]"
+                )
+            },
+        )
+
+        assert result["analysis"]["status"] == "ok"
+        assert [row["DEVICE"] for row in result["data"]["rows"]] == expected_devices
+
+    desc_token_only = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\ndf = match_product_tokens('2ND', sources['product_data'])\n"
+                + "result = df[['DEVICE']]"
+            )
+        },
+    )
+    unknown_token_only = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\ndf = match_product_tokens('UNKNOWN_TOKEN', sources['product_data'])\n"
+                + "result = df[['DEVICE']]"
+            )
+        },
+    )
+
+    assert desc_token_only["analysis"]["status"] == "ok"
+    assert desc_token_only["data"]["rows"] == [{"DEVICE": "DEV-SP-DDR5-FCBGA78"}]
+    assert unknown_token_only["analysis"]["status"] == "ok"
+    assert unknown_token_only["data"]["rows"] == []
+
+
+def test_match_product_tokens_requires_all_tokens_per_product_group():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "wip_data": [
+                {"TECH": "1Z", "DENSITY": "16G", "MODE": "LPDDR5", "ORG": "PKG", "PKG1": "LFBGA", "PKG2": "POP", "LEAD": "200", "MCP_NO": "M-001", "DEVICE": "DEV001", "DEVICE_DESC": "LPDDR5 sample", "WIP": 128},
+                {"TECH": "RG", "DENSITY": "32G", "MODE": "DDR4", "ORG": "DDP", "PKG1": "FBGA", "PKG2": "DDP", "LEAD": "96", "MCP_NO": "", "DEVICE": "DEV-RG-DDR4", "DEVICE_DESC": "RG 32G DDR4 FBGA 96 DDP product", "WIP": 77},
+                {"TECH": "SP", "DENSITY": "16G", "MODE": "DDR5", "ORG": "4", "PKG1": "FCBGA", "PKG2": "SDP", "LEAD": "78", "MCP_NO": "", "DEVICE": "DEV-SP-DDR5", "DEVICE_DESC": "SP 16G DDR5 2ND X4 78 FCBGA SDP product", "WIP": 60},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    strict_no_partial = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\ndf = match_product_tokens('RG 8G DDR4 x16 96 FCBGA SDP, CP 16G DDR x8 78 FCBGA SDP', sources['wip_data'])\n"
+                + "result = df[['DEVICE']]"
+            )
+        },
+    )
+    desc_supported = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\ndf = match_product_tokens('SP 16G DDR5 2ND X4 78 FCBGA SDP', sources['wip_data'])\n"
+                + "result = df[['DEVICE']]"
+            )
+        },
+    )
+
+    assert strict_no_partial["analysis"]["status"] == "ok"
+    assert strict_no_partial["data"]["rows"] == []
+    assert desc_supported["analysis"]["status"] == "ok"
+    assert desc_supported["data"]["rows"] == [{"DEVICE": "DEV-SP-DDR5"}]
 
 
 def test_answer_message_adapter_skips_duplicate_result_table_when_answer_has_table():
@@ -1686,7 +2042,7 @@ def test_pandas_filter_preamble_handles_compound_null_empty_filters_and_repair_s
         "runtime_sources": {
             "production": [
                 {"MODE": "LPDDR5", "PKG1": "LFBGA", "MCP_NO": "", "DEVICE": "MOBILE-1", "PRODUCTION": 10},
-                {"MODE": "LPDDR5", "PKG1": "LFBGA", "MCP_NO": "MCP001", "DEVICE": "POP-1", "PRODUCTION": 99},
+                {"MODE": "LPDDR5", "PKG1": "LFBGA", "MCP_NO": "P-001", "DEVICE": "POP-1", "PRODUCTION": 99},
                 {"MODE": "DDR4", "PKG1": "FBGA", "MCP_NO": "", "DEVICE": "OTHER-1", "PRODUCTION": 88},
             ]
         },
@@ -2818,6 +3174,70 @@ def test_metadata_qa_flow_reads_v4_metadata_and_emits_api_contract(monkeypatch):
     assert api_response["response_type"] == "metadata_qa"
     assert "metadata_qa_context" not in api_response
     assert "agent_v4_result_store" not in store["datagov"]
+
+
+def test_metadata_qa_sections_support_process_group_and_data_redirect():
+    context_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "02_metadata_qa_context_builder.py")
+    normalizer = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "04_metadata_qa_response_normalizer.py")
+    message_adapter = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "05_metadata_qa_message_adapter.py")
+    api_builder = load_module(ROOT / "langflow_components" / "metadata_qa_flow" / "06_metadata_qa_api_response_builder.py")
+    domain_items = {
+        "domain_items": [
+            {
+                "section": "process_groups",
+                "key": "DA",
+                "payload": {
+                    "display_name": "D/A",
+                    "aliases": ["DA", "D/A"],
+                    "processes": ["D/A1", "D/A2", "D/A3"],
+                },
+            }
+        ]
+    }
+    table_items = {
+        "table_catalog_items": [
+            {
+                "dataset_key": "production_today",
+                "payload": {
+                    "display_name": "Production Today",
+                    "dataset_family": "production",
+                    "source_type": "oracle",
+                    "required_params": ["DATE"],
+                },
+            }
+        ]
+    }
+
+    process_payload = context_builder.build_metadata_qa_context(
+        {"request": {"question": "DA공정에는 어떤 세부 공정이 있어?"}, "trace": {"warnings": [], "errors": [], "inspection": {}}},
+        domain_items,
+        table_items,
+        {},
+    )
+    process_answer = normalizer.normalize_metadata_qa_response(process_payload, "")
+    process_message = message_adapter.build_message(process_answer)
+    process_api = api_builder.build_api_response(process_answer, process_message)
+
+    assert process_payload["metadata_route"]["answer_mode"] == "process_group"
+    assert process_answer["answer_type"] == "process_group"
+    assert process_answer["answer_sections"]["detail_table"]["title"] == "공정 그룹"
+    assert "### 공정 그룹" in process_message
+    assert process_api["answer_type"] == "process_group"
+    assert process_api["answer_sections"]["detail_table"]["row_count"] == 1
+
+    redirect_payload = context_builder.build_metadata_qa_context(
+        {"request": {"question": "오늘 DA공정 생산량 알려줘"}, "trace": {"warnings": [], "errors": [], "inspection": {}}},
+        domain_items,
+        table_items,
+        {},
+    )
+    redirect_answer = normalizer.normalize_metadata_qa_response(redirect_payload, "")
+    redirect_message = message_adapter.build_message(redirect_answer)
+
+    assert redirect_payload["metadata_route"]["answer_mode"] == "data_analysis_redirect"
+    assert redirect_answer["answer_type"] == "data_analysis_redirect"
+    assert redirect_answer["answer_sections"]["route_hint"]["target_route"] == "data_analysis"
+    assert "### 권장 실행 경로" in redirect_message
 
 
 def test_metadata_qa_variables_keep_static_policy_inside_prompt_template():

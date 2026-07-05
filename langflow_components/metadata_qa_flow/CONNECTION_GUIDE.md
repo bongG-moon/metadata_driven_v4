@@ -60,6 +60,8 @@ Prompt Template에는 [03_metadata_qa_prompt_template_ko.md](./03_metadata_qa_pr
 
 응답 정책은 Prompt Template 본문에 고정 문구로 들어 있으므로 별도 노드 출력으로 연결하지 않는다.
 
+`04 메타데이터 QA 응답 정규화기`는 LLM 응답 또는 fallback 결과를 `answer_type`과 `answer_sections`로 정규화한다. `answer_type`은 데이터 목록, 데이터셋 설명, 필수 조건, SQL, 용어 정의, 공정 그룹, 제품 조건, 계산 로직, 실제 분석 route 안내 같은 질문 유형을 나타낸다. `05 메타데이터 QA 메시지 어댑터`와 `06 메타데이터 QA API 응답 생성기`는 이 구조를 우선 사용한다.
+
 ## 4. MongoDB 설정
 
 기본 collection은 아래 env 값을 사용한다.

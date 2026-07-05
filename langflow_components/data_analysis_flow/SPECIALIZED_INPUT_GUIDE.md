@@ -75,11 +75,14 @@ signature: match_product_tokens(input_text, frame, token_columns=None, output_or
 추가 매칭 규칙:
 
 - 콤마로 여러 제품이 들어오면 제품별 token 묶음을 나누고, 제품 묶음끼리는 OR로 결합한다.
+- 한 제품 묶음 안의 token들은 모두 매칭되어야 한다. 일부 token만 맞는 행을 제품 매칭 결과로 반환하지 않는다.
 - `x16`, `X8`처럼 ORG 앞에 x/X가 붙은 경우 먼저 원문을 매칭하고, 매칭되지 않으면 x/X를 제거해 ORG 값과 매칭한다.
 - `FC78`, `FC96`처럼 `FC+숫자` 형태는 `PKG_TYPE1/PKG1=FCBGA`와 `LEAD=해당 숫자`로 해석한다.
 - `F78`, `F96`처럼 `F+숫자` 형태는 `LEAD=해당 숫자`로만 해석하고 package type 조건은 추가하지 않는다.
-- `L-218`, `A-663`처럼 A-/L-로 시작하는 MCP_NO 부분 입력은 MCP_NO 포함 조건으로 매칭한다.
-- `RG/CP`, `16G`, `DDR4`, `FCBGA`, `SDP`, `96`처럼 명확한 token은 각각 TECH/FAMILY, DEN/DENSITY, MODE, PKG_TYPE1/PKG1, PKG_TYPE2/PKG2, LEAD를 우선 매칭한다.
+- `L-218`, `A-663`, `B-123`, `Z-000`처럼 `영문 1자리-숫자 3자리(+선택 영숫자)` 패턴으로 시작하는 입력은 MCP_NO 부분 입력으로 보고 MCP_NO prefix 조건으로 매칭한다.
+- `x16`, `X8`처럼 `X+숫자` 형태는 `ORG=해당 숫자`로만 해석한다. LEAD, DEVICE, DEVICE_DESC 등 다른 컬럼으로 fallback하지 않는다.
+- 일반 token은 TECH/FAMILY, DEN/DENSITY, MODE, PKG_TYPE1/PKG1, PKG_TYPE2/PKG2, LEAD, MCP_NO, DEVICE 등 구조화 제품 후보 속성 컬럼에 돌려 exact 매칭 여부를 확인한다. DEVICE_DESC는 자유 텍스트 설명 컬럼이므로 token 포함 여부를 보조적으로 확인한다.
+- 부분/prefix 조건은 MCP_NO에서만 사용한다. 단, 일반 token이 모든 후보 컬럼 exact 매칭에 실패했다고 해서 MCP_NO로 fallback하지 않는다. MCP_NO로 해석하려면 반드시 `영문 1자리-숫자 3자리(+선택 영숫자)` 패턴을 만족해야 한다.
 
 ```text
 function_name: sample_passthrough_helper

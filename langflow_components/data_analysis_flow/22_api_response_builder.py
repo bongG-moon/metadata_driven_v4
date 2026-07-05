@@ -17,6 +17,7 @@ def build_api_response(payload_value: Any, display_message_value: Any = "") -> d
         "message": display_message,
         "answer_message": answer_message,
         "display_message": display_message,
+        "answer_sections": payload.get("answer_sections", {}),
         "request": payload.get("request", {}),
         "intent_plan": payload.get("intent_plan", {}),
         "analysis": payload.get("analysis", {}),

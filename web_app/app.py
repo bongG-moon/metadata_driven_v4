@@ -577,6 +577,7 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
         if columns:
             ordered = [column for column in columns if column in frame.columns]
             frame = frame[ordered + [column for column in frame.columns if column not in ordered]]
+        table_options = result_table_display_options(result)
         caption = f"결과 {row_count:,}행 · {len(frame.columns):,}열"
         if loaded.get("loaded_from_ref"):
             caption += " · data_ref에서 전체 행을 불러왔습니다."
@@ -585,7 +586,7 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
         if not answer_message_has_result_table(answer_text):
             st.caption(caption)
             st.dataframe(
-                display_table_frame(frame, settings.get("number_mode", "comma")),
+                display_table_frame(frame, settings.get("number_mode", "comma"), **table_options),
                 hide_index=True,
                 width="stretch",
                 height=chat_dataframe_height(len(frame), CHAT_RESULT_TABLE_MAX_HEIGHT),
@@ -609,6 +610,19 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
 def answer_message_has_result_table(text: Any) -> bool:
     value = str(text or "")
     return "### 결과 테이블" in value or ("| " in value and "\n| ---" in value)
+
+
+def result_table_display_options(result: dict[str, Any]) -> dict[str, Any]:
+    answer_sections = result.get("answer_sections") if isinstance(result.get("answer_sections"), dict) else {}
+    result_table = answer_sections.get("result_table") if isinstance(answer_sections.get("result_table"), dict) else {}
+    options: dict[str, Any] = {}
+    column_labels = result_table.get("column_labels")
+    display_columns = result_table.get("display_columns")
+    if isinstance(column_labels, dict):
+        options["column_labels"] = column_labels
+    if isinstance(display_columns, list):
+        options["display_columns"] = display_columns
+    return options
 
 
 def render_chat_metadata(result: dict[str, Any]) -> None:

@@ -383,10 +383,11 @@ def _used_inline_helpers(code: str) -> list[str]:
         tree = ast.parse(code or "")
     except SyntaxError:
         return []
+    instrumentation_functions = {"record_step", "record_function_case_result"}
     top_level_functions = [
         node.name
         for node in tree.body
-        if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")
+        if isinstance(node, ast.FunctionDef) and not node.name.startswith("_") and node.name not in instrumentation_functions
     ]
     used: list[str] = []
     for node in ast.walk(tree):

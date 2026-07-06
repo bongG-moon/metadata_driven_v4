@@ -1550,6 +1550,54 @@ def test_match_product_tokens_requires_all_tokens_per_product_group():
     assert desc_supported["data"]["rows"] == [{"DEVICE": "DEV-SP-DDR5"}]
 
 
+def test_function_case_helper_record_fallback_is_standalone_and_executor_safe():
+    import pandas as pd
+
+    helper_code = function_case_source()
+    namespace = {}
+    exec(helper_code, namespace)
+    standalone_result = namespace["match_product_tokens"](
+        "DA 16G GDDR6 180",
+        pd.DataFrame(
+            [
+                {"TECH": "DA", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": 180, "DEVICE": "DEV-DA"},
+                {"TECH": "DA", "DENSITY": "8G", "MODE": "GDDR6", "LEAD": 180, "DEVICE": "DEV-OTHER"},
+            ]
+        ),
+    )
+
+    assert standalone_result["DEVICE"].tolist() == ["DEV-DA"]
+    assert namespace["_function_case_results"][0]["function_name"] == "match_product_tokens"
+    assert namespace["_function_case_results"][0]["matched_count"] == 1
+
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    executor_result = pandas_executor.execute_pandas_code(
+        {
+            "runtime_sources": {
+                "wip_data": [
+                    {"TECH": "DA", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": 180, "DEVICE": "DEV-DA", "WIP": 33},
+                    {"TECH": "ZZ", "DENSITY": "16G", "MODE": "GDDR6", "LEAD": 180, "DEVICE": "DEV-ZZ", "WIP": 99},
+                ]
+            },
+            "trace": {"warnings": [], "errors": [], "inspection": {}},
+        },
+        {
+            "code": (
+                helper_code
+                + "\n\n"
+                "df = match_product_tokens('DA 16G GDDR6 180', sources['wip_data'])\n"
+                "result = df[['DEVICE', 'WIP']]"
+            )
+        },
+    )
+
+    assert executor_result["analysis"]["status"] == "ok"
+    assert executor_result["analysis"]["used_helpers"] == ["match_product_tokens"]
+    function_case_results = executor_result["analysis"]["function_case_results"]
+    assert function_case_results[0]["function_name"] == "match_product_tokens"
+    assert function_case_results[0]["matched_count"] == 1
+
+
 def test_answer_message_adapter_skips_duplicate_result_table_when_answer_has_table():
     message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
     payload = {
@@ -2013,6 +2061,7 @@ def test_specialized_function_examples_match_runtime_and_domain_saving_contracts
 
     assert "def match_product_tokens" in helper_code
     assert "def sample_passthrough_helper" in helper_code
+    assert "def record_function_case_result" in helper_code
     assert "source_code_lines" not in helper_code
 
 

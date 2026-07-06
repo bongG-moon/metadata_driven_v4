@@ -1,3 +1,25 @@
+try:
+    record_function_case_result
+except NameError:
+    _function_case_results = []
+
+    def record_function_case_result(function_name, input_text, result_value, description=""):
+        # 17 pandas executor가 아닌 로컬/단독 검증에서만 사용하는 fallback이다.
+        # Langflow 실행 중에는 executor가 주입한 같은 이름의 함수를 그대로 사용한다.
+        try:
+            matched_count = len(result_value)
+        except Exception:
+            matched_count = 0
+        _function_case_results.append(
+            {
+                "function_name": str(function_name or ""),
+                "input_text": str(input_text or ""),
+                "description": str(description or ""),
+                "matched_count": int(matched_count),
+            }
+        )
+        return result_value
+
 def match_product_tokens(input_text, frame, token_columns=None, output_order=None):
     # 원본 DataFrame을 변경하지 않기 위해 copy본에서 필터링을 수행한다.
     result = frame.copy()

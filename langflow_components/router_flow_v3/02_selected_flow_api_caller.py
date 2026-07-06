@@ -9,7 +9,6 @@ import requests
 from lfx.custom.custom_component.component import Component
 from lfx.io import DataInput, MessageTextInput, Output
 from lfx.schema.data import Data
-from lfx.schema.message import Message
 
 
 def run_selected_flow_api(
@@ -209,32 +208,37 @@ def _looks_like_flow_response(value: dict[str, Any]) -> bool:
 
 
 def _extract_message_text(value: Any) -> str:
+    return _extract_message_text_inner(value, set())
+
+
+def _extract_message_text_inner(value: Any, seen: set[int]) -> str:
     if value is None:
         return ""
+    value_id = id(value)
+    if value_id in seen:
+        return ""
+    seen.add(value_id)
     for attr in ("text", "content", "message"):
         text = getattr(value, attr, None)
         if isinstance(text, str) and text.strip():
             return text.strip()
     if isinstance(value, str):
+        parsed = _parse_json_dict(value)
+        if parsed:
+            return _extract_message_text_inner(parsed, seen)
         return value.strip()
     if isinstance(value, dict):
-        for key in ("display_message", "message", "answer_message", "answer", "text", "content", "output", "response"):
-            text = _extract_message_text(value.get(key))
+        for key in ("api_response", "display_message", "answer_message", "answer", "text", "content", "output", "response", "message"):
+            text = _extract_message_text_inner(value.get(key), seen)
             if text:
                 return text
-        message = value.get("message")
-        if isinstance(message, dict):
-            text = _extract_message_text(message)
-            if text:
-                return text
-        data = value.get("data")
-        if isinstance(data, dict):
-            text = _extract_message_text(data)
+        for key in ("results", "artifacts", "outputs", "data", "messages"):
+            text = _extract_message_text_inner(value.get(key), seen)
             if text:
                 return text
     if isinstance(value, list):
         for item in value:
-            text = _extract_message_text(item)
+            text = _extract_message_text_inner(item, seen)
             if text:
                 return text
     return ""
@@ -307,8 +311,7 @@ class SelectedFlowApiCaller(Component):
         MessageTextInput(name="timeout_seconds", display_name="제한 시간(초)", value="180", required=False, advanced=True),
     ]
     outputs = [
-        Output(name="api_call_result", display_name="API 호출 결과", method="build_payload", types=["Data"], group_outputs=True),
-        Output(name="message", display_name="표시 메시지", method="build_message", types=["Message"], group_outputs=True),
+        Output(name="api_call_result", display_name="API 호출 결과", method="build_payload", types=["Data"]),
     ]
 
     def _result(self) -> dict[str, Any]:
@@ -325,6 +328,3 @@ class SelectedFlowApiCaller(Component):
 
     def build_payload(self) -> Data:
         return Data(data=self._result())
-
-    def build_message(self) -> Message:
-        return Message(text=_clean(self._result().get("message")))

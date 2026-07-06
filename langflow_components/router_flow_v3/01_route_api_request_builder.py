@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DropdownInput, MessageTextInput, Output
+from lfx.io import MessageTextInput, Output
 from lfx.schema.data import Data
 
 
@@ -82,27 +82,21 @@ def build_route_api_request(
     original_input_value: Any,
     route_signal_value: Any = "",
     *,
-    route_name: str = "",
-    selected_flow: str = "",
     api_url: str = "",
-    input_kind: str = "question",
-    response_type: str = "",
-    session_id: str = "",
-    input_type: str = "chat",
-    output_type: str = "chat",
+    **_unused: Any,
 ) -> dict[str, Any]:
     original_input = _input_text(original_input_value, preserve=True)
     route_signal = _input_text(route_signal_value)
     decision = _decision_from_output(route_signal_value)
-    route = _resolve_route(route_name or decision.get("route") or decision.get("selected_route") or decision.get("label") or decision.get("text"))
+    route = _resolve_route(decision.get("route") or decision.get("selected_route") or decision.get("label") or decision.get("text"))
 
-    if route in {"direct_answer", "clarification"}:
-        return _direct_route_request(route, original_input, decision, session_id)
+    if route_signal and route in {"direct_answer", "clarification"}:
+        return _direct_route_request(route, original_input, decision)
 
-    selected_flow_value = _clean(selected_flow) or ROUTE_TO_FLOW.get(route, f"{route}_flow")
+    selected_flow_value = ROUTE_TO_FLOW.get(route) or _flow_name_from_api_url(api_url)
     api_url_value = _clean(api_url)
-    input_kind_value = _input_kind(input_kind)
-    response_type_value = _clean(response_type) or _response_type_for_route(route)
+    input_kind_value = _input_kind_for_route(route)
+    response_type_value = _response_type_for_route(route)
     warnings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     if not route_signal:
@@ -129,9 +123,9 @@ def build_route_api_request(
         "api_url": api_url_value,
         "input_kind": input_kind_value,
         "input_value": original_input,
-        "input_type": _clean(input_type) or "chat",
-        "output_type": _clean(output_type) or "chat",
-        "session_id": _clean(session_id),
+        "input_type": "chat",
+        "output_type": "chat",
+        "session_id": "",
         "response_type": response_type_value,
     }
     return {
@@ -142,7 +136,7 @@ def build_route_api_request(
         "request": {
             "original_input": original_input,
             "input_length": len(original_input),
-            "session_id": _clean(session_id),
+            "session_id": "",
         },
         "subflow_call": subflow_call,
         "route_decision": {
@@ -165,7 +159,7 @@ def build_route_api_request(
     }
 
 
-def _direct_route_request(route: str, original_input: str, decision: dict[str, Any], session_id: str) -> dict[str, Any]:
+def _direct_route_request(route: str, original_input: str, decision: dict[str, Any]) -> dict[str, Any]:
     message = _clean(decision.get("message") or decision.get("answer") or decision.get("text")) or DIRECT_MESSAGES[route]
     status = "ok" if route == "direct_answer" else "needs_more_input"
     direct_payload = {
@@ -174,7 +168,7 @@ def _direct_route_request(route: str, original_input: str, decision: dict[str, A
         "direct_response_ready": True,
         "message": message,
         "display_message": message,
-        "request": {"question": original_input, "session_id": _clean(session_id)},
+        "request": {"question": original_input, "session_id": ""},
     }
     return {
         "status": status,
@@ -182,7 +176,7 @@ def _direct_route_request(route: str, original_input: str, decision: dict[str, A
         "execution_mode": "direct",
         "route": route,
         "selected_flow": "",
-        "request": {"original_input": original_input, "input_length": len(original_input), "session_id": _clean(session_id)},
+        "request": {"original_input": original_input, "input_length": len(original_input), "session_id": ""},
         "subflow_call": {},
         "direct_response": direct_payload,
         "route_decision": {
@@ -235,7 +229,7 @@ def _resolve_route(value: Any) -> str:
     for alias, route in ROUTE_ALIASES.items():
         if alias and alias in normalized:
             return route
-    return normalized or "clarification"
+    return normalized
 
 
 def _response_type_for_route(route: str) -> str:
@@ -246,9 +240,15 @@ def _response_type_for_route(route: str) -> str:
     return "data_analysis"
 
 
-def _input_kind(value: Any) -> str:
-    text = _clean(value).lower()
-    return "raw_text" if text == "raw_text" else "question"
+def _input_kind_for_route(route: str) -> str:
+    return "raw_text" if route.endswith("_saving") else "question"
+
+
+def _flow_name_from_api_url(value: Any) -> str:
+    text = _clean(value).rstrip("/")
+    if not text:
+        return ""
+    return text.rsplit("/", 1)[-1]
 
 
 def _is_http_url(value: str) -> bool:
@@ -325,14 +325,7 @@ class RouteApiRequestBuilder(Component):
     inputs = [
         MessageTextInput(name="original_input", display_name="원문 입력", required=True),
         MessageTextInput(name="route_signal", display_name="선택 Route 신호", required=True),
-        MessageTextInput(name="route_name", display_name="Route 이름", value="", required=False),
-        MessageTextInput(name="selected_flow", display_name="선택 Flow 이름", value="", required=False),
-        MessageTextInput(name="api_url", display_name="하위 Flow API URL", value="", required=False),
-        DropdownInput(name="input_kind", display_name="입력 종류", options=["question", "raw_text"], value="question"),
-        MessageTextInput(name="response_type", display_name="응답 Type", value="", required=False, advanced=True),
-        MessageTextInput(name="session_id", display_name="세션 ID", value="", required=False, advanced=True),
-        MessageTextInput(name="input_type", display_name="입력 Type", value="chat", required=False, advanced=True),
-        MessageTextInput(name="output_type", display_name="출력 Type", value="chat", required=False, advanced=True),
+        MessageTextInput(name="api_url", display_name="하위 Flow API URL", value="", required=True),
     ]
     outputs = [
         Output(name="route_request", display_name="Route API 요청", method="build_payload", types=["Data"]),
@@ -343,13 +336,6 @@ class RouteApiRequestBuilder(Component):
             data=build_route_api_request(
                 getattr(self, "original_input", ""),
                 getattr(self, "route_signal", ""),
-                route_name=getattr(self, "route_name", ""),
-                selected_flow=getattr(self, "selected_flow", ""),
                 api_url=getattr(self, "api_url", ""),
-                input_kind=getattr(self, "input_kind", "question"),
-                response_type=getattr(self, "response_type", ""),
-                session_id=getattr(self, "session_id", ""),
-                input_type=getattr(self, "input_type", "chat"),
-                output_type=getattr(self, "output_type", "chat"),
             )
         )

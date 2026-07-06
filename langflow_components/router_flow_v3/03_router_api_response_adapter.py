@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from typing import Any
 
@@ -57,8 +56,16 @@ def _merge_trace(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extract_message_text(value: Any) -> str:
+    return _extract_message_text_inner(value, set())
+
+
+def _extract_message_text_inner(value: Any, seen: set[int]) -> str:
     if value is None:
         return ""
+    value_id = id(value)
+    if value_id in seen:
+        return ""
+    seen.add(value_id)
     for attr in ("text", "content", "message"):
         text = getattr(value, attr, None)
         if isinstance(text, str) and text.strip():
@@ -66,13 +73,17 @@ def _extract_message_text(value: Any) -> str:
     if isinstance(value, str):
         return value.strip()
     if isinstance(value, dict):
-        for key in ("display_message", "message", "answer_message", "answer", "text", "content"):
-            text = _extract_message_text(value.get(key))
+        for key in ("api_response", "display_message", "answer_message", "answer", "text", "content", "output", "response", "message"):
+            text = _extract_message_text_inner(value.get(key), seen)
+            if text:
+                return text
+        for key in ("results", "artifacts", "outputs", "data", "messages"):
+            text = _extract_message_text_inner(value.get(key), seen)
             if text:
                 return text
     if isinstance(value, list):
         for item in value:
-            text = _extract_message_text(item)
+            text = _extract_message_text_inner(item, seen)
             if text:
                 return text
     return ""
@@ -101,8 +112,7 @@ class RouterApiResponseAdapter(Component):
     ]
     outputs = [
         Output(name="api_response", display_name="API 응답", method="build_payload", types=["Data"], group_outputs=True),
-        Output(name="api_message", display_name="API 메시지", method="build_api_message", types=["Message"], group_outputs=True),
-        Output(name="display_message", display_name="표시 메시지", method="build_display_message", types=["Message"], group_outputs=True),
+        Output(name="display_message", display_name="채팅 표시 메시지", method="build_display_message", types=["Message"], group_outputs=True),
     ]
 
     def _response(self) -> dict[str, Any]:
@@ -115,9 +125,6 @@ class RouterApiResponseAdapter(Component):
 
     def build_payload(self) -> Data:
         return Data(data=self._response())
-
-    def build_api_message(self) -> Message:
-        return Message(text=json.dumps({"api_response": self._response()}, ensure_ascii=False, default=str))
 
     def build_display_message(self) -> Message:
         return Message(text=_text(self._response().get("display_message") or self._response().get("message")))

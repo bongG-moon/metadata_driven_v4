@@ -1,7 +1,7 @@
-# Router Flow v3 Route별 01 노드 설정 예시
+# Router Flow v3 Route별 API URL 설정 예시
 
-Smart Router가 route별 output port를 제공하는 환경에서는 route마다 `01 Route API 요청 생성기`를 하나씩 둡니다.
-각 `01` 노드에서 직접 입력하는 값은 `하위 Flow API URL` 하나입니다.
+각 route branch마다 `01 선택 Flow API 메시지 호출기`를 하나씩 둡니다.
+각 노드에서 직접 입력하는 주요 값은 `하위 Flow API URL`입니다.
 
 | Route branch | `01 하위 Flow API URL` |
 | --- | --- |
@@ -18,34 +18,18 @@ Smart Router가 route별 output port를 제공하는 환경에서는 route마다
 
 ## 공통 연결
 
-각 branch마다 아래 연결을 반복합니다.
-
 ```text
 Chat Input.message
-  -> 01 Route API 요청 생성기.original_input
+  -> Smart Router.input
 
 Smart Router.<route output>
-  -> 01 Route API 요청 생성기.route_signal
+  -> 01 선택 Flow API 메시지 호출기.flow_input
 
-01 Route API 요청 생성기.route_request
-  -> 02 선택 Flow API 호출기.route_request
-
-02 선택 Flow API 호출기.api_call_result
-  -> 03 Router API 응답 정리기.api_call_result
-
-03 Router API 응답 정리기.display_message
+01 선택 Flow API 메시지 호출기.message
   -> Chat Output.input
-
-03 Router API 응답 정리기.api_response
-  -> Data Output.input
 ```
 
-## Route Message 예시
+## Smart Router Route Message 설정
 
-Smart Router route message는 아래처럼 넣습니다.
-
-```json
-{"route":"metadata_qa"}
-```
-
-`direct_answer`, `clarification`은 하위 flow API를 호출하지 않으므로 이 표의 URL 설정 대상에서 제외합니다.
+API 호출 route의 Route Message는 비워둡니다.
+`direct_answer`, `clarification`처럼 하위 flow를 호출하지 않는 route에만 사용자에게 보여줄 메시지를 입력합니다.

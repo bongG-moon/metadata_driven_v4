@@ -3671,153 +3671,9 @@ def test_router_flow_v2_tool_call_docs_cover_tools():
         assert f"`{slug}`" in examples
 
 
-def test_router_flow_v3_builds_api_request_from_smart_router_token():
-    builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
-
-    request = builder.build_route_api_request(
-        "L-114제품 생산량 알려줘",
-        '{"route":"data_analysis"}',
-        api_url="http://localhost:7860/api/v1/run/analysis-flow-id",
-    )
-
-    assert request["status"] == "ready"
-    assert request["route"] == "data_analysis"
-    assert request["selected_flow"] == "data_analysis_flow"
-    assert request["subflow_call"]["api_url"] == "http://localhost:7860/api/v1/run/analysis-flow-id"
-    assert request["subflow_call"]["input_value"] == "L-114제품 생산량 알려줘"
-    assert request["subflow_call"]["session_id"] == ""
-
-
-def test_router_flow_v3_preserves_saving_raw_text_without_stripping():
-    builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
-    raw_text = "  -- production today 등록\nWITH base AS (\n  SELECT * FROM PROD_TABLE\n)\nSELECT * FROM base\n"
-
-    request = builder.build_route_api_request(
-        raw_text,
-        '{"route":"table_catalog_saving"}',
-        api_url="http://localhost:7860/api/v1/run/table-flow",
-    )
-
-    assert request["route"] == "table_catalog_saving"
-    assert request["subflow_call"]["input_kind"] == "raw_text"
-    assert request["subflow_call"]["input_value"] == raw_text
-    assert request["request"]["input_length"] == len(raw_text)
-
-
-def test_router_flow_v3_missing_route_signal_does_not_call_api():
-    builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
-    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "02_selected_flow_api_caller.py")
-    request = builder.build_route_api_request(
-        "오늘 DA공정 생산량 알려줘",
-        "",
-        api_url="http://localhost:7860/api/v1/run/analysis-flow-id",
-    )
+def test_router_flow_v3_calls_langflow_api_with_branch_message_as_input():
+    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_flow_api_message_caller.py")
     calls: list[dict[str, Any]] = []
-
-    def fake_post(*args: Any, **kwargs: Any) -> None:
-        calls.append({"args": args, "kwargs": kwargs})
-        raise AssertionError("API should not be called when route_signal is missing")
-
-    result = caller.run_selected_flow_api(request, post_func=fake_post)
-
-    assert request["status"] == "error"
-    assert request["errors"][0]["type"] == "missing_route_signal"
-    assert result["status"] == "error"
-    assert result["errors"][0]["type"] == "missing_route_signal"
-    assert calls == []
-
-
-def test_router_flow_v3_api_caller_calls_selected_flow_and_extracts_nested_api_response():
-    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "02_selected_flow_api_caller.py")
-    route_request = {
-        "route": "metadata_qa",
-        "selected_flow": "metadata_qa_flow",
-        "route_decision": {"route": "metadata_qa", "selected_flow": "metadata_qa_flow"},
-        "subflow_call": {
-            "selected_flow": "metadata_qa_flow",
-            "api_url": "http://localhost:7860/api/v1/run/metadata-flow",
-            "input_value": "현재 조회 가능한 dataset list와 필수 para정보를 알려줘",
-            "input_type": "chat",
-            "output_type": "chat",
-            "session_id": "session-qa",
-        },
-    }
-    calls: list[dict[str, Any]] = []
-
-    class FakeResponse:
-        status_code = 200
-
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict[str, Any]:
-            return {
-                "outputs": [
-                    {
-                        "outputs": [
-                            {
-                                "results": {
-                                    "message": {
-                                        "data": {
-                                            "text": json.dumps(
-                                                {
-                                                    "api_response": {
-                                                        "response_type": "metadata_qa",
-                                                        "status": "ok",
-                                                        "message": "데이터셋 목록입니다.",
-                                                        "data": {"rows": [], "columns": [], "row_count": 0},
-                                                    }
-                                                },
-                                                ensure_ascii=False,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                ]
-            }
-
-    def fake_post(url: str, json: dict[str, Any], headers: dict[str, str], timeout: int) -> FakeResponse:
-        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
-        return FakeResponse()
-
-    result = caller.run_selected_flow_api(route_request, api_key="secret", timeout_seconds="33", post_func=fake_post)
-
-    assert result["status"] == "ok"
-    assert result["selected_flow"] == "metadata_qa_flow"
-    assert result["selected_flow_response"]["response_type"] == "metadata_qa"
-    assert result["message"] == "데이터셋 목록입니다."
-    assert calls == [
-        {
-            "url": "http://localhost:7860/api/v1/run/metadata-flow",
-            "json": {
-                "input_value": "현재 조회 가능한 dataset list와 필수 para정보를 알려줘",
-                "input_type": "chat",
-                "output_type": "chat",
-                "session_id": "session-qa",
-            },
-            "headers": {"Content-Type": "application/json", "x-api-key": "secret"},
-            "timeout": 33,
-        }
-    ]
-
-
-def test_router_flow_v3_api_caller_extracts_plain_langflow_chat_message():
-    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "02_selected_flow_api_caller.py")
-    route_request = {
-        "route": "data_analysis",
-        "selected_flow": "data_analysis_flow",
-        "route_decision": {"route": "data_analysis"},
-        "subflow_call": {
-            "selected_flow": "data_analysis_flow",
-            "api_url": "http://localhost:7860/api/v1/run/data-flow",
-            "input_value": "오늘 DA공정 생산량 알려줘",
-            "input_type": "chat",
-            "output_type": "chat",
-        },
-    }
 
     class FakeResponse:
         status_code = 200
@@ -3842,72 +3698,111 @@ def test_router_flow_v3_api_caller_extracts_plain_langflow_chat_message():
                 ]
             }
 
-    result = caller.run_selected_flow_api(route_request, post_func=lambda *args, **kwargs: FakeResponse())
+    def fake_post(url: str, json: dict[str, Any], headers: dict[str, str], timeout: int) -> FakeResponse:
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    result = caller.run_flow_api_message(
+        "오늘 DA공정 생산량 알려줘",
+        api_url="http://localhost:7860/api/v1/run/data-flow",
+        api_key="secret",
+        timeout_seconds="33",
+        post_func=fake_post,
+    )
 
     assert result["status"] == "ok"
-    assert result["selected_flow_response"] == {}
     assert result["message"] == "오늘 DA공정 생산량은 1,234입니다."
-    assert result["display_message"] == "오늘 DA공정 생산량은 1,234입니다."
-
-
-def test_router_flow_v3_response_adapter_builds_web_router_envelope():
-    adapter = load_module(ROOT / "langflow_components" / "router_flow_v3" / "03_router_api_response_adapter.py")
-    call_result = {
-        "status": "ok",
-        "route": "dummy_metadata_qa",
-        "selected_flow": "dummy_metadata_qa_flow",
-        "execution_mode": "langflow_api",
-        "route_decision": {"route": "dummy_metadata_qa", "confidence": "high"},
-        "message": "더미 메타데이터 QA 결과입니다.",
-        "subflow_call": {"api_url": "http://localhost:7860/api/v1/run/dummy-metadata", "selected_flow": "dummy_metadata_qa_flow"},
-        "selected_flow_response": {
-            "response_type": "metadata_qa",
-            "status": "ok",
-            "direct_response_ready": True,
-            "message": "더미 메타데이터 QA 결과입니다.",
-            "data": {"rows": [], "columns": [], "row_count": 0},
-        },
-        "trace": {"execution": {"http_status": 200}},
+    assert result["request_body"] == {
+        "input_value": "오늘 DA공정 생산량 알려줘",
+        "input_type": "chat",
+        "output_type": "chat",
     }
+    assert calls == [
+        {
+            "url": "http://localhost:7860/api/v1/run/data-flow",
+            "json": {
+                "input_value": "오늘 DA공정 생산량 알려줘",
+                "input_type": "chat",
+                "output_type": "chat",
+            },
+            "headers": {"Content-Type": "application/json", "x-api-key": "secret"},
+            "timeout": 33,
+        }
+    ]
 
-    response = adapter.build_router_api_response(call_result)
 
-    assert response["response_type"] == "routed_flow_execution"
-    assert response["status"] == "ok"
-    assert response["route"] == "dummy_metadata_qa"
-    assert response["selected_flow"] == "dummy_metadata_qa_flow"
-    assert response["selected_flow_response"]["response_type"] == "metadata_qa"
-    assert response["raw_response"]["api_response"]["response_type"] == "metadata_qa"
-    assert response["message"] == "더미 메타데이터 QA 결과입니다."
-    assert response["trace"]["execution"]["api_url"] == "http://localhost:7860/api/v1/run/dummy-metadata"
+def test_router_flow_v3_blocks_route_json_message_before_api_call():
+    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_flow_api_message_caller.py")
+    calls: list[dict[str, Any]] = []
+
+    def fake_post(*args: Any, **kwargs: Any) -> None:
+        calls.append({"args": args, "kwargs": kwargs})
+        raise AssertionError("API should not be called when Smart Router Route Message is used as input")
+
+    result = caller.run_flow_api_message(
+        '{"route":"data_analysis"}',
+        api_url="http://localhost:7860/api/v1/run/data-flow",
+        post_func=fake_post,
+    )
+
+    assert result["status"] == "error"
+    assert result["errors"][0]["type"] == "route_message_used_as_input"
+    assert "Route Message" in result["message"]
+    assert calls == []
 
 
-def test_router_flow_v3_docs_and_components_cover_api_contract():
+def test_router_flow_v3_preserves_saving_raw_text_as_api_input_value():
+    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_flow_api_message_caller.py")
+    raw_text = "  -- production today 등록\nWITH base AS (\n  SELECT * FROM PROD_TABLE\n)\nSELECT * FROM base\n"
+    calls: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"outputs": [{"outputs": [{"results": {"message": {"text": "저장되었습니다."}}}]}]}
+
+    def fake_post(url: str, json: dict[str, Any], headers: dict[str, str], timeout: int) -> FakeResponse:
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    result = caller.run_flow_api_message(
+        raw_text,
+        api_url="http://localhost:7860/api/v1/run/table-flow",
+        post_func=fake_post,
+    )
+
+    assert result["status"] == "ok"
+    assert result["request_body"]["input_value"] == raw_text
+    assert calls[0]["json"]["input_value"] == raw_text
+
+
+def test_router_flow_v3_docs_and_component_are_message_only_contract():
     router_dir = ROOT / "langflow_components" / "router_flow_v3"
     py_files = sorted(path.name for path in router_dir.glob("*.py"))
+    component = load_module(router_dir / "01_flow_api_message_caller.py")
+    source = (router_dir / "01_flow_api_message_caller.py").read_text(encoding="utf-8")
     guide = (router_dir / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
-    node_settings = (router_dir / "ROUTE_API_NODE_SETTINGS_EXAMPLE.md").read_text(encoding="utf-8")
-    request_builder = load_module(router_dir / "01_route_api_request_builder.py")
-    api_caller = load_module(router_dir / "02_selected_flow_api_caller.py")
-    response_adapter = load_module(router_dir / "03_router_api_response_adapter.py")
+    design = (router_dir / "ROUTER_FLOW_V3_API_DESIGN.md").read_text(encoding="utf-8")
 
-    assert py_files == [
-        "01_route_api_request_builder.py",
-        "02_selected_flow_api_caller.py",
-        "03_router_api_response_adapter.py",
+    assert py_files == ["01_flow_api_message_caller.py"]
+    assert [item.kwargs.get("name") for item in _component_inputs(component)] == [
+        "flow_input",
+        "api_url",
+        "api_key",
+        "timeout_seconds",
     ]
-    assert "`01 -> 02 -> 03` 노드 묶음을 하나씩" in guide
-    assert "Run API" in guide
-    assert "하위 Flow API URL" in guide
-    assert '{"route":"data_analysis"}' in guide
-    assert "채팅 표시 메시지" in guide
-    assert "`하위 Flow API URL`" in node_settings
-    assert "`data_analysis` | `http://127.0.0.1:7860/api/v1/run/<data_analysis_flow_id>`" in node_settings
-    assert "`table_catalog_saving` | `http://127.0.0.1:7860/api/v1/run/<table_catalog_saving_flow_id>`" in node_settings
-    assert [item.kwargs.get("name") for item in _component_inputs(request_builder)] == ["original_input", "route_signal", "api_url"]
-    assert [item.kwargs.get("name") for item in _component_outputs(api_caller)] == ["api_call_result"]
-    assert [item.kwargs.get("name") for item in _component_outputs(response_adapter)] == ["api_response", "display_message"]
-    assert not (router_dir / "ROUTE_REGISTRY_EXAMPLE.json").exists()
+    assert [item.kwargs.get("name") for item in _component_outputs(component)] == ["message"]
+    assert "ROUTE_TO_FLOW" not in source
+    assert "ROUTE_ALIASES" not in source
+    assert "selected_flow" not in source
+    assert "API 호출 route의 Smart Router `Route Message`는 비웁니다." in guide
+    assert "01 -> 02 -> 03" not in guide
+    assert "별도 API 응답 envelope가 없다" in guide
+    assert "router v3의 최종 output은 항상 Message 하나입니다." in design
 
 
 def test_flow_tool_entry_inputs_are_agent_controlled():

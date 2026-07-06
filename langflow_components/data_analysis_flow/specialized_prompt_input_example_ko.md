@@ -1,7 +1,15 @@
-제품 속성 token이 여러 단어로 이어진 질문은 일반 제품군 조건으로 과도하게 분해하지 말고 pandas_function_cases의 product_token_match 케이스를 우선 검토한다.
+제품 속성 token 질문은 일반 제품군 조건이나 단순 pandas filter로 과도하게 분해하지 말고 pandas_function_cases의 product_token_match 케이스를 우선 검토한다.
+제품 속성 token은 여러 단어 묶음뿐 아니라 단일 token도 포함한다.
 예: "RG 32G DDR4 FBGA 96 DDP", "SP 16G DDR5 2ND X4 78 FCBGA SDP", "DA 16G GDDR6 180".
+영문 1자리-숫자 3자리(+선택 영숫자) 패턴의 token은 값이 무엇이든 제품 식별 token이다.
+예: "L-123 제품 생산량", "L-218K8H 제품 생산 실적", "A-663 제품", "B-123C1제품", "Q-555A9 제품 재공".
+이 패턴의 token만 단독으로 들어와도 product_token_match를 선택한다.
+이 패턴의 token 뒤에 제품이라는 말이 붙어도 DEVICE 컬럼 조건이 아니라 제품 식별 token이다. 이런 경우 input_text에는 제품이라는 말을 빼고 패턴 token만 남긴다.
 예: "RG 8G DDR4 x16 96 FCBGA SDP, CP 16G DDR x8 78 FCBGA SDP"처럼 콤마로 여러 제품이 들어오면 제품 token 묶음을 그대로 input_text에 남긴다.
 예: x16/X8 ORG 표현, FC+숫자/F+숫자 lead 표현, L-218/A-663/B-123처럼 영문 1자리-숫자 3자리(+선택 영숫자) MCP_NO 부분 입력은 match_product_tokens helper가 처리하므로 별도 pandas filter로 과도하게 분해하지 않는다.
+일반 pandas filter로 표현 가능해 보여도 사용자가 제품 식별 token으로 말한 값이면 product_token_match를 선택한다.
+사용자가 DEVICE, 디바이스, device code처럼 DEVICE 컬럼을 직접 지칭하지 않는 한, 이 패턴의 제품 식별 token을 DEVICE filter로 만들지 않는다.
+단, domain metadata에 등록된 제품군/제품 조건 alias는 product_token_match가 아니라 해당 domain 조건으로 처리한다. 예를 들어 POP제품, MOBILE/모바일 제품, HBM제품처럼 등록된 제품군을 부르는 경우에는 제품 token helper를 선택하지 않는다.
 DA공정, D/A공정, WB공정, W/B공정, FCB공정, BG공정처럼 공정명 또는 공정 그룹만 말한 경우는 제품 token 매칭이 아니다.
 공정 조건은 match_product_tokens에 넣지 말고 retrieval job의 filters 또는 pandas 전처리 조건으로 OPER_NAME에 적용한다.
 

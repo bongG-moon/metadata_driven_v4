@@ -2593,6 +2593,9 @@ def test_langflow_prompt_templates_keep_domain_specific_examples_out_of_generic_
         "A-663",
     ]
     generic_prompt_blocklist = moved_to_specialized_prompt_terms + [
+        "제품 token 매칭용",
+        "일반 pandas filter로 표현 가능해 보여도",
+        "MCP_NO",
         "POP",
         "MOBILE",
         "HBM",
@@ -2609,6 +2612,16 @@ def test_langflow_prompt_templates_keep_domain_specific_examples_out_of_generic_
 
     for term in moved_to_specialized_prompt_terms:
         assert term in specialized_prompt
+    assert "단일 token" in specialized_prompt
+    assert "L-123 제품 생산량" in specialized_prompt
+    assert "영문 1자리-숫자 3자리(+선택 영숫자) 패턴의 token은 값이 무엇이든" in specialized_prompt
+    assert "A-663 제품" in specialized_prompt
+    assert "B-123C1제품" in specialized_prompt
+    assert "Q-555A9 제품 재공" in specialized_prompt
+    assert "DEVICE filter로 만들지 않는다" in specialized_prompt
+    assert "input_text에는 제품이라는 말을 빼고 패턴 token만 남긴다" in specialized_prompt
+    assert "일반 pandas filter로 표현 가능해 보여도" in specialized_prompt
+    assert "등록된 제품군" in specialized_prompt
 
 
 def test_prompt_variable_builder_output_order_matches_prompt_input_order():

@@ -3622,6 +3622,195 @@ def test_router_flow_v2_tool_call_docs_cover_tools():
         assert f"`{slug}`" in examples
 
 
+def test_router_flow_v3_builds_api_request_from_smart_router_token():
+    builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
+    registry = json.dumps(
+        {
+            "routes": {
+                "data_analysis": {
+                    "selected_flow": "data_analysis_flow",
+                    "flow_id": "analysis-flow-id",
+                    "input_kind": "question",
+                }
+            }
+        },
+        ensure_ascii=False,
+    )
+
+    request = builder.build_route_api_request(
+        "L-114제품 생산량 알려줘",
+        '{"route":"data_analysis"}',
+        route_registry_json=registry,
+        base_url="http://localhost:7860",
+        session_id="session-1",
+    )
+
+    assert request["status"] == "ready"
+    assert request["route"] == "data_analysis"
+    assert request["selected_flow"] == "data_analysis_flow"
+    assert request["subflow_call"]["api_url"] == "http://localhost:7860/api/v1/run/analysis-flow-id"
+    assert request["subflow_call"]["input_value"] == "L-114제품 생산량 알려줘"
+    assert request["subflow_call"]["session_id"] == "session-1"
+
+
+def test_router_flow_v3_preserves_saving_raw_text_without_stripping():
+    builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
+    raw_text = "  -- production today 등록\nWITH base AS (\n  SELECT * FROM PROD_TABLE\n)\nSELECT * FROM base\n"
+    registry = json.dumps(
+        {
+            "routes": {
+                "table_catalog_saving": {
+                    "selected_flow": "table_catalog_saving_flow",
+                    "api_url": "http://localhost:7860/api/v1/run/table-flow",
+                    "input_kind": "raw_text",
+                }
+            }
+        },
+        ensure_ascii=False,
+    )
+
+    request = builder.build_route_api_request(
+        raw_text,
+        '{"route":"table_catalog_saving"}',
+        route_registry_json=registry,
+    )
+
+    assert request["route"] == "table_catalog_saving"
+    assert request["subflow_call"]["input_kind"] == "raw_text"
+    assert request["subflow_call"]["input_value"] == raw_text
+    assert request["request"]["input_length"] == len(raw_text)
+
+
+def test_router_flow_v3_api_caller_calls_selected_flow_and_extracts_nested_api_response():
+    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "02_selected_flow_api_caller.py")
+    route_request = {
+        "route": "metadata_qa",
+        "selected_flow": "metadata_qa_flow",
+        "route_decision": {"route": "metadata_qa", "selected_flow": "metadata_qa_flow"},
+        "subflow_call": {
+            "selected_flow": "metadata_qa_flow",
+            "api_url": "http://localhost:7860/api/v1/run/metadata-flow",
+            "input_value": "현재 조회 가능한 dataset list와 필수 para정보를 알려줘",
+            "input_type": "chat",
+            "output_type": "chat",
+            "session_id": "session-qa",
+        },
+    }
+    calls: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "outputs": [
+                    {
+                        "outputs": [
+                            {
+                                "results": {
+                                    "message": {
+                                        "data": {
+                                            "text": json.dumps(
+                                                {
+                                                    "api_response": {
+                                                        "response_type": "metadata_qa",
+                                                        "status": "ok",
+                                                        "message": "데이터셋 목록입니다.",
+                                                        "data": {"rows": [], "columns": [], "row_count": 0},
+                                                    }
+                                                },
+                                                ensure_ascii=False,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+
+    def fake_post(url: str, json: dict[str, Any], headers: dict[str, str], timeout: int) -> FakeResponse:
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    result = caller.run_selected_flow_api(route_request, api_key="secret", timeout_seconds="33", post_func=fake_post)
+
+    assert result["status"] == "ok"
+    assert result["selected_flow"] == "metadata_qa_flow"
+    assert result["selected_flow_response"]["response_type"] == "metadata_qa"
+    assert result["message"] == "데이터셋 목록입니다."
+    assert calls == [
+        {
+            "url": "http://localhost:7860/api/v1/run/metadata-flow",
+            "json": {
+                "input_value": "현재 조회 가능한 dataset list와 필수 para정보를 알려줘",
+                "input_type": "chat",
+                "output_type": "chat",
+                "session_id": "session-qa",
+            },
+            "headers": {"Content-Type": "application/json", "x-api-key": "secret"},
+            "timeout": 33,
+        }
+    ]
+
+
+def test_router_flow_v3_response_adapter_builds_web_router_envelope():
+    adapter = load_module(ROOT / "langflow_components" / "router_flow_v3" / "03_router_api_response_adapter.py")
+    call_result = {
+        "status": "ok",
+        "route": "dummy_metadata_qa",
+        "selected_flow": "dummy_metadata_qa_flow",
+        "execution_mode": "langflow_api",
+        "route_decision": {"route": "dummy_metadata_qa", "confidence": "high"},
+        "message": "더미 메타데이터 QA 결과입니다.",
+        "subflow_call": {"api_url": "http://localhost:7860/api/v1/run/dummy-metadata", "selected_flow": "dummy_metadata_qa_flow"},
+        "selected_flow_response": {
+            "response_type": "metadata_qa",
+            "status": "ok",
+            "direct_response_ready": True,
+            "message": "더미 메타데이터 QA 결과입니다.",
+            "data": {"rows": [], "columns": [], "row_count": 0},
+        },
+        "trace": {"execution": {"http_status": 200}},
+    }
+
+    response = adapter.build_router_api_response(call_result)
+
+    assert response["response_type"] == "routed_flow_execution"
+    assert response["status"] == "ok"
+    assert response["route"] == "dummy_metadata_qa"
+    assert response["selected_flow"] == "dummy_metadata_qa_flow"
+    assert response["selected_flow_response"]["response_type"] == "metadata_qa"
+    assert response["raw_response"]["api_response"]["response_type"] == "metadata_qa"
+    assert response["message"] == "더미 메타데이터 QA 결과입니다."
+    assert response["trace"]["execution"]["api_url"] == "http://localhost:7860/api/v1/run/dummy-metadata"
+
+
+def test_router_flow_v3_docs_and_components_cover_api_contract():
+    router_dir = ROOT / "langflow_components" / "router_flow_v3"
+    py_files = sorted(path.name for path in router_dir.glob("*.py"))
+    guide = (router_dir / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
+    registry = json.loads((router_dir / "ROUTE_REGISTRY_EXAMPLE.json").read_text(encoding="utf-8"))
+
+    assert py_files == [
+        "01_route_api_request_builder.py",
+        "02_selected_flow_api_caller.py",
+        "03_router_api_response_adapter.py",
+    ]
+    assert "Chat Input.message`를 두 갈래로 연결" in guide
+    assert "Run Flow" in guide
+    assert "Agent tool call" in guide
+    assert '{"route":"data_analysis"}' in guide
+    assert "제품 token 매칭" in guide
+    assert registry["routes"]["data_analysis"]["selected_flow"] == "data_analysis_flow"
+    assert registry["routes"]["metadata_qa"]["selected_flow"] == "metadata_qa_flow"
+    assert registry["routes"]["table_catalog_saving"]["input_kind"] == "raw_text"
+
+
 def test_flow_tool_entry_inputs_are_agent_controlled():
     specs = [
         ("data_analysis_flow/00_analysis_request_loader.py", "question"),

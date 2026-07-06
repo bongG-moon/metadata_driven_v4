@@ -23,6 +23,14 @@ def run_selected_flow_api(
     route = _clean(route_request.get("route") or _dict(route_request.get("route_decision")).get("route"))
     if route in {"direct_answer", "clarification"} or route_request.get("execution_mode") == "direct":
         return _direct_result(route_request)
+    existing_errors = list(route_request.get("errors", [])) if isinstance(route_request.get("errors"), list) else []
+    if _clean(route_request.get("status")) == "error" and existing_errors:
+        first_error = existing_errors[0] if isinstance(existing_errors[0], dict) else {}
+        return _error_result(
+            route_request,
+            _clean(first_error.get("type")) or "route_request_error",
+            _clean(first_error.get("message")) or "Route API 요청 생성 단계에서 오류가 발생했습니다.",
+        )
 
     subflow_call = _dict(route_request.get("subflow_call"))
     api_url = _clean(subflow_call.get("api_url"))

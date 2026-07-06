@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
+from streamlit.testing.v1 import AppTest
 
 from web_app.data_ref_store import DEFAULT_RESULT_COLLECTION
 from web_app.langflow_client import (
@@ -16,6 +19,9 @@ from web_app.langflow_client import (
 from web_app.metadata_store import DEFAULT_COLLECTIONS
 from web_app.session_state_store import DEFAULT_SESSION_COLLECTION
 from web_app.ui_helpers import display_table_frame
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_web_defaults_use_v4_collections() -> None:
@@ -58,6 +64,26 @@ def test_router_call_does_not_tweak_removed_custom_loader() -> None:
     tweaks = build_router_node_input_settings({"current_data": {"row_count": 1}}, "web-session")
 
     assert tweaks is None
+
+
+def test_settings_sidebar_initializes_api_client_when_called_without_ensure_state(tmp_path) -> None:
+    script = tmp_path / "settings_sidebar_smoke.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import sys",
+                f"sys.path.insert(0, {str(ROOT)!r})",
+                "from web_app.app import settings_sidebar",
+                "settings_sidebar()",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    app = AppTest.from_file(str(script), default_timeout=15)
+    app.run()
+
+    assert not app.exception
 
 
 def test_authoring_api_tweaks_use_v4_korean_node_names(monkeypatch) -> None:

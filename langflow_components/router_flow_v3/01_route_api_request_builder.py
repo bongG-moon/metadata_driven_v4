@@ -1,91 +1,29 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from copy import deepcopy
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import MessageTextInput, Output
+from lfx.io import DropdownInput, MessageTextInput, Output
 from lfx.schema.data import Data
 
 
-DEFAULT_ROUTE_REGISTRY = {
-    "routes": {
-        "data_analysis": {
-            "selected_flow": "data_analysis_flow",
-            "flow_id_env": "LANGFLOW_DATA_ANALYSIS_FLOW_ID",
-            "api_url_env": "LANGFLOW_DATA_ANALYSIS_API_URL",
-            "input_kind": "question",
-            "response_type": "data_analysis",
-        },
-        "metadata_qa": {
-            "selected_flow": "metadata_qa_flow",
-            "flow_id_env": "LANGFLOW_METADATA_QA_FLOW_ID",
-            "api_url_env": "LANGFLOW_METADATA_QA_API_URL",
-            "input_kind": "question",
-            "response_type": "metadata_qa",
-        },
-        "domain_saving": {
-            "selected_flow": "domain_saving_flow",
-            "flow_id_env": "LANGFLOW_DOMAIN_SAVING_FLOW_ID",
-            "api_url_env": "LANGFLOW_DOMAIN_SAVING_API_URL",
-            "input_kind": "raw_text",
-            "response_type": "metadata_authoring",
-        },
-        "table_catalog_saving": {
-            "selected_flow": "table_catalog_saving_flow",
-            "flow_id_env": "LANGFLOW_TABLE_CATALOG_SAVING_FLOW_ID",
-            "api_url_env": "LANGFLOW_TABLE_CATALOG_SAVING_API_URL",
-            "input_kind": "raw_text",
-            "response_type": "metadata_authoring",
-        },
-        "main_flow_filter_saving": {
-            "selected_flow": "main_flow_filters_saving_flow",
-            "flow_id_env": "LANGFLOW_MAIN_FLOW_FILTER_SAVING_FLOW_ID",
-            "api_url_env": "LANGFLOW_MAIN_FLOW_FILTER_SAVING_API_URL",
-            "input_kind": "raw_text",
-            "response_type": "metadata_authoring",
-        },
-        "dummy_data_analysis": {
-            "selected_flow": "dummy_data_analysis_flow",
-            "flow_id_env": "LANGFLOW_DUMMY_DATA_ANALYSIS_FLOW_ID",
-            "api_url_env": "LANGFLOW_DUMMY_DATA_ANALYSIS_API_URL",
-            "input_kind": "question",
-            "response_type": "data_analysis",
-        },
-        "dummy_metadata_qa": {
-            "selected_flow": "dummy_metadata_qa_flow",
-            "flow_id_env": "LANGFLOW_DUMMY_METADATA_QA_FLOW_ID",
-            "api_url_env": "LANGFLOW_DUMMY_METADATA_QA_API_URL",
-            "input_kind": "question",
-            "response_type": "metadata_qa",
-        },
-        "dummy_domain_saving": {
-            "selected_flow": "dummy_domain_saving_flow",
-            "flow_id_env": "LANGFLOW_DUMMY_DOMAIN_SAVING_FLOW_ID",
-            "api_url_env": "LANGFLOW_DUMMY_DOMAIN_SAVING_API_URL",
-            "input_kind": "raw_text",
-            "response_type": "metadata_authoring",
-        },
-        "dummy_table_catalog_saving": {
-            "selected_flow": "dummy_table_catalog_saving_flow",
-            "flow_id_env": "LANGFLOW_DUMMY_TABLE_CATALOG_SAVING_FLOW_ID",
-            "api_url_env": "LANGFLOW_DUMMY_TABLE_CATALOG_SAVING_API_URL",
-            "input_kind": "raw_text",
-            "response_type": "metadata_authoring",
-        },
-        "dummy_main_flow_filter_saving": {
-            "selected_flow": "dummy_main_flow_filter_saving_flow",
-            "flow_id_env": "LANGFLOW_DUMMY_MAIN_FLOW_FILTER_SAVING_FLOW_ID",
-            "api_url_env": "LANGFLOW_DUMMY_MAIN_FLOW_FILTER_SAVING_API_URL",
-            "input_kind": "raw_text",
-            "response_type": "metadata_authoring",
-        },
-    }
+ROUTE_TO_FLOW = {
+    "data_analysis": "data_analysis_flow",
+    "metadata_qa": "metadata_qa_flow",
+    "domain_saving": "domain_saving_flow",
+    "table_catalog_saving": "table_catalog_saving_flow",
+    "main_flow_filter_saving": "main_flow_filters_saving_flow",
+    "dummy_data_analysis": "dummy_data_analysis_flow",
+    "dummy_metadata_qa": "dummy_metadata_qa_flow",
+    "dummy_domain_saving": "dummy_domain_saving_flow",
+    "dummy_table_catalog_saving": "dummy_table_catalog_saving_flow",
+    "dummy_main_flow_filter_saving": "dummy_main_flow_filter_saving_flow",
 }
-DEFAULT_ROUTE_REGISTRY_JSON = json.dumps(DEFAULT_ROUTE_REGISTRY, ensure_ascii=False, indent=2)
+
+FLOW_TO_ROUTE = {flow: route for route, flow in ROUTE_TO_FLOW.items()}
 
 ROUTE_ALIASES = {
     "analysis": "data_analysis",
@@ -142,69 +80,76 @@ DIRECT_MESSAGES = {
 
 def build_route_api_request(
     original_input_value: Any,
-    smart_router_output_value: Any = "",
+    route_signal_value: Any = "",
     *,
-    route_registry_json: str = "",
-    base_url: str = "",
+    route_name: str = "",
+    selected_flow: str = "",
+    api_url: str = "",
+    input_kind: str = "question",
+    response_type: str = "",
     session_id: str = "",
     input_type: str = "chat",
     output_type: str = "chat",
 ) -> dict[str, Any]:
     original_input = _input_text(original_input_value, preserve=True)
-    decision = _decision_from_output(smart_router_output_value)
-    route = _resolve_route(decision.get("route") or decision.get("selected_route") or decision.get("label") or decision.get("text"))
-    registry = _route_registry(route_registry_json)
+    route_signal = _input_text(route_signal_value)
+    decision = _decision_from_output(route_signal_value)
+    route = _resolve_route(route_name or decision.get("route") or decision.get("selected_route") or decision.get("label") or decision.get("text"))
 
     if route in {"direct_answer", "clarification"}:
         return _direct_route_request(route, original_input, decision, session_id)
 
-    route_item = _dict(registry.get(route))
-    selected_flow = _clean(route_item.get("selected_flow")) or f"{route}_flow"
-    resolved_base_url = _clean(base_url) or _clean(os.getenv("LANGFLOW_BASE_URL") or os.getenv("LANGFLOW_API_BASE_URL"))
-    api_url = _resolve_api_url(route_item, resolved_base_url)
-    request_session_id = _clean(session_id)
-    warnings = []
-    errors = []
+    selected_flow_value = _clean(selected_flow) or ROUTE_TO_FLOW.get(route, f"{route}_flow")
+    api_url_value = _clean(api_url)
+    input_kind_value = _input_kind(input_kind)
+    response_type_value = _clean(response_type) or _response_type_for_route(route)
+    warnings: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    if not route_signal:
+        errors.append(
+            {
+                "type": "missing_route_signal",
+                "message": "Smart Router의 선택 route output이 연결되지 않았습니다.",
+            }
+        )
     if not original_input.strip():
         errors.append({"type": "empty_input", "message": "하위 flow로 전달할 원문 입력이 비어 있습니다."})
-    if not api_url:
+    if not api_url_value:
+        errors.append({"type": "missing_api_url", "message": "선택된 flow의 Langflow API URL이 비어 있습니다."})
+    elif not _is_http_url(api_url_value):
         warnings.append(
             {
-                "type": "missing_api_url",
-                "message": "선택된 flow의 Langflow API URL을 확인할 수 없습니다.",
-                "flow_id_env": route_item.get("flow_id_env", ""),
-                "api_url_env": route_item.get("api_url_env", ""),
+                "type": "api_url_not_full_url",
+                "message": "API URL은 http:// 또는 https://로 시작하는 전체 Langflow Run API URL을 권장합니다.",
             }
         )
 
     subflow_call = {
-        "selected_flow": selected_flow,
-        "api_url": api_url,
-        "flow_id": _clean(route_item.get("flow_id") or os.getenv(_clean(route_item.get("flow_id_env")))),
-        "flow_id_env": _clean(route_item.get("flow_id_env")),
-        "api_url_env": _clean(route_item.get("api_url_env")),
-        "input_kind": _clean(route_item.get("input_kind") or "question"),
+        "selected_flow": selected_flow_value,
+        "api_url": api_url_value,
+        "input_kind": input_kind_value,
         "input_value": original_input,
         "input_type": _clean(input_type) or "chat",
         "output_type": _clean(output_type) or "chat",
-        "session_id": request_session_id,
+        "session_id": _clean(session_id),
+        "response_type": response_type_value,
     }
     return {
         "status": "ready" if not errors else "error",
         "response_type": "route_api_request",
         "route": route,
-        "selected_flow": selected_flow,
+        "selected_flow": selected_flow_value,
         "request": {
             "original_input": original_input,
             "input_length": len(original_input),
-            "session_id": request_session_id,
+            "session_id": _clean(session_id),
         },
         "subflow_call": subflow_call,
         "route_decision": {
             "route": route,
-            "selected_flow": selected_flow,
-            "route_source": "smart_router",
-            "raw_smart_router_output": decision.get("raw_output", ""),
+            "selected_flow": selected_flow_value,
+            "route_source": "smart_router_branch",
+            "raw_smart_router_output": route_signal,
         },
         "warnings": warnings,
         "errors": errors,
@@ -212,8 +157,9 @@ def build_route_api_request(
             "router_v3": {
                 "stage": "01_route_api_request_builder",
                 "status": "ready" if not errors else "error",
-                "input_kind": subflow_call["input_kind"],
+                "input_kind": input_kind_value,
                 "input_length": len(original_input),
+                "api_url_configured": bool(api_url_value),
             }
         },
     }
@@ -242,7 +188,7 @@ def _direct_route_request(route: str, original_input: str, decision: dict[str, A
         "route_decision": {
             "route": route,
             "selected_flow": "",
-            "route_source": "smart_router",
+            "route_source": "smart_router_branch",
             "raw_smart_router_output": decision.get("raw_output", ""),
         },
         "warnings": [],
@@ -273,23 +219,6 @@ def _decision_from_output(value: Any) -> dict[str, Any]:
     return data
 
 
-def _route_registry(value: str) -> dict[str, dict[str, Any]]:
-    registry = deepcopy(DEFAULT_ROUTE_REGISTRY["routes"])
-    parsed = _extract_json(value)
-    if not parsed:
-        return registry
-    raw_routes = parsed.get("routes") if isinstance(parsed.get("routes"), dict) else parsed
-    if not isinstance(raw_routes, dict):
-        return registry
-    for raw_route, raw_item in raw_routes.items():
-        route = _resolve_route(raw_route)
-        item = _dict(raw_item)
-        if route in {"direct_answer", "clarification"}:
-            continue
-        registry[route] = _deep_merge(registry.get(route, {}), item)
-    return registry
-
-
 def _resolve_route(value: Any) -> str:
     text = _clean(value)
     parsed = _extract_json(text)
@@ -301,43 +230,25 @@ def _resolve_route(value: Any) -> str:
     normalized = _route_key(text)
     if normalized in ROUTE_ALIASES:
         return ROUTE_ALIASES[normalized]
+    if text in FLOW_TO_ROUTE:
+        return FLOW_TO_ROUTE[text]
     for alias, route in ROUTE_ALIASES.items():
         if alias and alias in normalized:
             return route
-    return "clarification"
+    return normalized or "clarification"
 
 
-def _resolve_api_url(route_item: dict[str, Any], base_url: str) -> str:
-    explicit = _clean(route_item.get("api_url") or os.getenv(_clean(route_item.get("api_url_env"))))
-    if explicit:
-        return _normalize_api_url_or_flow_id(explicit, base_url)
-    flow_id = _clean(route_item.get("flow_id") or os.getenv(_clean(route_item.get("flow_id_env"))))
-    if base_url and flow_id:
-        return _flow_run_url(base_url, flow_id)
-    return ""
+def _response_type_for_route(route: str) -> str:
+    if route.endswith("_saving") or route.startswith("dummy_") and route.endswith("_saving"):
+        return "metadata_authoring"
+    if "metadata_qa" in route:
+        return "metadata_qa"
+    return "data_analysis"
 
 
-def _normalize_api_url_or_flow_id(value: str, base_url: str) -> str:
-    text = _clean(value)
-    if not text or text.lower() in {"none", "null", "n/a", "na"}:
-        return ""
-    if _is_http_url(text):
-        return text
-    if base_url:
-        return _flow_run_url(base_url, text)
-    return ""
-
-
-def _flow_run_url(base_url: str, flow_id_or_path: str) -> str:
-    base = _clean(base_url).rstrip("/")
-    target = _clean(flow_id_or_path)
-    if not base or not target:
-        return ""
-    if target.startswith("/"):
-        return base + target
-    if target.startswith("api/v1/run/"):
-        return f"{base}/{target}"
-    return f"{base}/api/v1/run/{target}"
+def _input_kind(value: Any) -> str:
+    text = _clean(value).lower()
+    return "raw_text" if text == "raw_text" else "question"
 
 
 def _is_http_url(value: str) -> bool:
@@ -373,10 +284,6 @@ def _payload(value: Any) -> dict[str, Any]:
     return deepcopy(data) if isinstance(data, dict) else {}
 
 
-def _dict(value: Any) -> dict[str, Any]:
-    return deepcopy(value) if isinstance(value, dict) else {}
-
-
 def _input_text(value: Any, *, preserve: bool = False) -> str:
     if value is None:
         return ""
@@ -389,7 +296,7 @@ def _input_text(value: Any, *, preserve: bool = False) -> str:
     data = getattr(value, "data", value)
     if isinstance(data, dict):
         request = data.get("request") if isinstance(data.get("request"), dict) else {}
-        for key in ("question", "raw_text", "input_value", "original_input", "message", "text"):
+        for key in ("question", "raw_text", "input_value", "original_input", "message", "text", "route"):
             nested = request.get(key) if key in request else data.get(key)
             if isinstance(nested, str) and nested.strip():
                 return nested if preserve else nested.strip()
@@ -414,12 +321,15 @@ def _deep_merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
 
 class RouteApiRequestBuilder(Component):
     display_name = "01 Route API 요청 생성기"
-    description = "Smart Router 결과와 사용자 원문을 합쳐 선택된 Langflow 하위 flow API 호출 요청을 만듭니다."
+    description = "Smart Router의 개별 route output마다 하나씩 배치해 해당 하위 flow API 호출 요청을 만듭니다."
     inputs = [
         MessageTextInput(name="original_input", display_name="원문 입력", required=True),
-        MessageTextInput(name="smart_router_output", display_name="Smart Router 출력", required=True),
-        MessageTextInput(name="route_registry_json", display_name="라우트 Registry JSON", value=DEFAULT_ROUTE_REGISTRY_JSON, required=False),
-        MessageTextInput(name="base_url", display_name="Langflow 기본 URL", value="", required=False),
+        MessageTextInput(name="route_signal", display_name="선택 Route 신호", required=True),
+        MessageTextInput(name="route_name", display_name="Route 이름", value="", required=False),
+        MessageTextInput(name="selected_flow", display_name="선택 Flow 이름", value="", required=False),
+        MessageTextInput(name="api_url", display_name="하위 Flow API URL", value="", required=False),
+        DropdownInput(name="input_kind", display_name="입력 종류", options=["question", "raw_text"], value="question"),
+        MessageTextInput(name="response_type", display_name="응답 Type", value="", required=False, advanced=True),
         MessageTextInput(name="session_id", display_name="세션 ID", value="", required=False, advanced=True),
         MessageTextInput(name="input_type", display_name="입력 Type", value="chat", required=False, advanced=True),
         MessageTextInput(name="output_type", display_name="출력 Type", value="chat", required=False, advanced=True),
@@ -432,9 +342,12 @@ class RouteApiRequestBuilder(Component):
         return Data(
             data=build_route_api_request(
                 getattr(self, "original_input", ""),
-                getattr(self, "smart_router_output", ""),
-                route_registry_json=getattr(self, "route_registry_json", ""),
-                base_url=getattr(self, "base_url", ""),
+                getattr(self, "route_signal", ""),
+                route_name=getattr(self, "route_name", ""),
+                selected_flow=getattr(self, "selected_flow", ""),
+                api_url=getattr(self, "api_url", ""),
+                input_kind=getattr(self, "input_kind", "question"),
+                response_type=getattr(self, "response_type", ""),
                 session_id=getattr(self, "session_id", ""),
                 input_type=getattr(self, "input_type", "chat"),
                 output_type=getattr(self, "output_type", "chat"),

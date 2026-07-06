@@ -3624,24 +3624,13 @@ def test_router_flow_v2_tool_call_docs_cover_tools():
 
 def test_router_flow_v3_builds_api_request_from_smart_router_token():
     builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
-    registry = json.dumps(
-        {
-            "routes": {
-                "data_analysis": {
-                    "selected_flow": "data_analysis_flow",
-                    "flow_id": "analysis-flow-id",
-                    "input_kind": "question",
-                }
-            }
-        },
-        ensure_ascii=False,
-    )
 
     request = builder.build_route_api_request(
         "L-114제품 생산량 알려줘",
         '{"route":"data_analysis"}',
-        route_registry_json=registry,
-        base_url="http://localhost:7860",
+        route_name="data_analysis",
+        selected_flow="data_analysis_flow",
+        api_url="http://localhost:7860/api/v1/run/analysis-flow-id",
         session_id="session-1",
     )
 
@@ -3656,29 +3645,45 @@ def test_router_flow_v3_builds_api_request_from_smart_router_token():
 def test_router_flow_v3_preserves_saving_raw_text_without_stripping():
     builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
     raw_text = "  -- production today 등록\nWITH base AS (\n  SELECT * FROM PROD_TABLE\n)\nSELECT * FROM base\n"
-    registry = json.dumps(
-        {
-            "routes": {
-                "table_catalog_saving": {
-                    "selected_flow": "table_catalog_saving_flow",
-                    "api_url": "http://localhost:7860/api/v1/run/table-flow",
-                    "input_kind": "raw_text",
-                }
-            }
-        },
-        ensure_ascii=False,
-    )
 
     request = builder.build_route_api_request(
         raw_text,
         '{"route":"table_catalog_saving"}',
-        route_registry_json=registry,
+        route_name="table_catalog_saving",
+        selected_flow="table_catalog_saving_flow",
+        api_url="http://localhost:7860/api/v1/run/table-flow",
+        input_kind="raw_text",
     )
 
     assert request["route"] == "table_catalog_saving"
     assert request["subflow_call"]["input_kind"] == "raw_text"
     assert request["subflow_call"]["input_value"] == raw_text
     assert request["request"]["input_length"] == len(raw_text)
+
+
+def test_router_flow_v3_missing_route_signal_does_not_call_api():
+    builder = load_module(ROOT / "langflow_components" / "router_flow_v3" / "01_route_api_request_builder.py")
+    caller = load_module(ROOT / "langflow_components" / "router_flow_v3" / "02_selected_flow_api_caller.py")
+    request = builder.build_route_api_request(
+        "오늘 DA공정 생산량 알려줘",
+        "",
+        route_name="data_analysis",
+        selected_flow="data_analysis_flow",
+        api_url="http://localhost:7860/api/v1/run/analysis-flow-id",
+    )
+    calls: list[dict[str, Any]] = []
+
+    def fake_post(*args: Any, **kwargs: Any) -> None:
+        calls.append({"args": args, "kwargs": kwargs})
+        raise AssertionError("API should not be called when route_signal is missing")
+
+    result = caller.run_selected_flow_api(request, post_func=fake_post)
+
+    assert request["status"] == "error"
+    assert request["errors"][0]["type"] == "missing_route_signal"
+    assert result["status"] == "error"
+    assert result["errors"][0]["type"] == "missing_route_signal"
+    assert calls == []
 
 
 def test_router_flow_v3_api_caller_calls_selected_flow_and_extracts_nested_api_response():
@@ -3794,21 +3799,22 @@ def test_router_flow_v3_docs_and_components_cover_api_contract():
     router_dir = ROOT / "langflow_components" / "router_flow_v3"
     py_files = sorted(path.name for path in router_dir.glob("*.py"))
     guide = (router_dir / "CONNECTION_GUIDE.md").read_text(encoding="utf-8")
-    registry = json.loads((router_dir / "ROUTE_REGISTRY_EXAMPLE.json").read_text(encoding="utf-8"))
+    node_settings = (router_dir / "ROUTE_API_NODE_SETTINGS_EXAMPLE.md").read_text(encoding="utf-8")
 
     assert py_files == [
         "01_route_api_request_builder.py",
         "02_selected_flow_api_caller.py",
         "03_router_api_response_adapter.py",
     ]
-    assert "Chat Input.message`를 두 갈래로 연결" in guide
-    assert "Run Flow" in guide
-    assert "Agent tool call" in guide
+    assert "`01 -> 02 -> 03` 세트도 각각 하나씩" in guide
+    assert "Run API" in guide
+    assert "route별 API URL" in guide
     assert '{"route":"data_analysis"}' in guide
     assert "제품 token 매칭" in guide
-    assert registry["routes"]["data_analysis"]["selected_flow"] == "data_analysis_flow"
-    assert registry["routes"]["metadata_qa"]["selected_flow"] == "metadata_qa_flow"
-    assert registry["routes"]["table_catalog_saving"]["input_kind"] == "raw_text"
+    assert "`하위 Flow API URL`" in node_settings
+    assert "`data_analysis` | `data_analysis_flow`" in node_settings
+    assert "`table_catalog_saving` | `table_catalog_saving_flow`" in node_settings
+    assert not (router_dir / "ROUTE_REGISTRY_EXAMPLE.json").exists()
 
 
 def test_flow_tool_entry_inputs_are_agent_controlled():

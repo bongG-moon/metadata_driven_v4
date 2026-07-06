@@ -344,7 +344,8 @@ def render_sidebar_active_scope(slot: Any | None = None, state: dict[str, Any] |
 
 def settings_sidebar() -> dict[str, Any]:
     api_settings = LangflowSettings.from_env()
-    if getattr(st.session_state.langflow_api, "settings", None) != api_settings:
+    api_client = st.session_state.get("langflow_api")
+    if getattr(api_client, "settings", None) != api_settings:
         st.session_state.langflow_api = LangflowApiClient(api_settings)
     configured = api_settings.configured_summary()
     st.sidebar.markdown(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from copy import deepcopy
 from typing import Any
 
@@ -16,10 +17,12 @@ def run_flow_api_message(
     *,
     api_url: str = "",
     api_key: str = "",
+    session_id: str = "",
     timeout_seconds: Any = 180,
     post_func: Any = None,
 ) -> dict[str, Any]:
     flow_input = _input_text(flow_input_value, preserve=True)
+    session_id_value = _session_id(flow_input_value, session_id)
     api_url_value = _clean(api_url)
     warnings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -52,6 +55,7 @@ def run_flow_api_message(
             message=_format_errors(errors),
             flow_input=flow_input,
             api_url=api_url_value,
+            session_id=session_id_value,
             warnings=warnings,
             errors=errors,
             raw_response={},
@@ -63,6 +67,8 @@ def run_flow_api_message(
         "input_type": "chat",
         "output_type": "chat",
     }
+    if session_id_value:
+        request_body["session_id"] = session_id_value
     headers = {"Content-Type": "application/json"}
     if _clean(api_key):
         headers["x-api-key"] = _clean(api_key)
@@ -83,6 +89,7 @@ def run_flow_api_message(
             message=f"하위 flow API 호출에 실패했습니다: {exc}",
             flow_input=flow_input,
             api_url=api_url_value,
+            session_id=session_id_value,
             warnings=warnings,
             errors=[{"type": "api_call_failed", "message": str(exc)}],
             raw_response={},
@@ -96,6 +103,7 @@ def run_flow_api_message(
         message=message,
         flow_input=flow_input,
         api_url=api_url_value,
+        session_id=session_id_value,
         warnings=warnings,
         errors=[],
         raw_response=raw_response,
@@ -112,6 +120,7 @@ def _message_result(
     message: str,
     flow_input: str,
     api_url: str,
+    session_id: str,
     warnings: list[dict[str, Any]],
     errors: list[dict[str, Any]],
     raw_response: dict[str, Any],
@@ -122,6 +131,7 @@ def _message_result(
         "message": message,
         "flow_input": flow_input,
         "api_url": api_url,
+        "session_id": session_id,
         "warnings": warnings,
         "errors": errors,
         "raw_response": raw_response,
@@ -211,6 +221,30 @@ def _input_text(value: Any, *, preserve: bool = False) -> str:
     return ""
 
 
+def _session_id(source_value: Any, explicit_session_id: Any) -> str:
+    explicit = _clean(explicit_session_id)
+    if explicit:
+        return explicit
+    for attr in ("session_id", "sessionId"):
+        candidate = getattr(source_value, attr, None)
+        if _clean(candidate):
+            return _clean(candidate)
+    data = getattr(source_value, "data", source_value)
+    if isinstance(data, dict):
+        for key in ("session_id", "sessionId"):
+            candidate = data.get(key)
+            if _clean(candidate):
+                return _clean(candidate)
+        request = data.get("request")
+        if isinstance(request, dict):
+            candidate = request.get("session_id") or request.get("sessionId")
+            if _clean(candidate):
+                return _clean(candidate)
+    if _input_text(source_value, preserve=False):
+        return f"router_v3_{uuid.uuid4().hex}"
+    return ""
+
+
 def _clean(value: Any) -> str:
     if value is None:
         return ""
@@ -235,6 +269,7 @@ class FlowApiMessageCaller(Component):
         MessageTextInput(name="flow_input", display_name="Flow 입력", required=True),
         MessageTextInput(name="api_url", display_name="하위 Flow API URL", value="", required=True),
         MessageTextInput(name="api_key", display_name="Langflow API 키", value="", required=False, advanced=True),
+        MessageTextInput(name="session_id", display_name="세션 ID", value="", required=False, advanced=True),
         MessageTextInput(name="timeout_seconds", display_name="제한 시간(초)", value="180", required=False, advanced=True),
     ]
     outputs = [
@@ -246,6 +281,7 @@ class FlowApiMessageCaller(Component):
             getattr(self, "flow_input", ""),
             api_url=getattr(self, "api_url", ""),
             api_key=getattr(self, "api_key", ""),
+            session_id=getattr(self, "session_id", ""),
             timeout_seconds=getattr(self, "timeout_seconds", "180"),
         )
         return Message(text=_clean(result.get("message")))

@@ -2673,6 +2673,27 @@ def test_langflow_prompt_templates_keep_domain_specific_examples_out_of_generic_
     assert "등록된 제품군" in specialized_prompt
 
 
+def test_pandas_prompt_templates_do_not_repeat_executor_filter_preamble():
+    generation_prompt = (
+        ROOT
+        / "langflow_components"
+        / "data_analysis_flow"
+        / "16_pandas_prompt_template_ko.md"
+    ).read_text(encoding="utf-8")
+    repair_prompt = (
+        ROOT
+        / "langflow_components"
+        / "data_analysis_flow"
+        / "17b_pandas_repair_prompt_template_ko.md"
+    ).read_text(encoding="utf-8")
+
+    assert "executor가 pandas filter preamble으로 자동 적용한다" in generation_prompt
+    assert "같은 조건을 다시 작성하지 않는다" in generation_prompt
+    assert "동일한 필터를 반복 적용하면" in generation_prompt
+    assert "retry code에는 `intent_plan.retrieval_jobs[].filters`와 같은 필터를 다시 작성하지 않는다" in repair_prompt
+    assert "같은 필터를 코드 안에서 반복해도" not in generation_prompt
+
+
 def test_prompt_variable_builder_output_order_matches_prompt_input_order():
     import re
 
@@ -3706,6 +3727,7 @@ def test_router_flow_v3_calls_langflow_api_with_branch_message_as_input():
         "오늘 DA공정 생산량 알려줘",
         api_url="http://localhost:7860/api/v1/run/data-flow",
         api_key="secret",
+        session_id="router-session-1",
         timeout_seconds="33",
         post_func=fake_post,
     )
@@ -3716,6 +3738,7 @@ def test_router_flow_v3_calls_langflow_api_with_branch_message_as_input():
         "input_value": "오늘 DA공정 생산량 알려줘",
         "input_type": "chat",
         "output_type": "chat",
+        "session_id": "router-session-1",
     }
     assert calls == [
         {
@@ -3724,6 +3747,7 @@ def test_router_flow_v3_calls_langflow_api_with_branch_message_as_input():
                 "input_value": "오늘 DA공정 생산량 알려줘",
                 "input_type": "chat",
                 "output_type": "chat",
+                "session_id": "router-session-1",
             },
             "headers": {"Content-Type": "application/json", "x-api-key": "secret"},
             "timeout": 33,
@@ -3793,6 +3817,7 @@ def test_router_flow_v3_docs_and_component_are_message_only_contract():
         "flow_input",
         "api_url",
         "api_key",
+        "session_id",
         "timeout_seconds",
     ]
     assert [item.kwargs.get("name") for item in _component_outputs(component)] == ["message"]
@@ -3800,6 +3825,7 @@ def test_router_flow_v3_docs_and_component_are_message_only_contract():
     assert "ROUTE_ALIASES" not in source
     assert "selected_flow" not in source
     assert "API 호출 route의 Smart Router `Route Message`는 비웁니다." in guide
+    assert "session_id" in guide
     assert "01 -> 02 -> 03" not in guide
     assert "별도 API 응답 envelope가 없다" in guide
     assert "router v3의 최종 output은 항상 Message 하나입니다." in design

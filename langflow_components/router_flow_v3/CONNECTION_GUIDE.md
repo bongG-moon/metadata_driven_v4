@@ -8,7 +8,7 @@ Run Flow 노드는 호출 시간과 입력 전달 확인이 어려울 수 있으
 - API 호출 route의 Smart Router `Route Message`는 비웁니다.
 - Smart Router route output이 사용자 원문을 그대로 내보내게 합니다.
 - 선택된 branch의 메시지를 `01 선택 Flow API 메시지 호출기.flow_input`에 연결합니다.
-- `01`은 하위 flow API를 호출하고, 하위 flow가 반환한 Message만 `Chat Output`으로 보냅니다.
+- `01`은 하위 flow API를 호출할 때 `input_value`와 `session_id`를 함께 보내고, 하위 flow가 반환한 Message만 `Chat Output`으로 보냅니다.
 
 ## 1. 기본 구조
 
@@ -60,6 +60,7 @@ Smart Router는 Route Message가 있으면 원문 대신 그 메시지를 output
 | `Flow 입력` | Smart Router의 해당 route output을 연결합니다. Route Message가 비어 있으면 사용자 원문이 들어옵니다. |
 | `하위 Flow API URL` | 해당 하위 flow의 Langflow Run API URL을 입력합니다. 예: `http://127.0.0.1:7860/api/v1/run/<flow_id>` |
 | `Langflow API 키` | 필요한 환경에서만 입력합니다. |
+| `세션 ID` | advanced 입력입니다. 비워두면 `01`이 실행마다 격리용 session_id를 자동 생성합니다. 웹처럼 같은 대화 세션을 유지해야 하면 외부 session_id를 넣습니다. |
 | `제한 시간(초)` | advanced 입력입니다. 기본값은 180초입니다. |
 
 ## 4. 하위 Flow API 호출 형식
@@ -70,12 +71,17 @@ Smart Router는 Route Message가 있으면 원문 대신 그 메시지를 output
 {
   "input_value": "사용자 원문",
   "input_type": "chat",
-  "output_type": "chat"
+  "output_type": "chat",
+  "session_id": "router_v3_..."
 }
 ```
 
 하위 flow가 API용 구조화 응답을 만들어야 한다면 router가 아니라 하위 flow 내부에서 Message를 그렇게 만들도록 수정합니다.
 router v3는 응답을 감싸거나 재구성하지 않습니다.
+
+웹 구현과의 가장 큰 차이는 `session_id`입니다.
+웹은 Langflow API를 호출할 때 항상 현재 대화의 `session_id`를 전달합니다.
+router v3에서 `session_id`를 보내지 않으면 Langflow가 하위 flow ID 기반 기본 세션을 사용할 수 있고, 이 경우 이전 실행 맥락이 섞여 사용자 질문과 다른 답변처럼 보일 수 있습니다.
 
 ## 5. Route별 URL 설정
 
@@ -95,6 +101,6 @@ route별 URL 예시는 [ROUTE_API_NODE_SETTINGS_EXAMPLE.md](C:/Users/qkekt/Deskt
 
 - API 호출 route의 Route Message가 비어 있다.
 - Smart Router route output이 사용자 질문 원문이다.
-- `01`의 실제 API payload에서 `input_value`가 사용자 질문과 동일하다.
+- `01`의 실제 API payload에서 `input_value`가 사용자 질문과 동일하고 `session_id`가 함께 전달된다.
 - `01.message`를 Chat Output에 연결하면 하위 flow가 반환한 실제 Message가 그대로 보인다.
 - router v3에는 route-flow 매핑 상수나 별도 API 응답 envelope가 없다.

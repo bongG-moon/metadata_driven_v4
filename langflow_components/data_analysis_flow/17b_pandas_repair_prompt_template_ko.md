@@ -26,7 +26,9 @@
 - `{failed_code}`는 첫 LLM이 생성한 원본 pandas 코드다.
 - `error_context_json.executed_code_with_preamble`은 executor가 filter preamble을 자동으로 붙인 뒤 실행한 전체 코드이며, 참고용이다.
 - retry 응답의 `code`에는 executor preamble을 복사해서 넣지 않는다. retry executor가 `intent_plan.retrieval_jobs[].filters` 기반 preamble을 다시 자동으로 붙인다.
-- `intent_plan.retrieval_jobs[].filters`는 pandas 전처리 조건으로 먼저 적용한다.
+- `intent_plan.retrieval_jobs[].filters`는 executor가 pandas 전처리 조건으로 먼저 적용한다.
+- retry code에는 `intent_plan.retrieval_jobs[].filters`와 같은 필터를 다시 작성하지 않는다.
+- retry code에서는 이미 필터된 `sources["alias"]`를 기준으로 오류 원인, 집계, 정렬, join, 추가 분석 조건만 수정한다.
 - `function_case_selection_json`에는 의도 분석 LLM이 선택한 function case, `selected_steps`, `input_text`, `source_alias`가 들어 있다.
 - 실패한 코드와 `function_case_selection_json.selected_steps`에 실제로 필요한 helper만 사용한다.
 - `function_case_helper_code`에는 사용할 수 있는 helper 함수 정의 코드만 들어 있다.

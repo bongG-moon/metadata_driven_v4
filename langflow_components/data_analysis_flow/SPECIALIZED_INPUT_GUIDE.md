@@ -79,10 +79,17 @@ signature: match_product_tokens(input_text, frame, token_columns=None, output_or
 - `x16`, `X8`처럼 ORG 앞에 x/X가 붙은 경우 먼저 원문을 매칭하고, 매칭되지 않으면 x/X를 제거해 ORG 값과 매칭한다.
 - `FC78`, `FC96`처럼 `FC+숫자` 형태는 `PKG_TYPE1/PKG1=FCBGA`와 `LEAD=해당 숫자`로 해석한다.
 - `F78`, `F96`처럼 `F+숫자` 형태는 `LEAD=해당 숫자`로만 해석하고 package type 조건은 추가하지 않는다.
+- `152ball`, `78Lead`처럼 숫자 뒤에 `ball` 또는 `lead`가 붙은 표현은 LEAD 조건으로 해석하며, LEAD 비교에서만 suffix를 제거한다.
 - `L-218`, `A-663`, `B-123`, `Z-000`처럼 `영문 1자리-숫자 3자리(+선택 영숫자)` 패턴으로 시작하는 입력은 MCP_NO 부분 입력으로 보고 MCP_NO prefix 조건으로 매칭한다.
 - `x16`, `X8`처럼 `X+숫자` 형태는 `ORG=해당 숫자`로만 해석한다. LEAD, DEVICE, DEVICE_DESC 등 다른 컬럼으로 fallback하지 않는다.
 - 일반 token은 TECH/FAMILY, DEN/DENSITY, MODE, PKG_TYPE1/PKG1, PKG_TYPE2/PKG2, LEAD, MCP_NO, DEVICE 등 구조화 제품 후보 속성 컬럼에 돌려 exact 매칭 여부를 확인한다. DEVICE_DESC는 자유 텍스트 설명 컬럼이므로 token 포함 여부를 보조적으로 확인한다.
 - 부분/prefix 조건은 MCP_NO에서만 사용한다. 단, 일반 token이 모든 후보 컬럼 exact 매칭에 실패했다고 해서 MCP_NO로 fallback하지 않는다. MCP_NO로 해석하려면 반드시 `영문 1자리-숫자 3자리(+선택 영숫자)` 패턴을 만족해야 한다.
+
+제품별 DEVICE 표시 규칙:
+
+- 질문에 `제품별`과 `DEVICE`/`디바이스`/`device`가 함께 들어가면 DEVICE 컬럼만 단독으로 보여주지 않는다.
+- 결과 groupby/display 기준에 제품 식별 속성도 함께 포함한다.
+- 권장 순서는 `TECH`, `DEN`/`DENSITY`, `MODE`, `ORG`, `PKG1`/`PKG_TYPE1`, `PKG2`/`PKG_TYPE2`, `LEAD`, `MCP_NO`, `DEVICE`, 요청 지표 순서다.
 
 ```text
 function_name: sample_passthrough_helper

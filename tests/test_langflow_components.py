@@ -37,6 +37,9 @@ def install_lfx_test_stubs() -> None:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
+    class BoolInput(InputBase):
+        pass
+
     modules = {
         "lfx": types.ModuleType("lfx"),
         "lfx.custom": types.ModuleType("lfx.custom"),
@@ -48,6 +51,7 @@ def install_lfx_test_stubs() -> None:
         "lfx.schema.message": types.ModuleType("lfx.schema.message"),
     }
     modules["lfx.custom.custom_component.component"].Component = Component
+    modules["lfx.io"].BoolInput = BoolInput
     modules["lfx.io"].DataInput = InputBase
     modules["lfx.io"].DropdownInput = InputBase
     modules["lfx.io"].MessageTextInput = InputBase
@@ -885,8 +889,8 @@ def test_answer_message_adapter_formats_numbers_and_shows_recorded_outputs():
 
     message = message_adapter.build_message(payload)
 
-    assert "### 분석 과정 요약" in message
-    assert "### 분석 근거" in message
+    assert "### 중간 분석 산출물" in message
+    assert "### helper 실행 결과" in message
     assert "12K" in message
     assert "9,850" in message
 
@@ -1065,6 +1069,13 @@ def test_data_analysis_answer_response_builds_sections_for_api_and_message():
     assert payload["answer_sections"]["result_table"]["rows"][0]["WIP"] == 12500
     assert payload["answer_sections"]["applied_criteria"]["required_params"]["wip_data"] == {"DATE": "20260705"}
     assert "### 적용 기준" in message
+    assert "**사용 데이터**" in message
+    assert "- dataset_key=wip_today, source_alias=wip_data, source_type=oracle" in message
+    assert "**조회 필수 조건**" in message
+    assert "- wip_data: DATE=20260705" in message
+    assert "**분석 조건**" in message
+    assert "- wip_data: OPER_NAME={\"operator\": \"in\", \"value\": [\"D/A1\", \"D/A2\"]}" in message
+    assert '- 사용 데이터: `[{"' not in message
     assert "### pandas 코드/실행" not in message
     assert "### pandas 코드/실행" in diagnostic_message
     assert api_response["answer_sections"]["result_table"]["row_count"] == 1
@@ -1339,7 +1350,7 @@ def test_pandas_executor_supports_prefix_filter_and_product_token_helper():
 
     message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
     helper_message = message_adapter.build_message(helper_result)
-    assert "### 분석 근거" in helper_message
+    assert "### helper 실행 결과" in helper_message
     assert "제품 속성 token 매칭 결과" in helper_message
     assert "DA 16G GDDR6 180" in helper_message
     assert "def match_product_tokens" not in helper_message
@@ -1511,6 +1522,47 @@ def test_match_product_tokens_generalizes_special_pattern_rules():
     assert unknown_token_only["data"]["rows"] == []
 
 
+def test_match_product_tokens_strips_lead_ball_suffix_only_for_lead_role():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "runtime_sources": {
+            "product_data": [
+                {"TECH": "AA", "LEAD": "78ball", "MODE": "DDR5", "DEVICE": "LEAD-78-BALL"},
+                {"TECH": "BB", "LEAD": "152Lead", "MODE": "LPDDR5", "DEVICE": "LEAD-152-LEAD"},
+                {"TECH": "CC", "LEAD": 152, "MODE": "GDDR6", "DEVICE": "LEAD-152-NUMERIC"},
+                {"TECH": "78LEAD", "LEAD": "999", "MODE": "SDR", "DEVICE": "TECH-78LEAD-CONTROL"},
+            ]
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    lead_78 = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\ndf = match_product_tokens('78Lead', sources['product_data'])\n"
+                + "result = df[['DEVICE']]"
+            )
+        },
+    )
+    lead_152 = pandas_executor.execute_pandas_code(
+        payload,
+        {
+            "code": (
+                function_case_source("match_product_tokens")
+                + "\n\ndf = match_product_tokens('152ball', sources['product_data'])\n"
+                + "result = df[['DEVICE']]"
+            )
+        },
+    )
+
+    assert lead_78["analysis"]["status"] == "ok"
+    assert [row["DEVICE"] for row in lead_78["data"]["rows"]] == ["LEAD-78-BALL"]
+    assert lead_152["analysis"]["status"] == "ok"
+    assert [row["DEVICE"] for row in lead_152["data"]["rows"]] == ["LEAD-152-LEAD", "LEAD-152-NUMERIC"]
+
+
 def test_match_product_tokens_requires_all_tokens_per_product_group():
     pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
     payload = {
@@ -1651,12 +1703,30 @@ def test_answer_message_adapter_adds_data_ref_download_links():
 
     message = message_adapter.build_message(payload, "http://localhost:8501")
     input_names = {item.kwargs.get("name") for item in message_adapter.AnswerMessageAdapter.inputs}
+    input_types = {item.kwargs.get("name"): item.__class__.__name__ for item in message_adapter.AnswerMessageAdapter.inputs}
+    input_display_names = {item.kwargs.get("name"): item.kwargs.get("display_name") for item in message_adapter.AnswerMessageAdapter.inputs}
 
     assert "### 데이터 다운로드" in message
     assert "분석 결과 데이터 CSV 다운로드" in message
     assert "사용 원본 데이터: production_data CSV 다운로드" in message
     assert "http://localhost:8501/?download_ref=" in message
     assert "download_base_url" in input_names
+    assert "show_download_links" in input_names
+    assert "show_pandas_code" in input_names
+    assert input_display_names["show_analysis_evidence"] == "중간 산출물/helper 결과 표시"
+    for name in (
+        "include_diagnostics",
+        "show_result_table",
+        "show_analysis_evidence",
+        "show_download_links",
+        "show_notices",
+        "show_applied_criteria",
+        "show_next_questions",
+        "show_intent_analysis",
+        "show_data_retrieval",
+        "show_pandas_code",
+    ):
+        assert input_types[name] == "BoolInput"
 
 
 def test_answer_message_adapter_default_download_link_uses_standalone_server():
@@ -1677,6 +1747,129 @@ def test_answer_message_adapter_default_download_link_uses_standalone_server():
     message = message_adapter.build_message(payload)
 
     assert "http://localhost:8765/?download_ref=" in message
+
+
+def test_answer_message_adapter_section_toggles_control_verbose_blocks():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "분석 완료입니다.",
+        "intent_plan": {
+            "analysis_kind": "pandas_analysis",
+            "retrieval_jobs": [{"dataset_key": "production_today", "source_alias": "production_data"}],
+            "pandas_execution_plan": [{"step": "집계"}],
+        },
+        "source_results": [{"dataset_key": "production_today", "source_alias": "production_data", "status": "ok", "row_count": 1}],
+        "analysis": {
+            "status": "ok",
+            "row_count": 1,
+            "columns": ["DEVICE", "QTY"],
+            "analysis_code": "result = sources['production_data']",
+            "step_outputs": [{"key": "basis", "row_count": 1, "columns": ["DEVICE"], "preview_rows": [{"DEVICE": "A"}]}],
+            "function_case_results": [{"function_name": "sample_helper", "matched_count": 1, "preview_rows": [{"DEVICE": "A"}]}],
+        },
+        "data": {
+            "columns": ["DEVICE", "QTY"],
+            "rows": [{"DEVICE": "A", "QTY": 1}],
+            "row_count": 1,
+        },
+        "data_refs": [{"ref_id": "result:s1:abc", "role": "analysis_result", "path": "payload.result_rows"}],
+        "answer_sections": {
+            "applied_criteria": {
+                "datasets": [{"dataset_key": "production_today", "source_alias": "production_data"}],
+                "required_params": {"production_data": {"DATE": "20260707"}},
+            },
+            "next_questions": ["제품별로 더 나눠볼까요?"],
+        },
+        "trace": {"warnings": [{"type": "demo", "message": "주의"}], "errors": [], "inspection": {"pandas_execution": {"status": "ok", "generated_code": "result = sources['production_data']"}}},
+    }
+
+    message = message_adapter.build_message(
+        payload,
+        "",
+        "false",
+        show_result_table="false",
+        show_analysis_evidence="false",
+        show_download_links="false",
+        show_notices="false",
+        show_applied_criteria="false",
+        show_next_questions="false",
+        show_intent_analysis="false",
+        show_data_retrieval="false",
+        show_pandas_code="false",
+    )
+
+    assert "### 답변" in message
+    assert "### 결과 테이블" not in message
+    assert "### 중간 분석 산출물" not in message
+    assert "### helper 실행 결과" not in message
+    assert "### 분석 과정 요약" not in message
+    assert "### 분석 근거" not in message
+    assert "### 데이터 다운로드" not in message
+    assert "### 경고/오류" not in message
+    assert "### 적용 기준" not in message
+    assert "### 다음에 볼 만한 질문" not in message
+    assert "### 의도 분석" not in message
+    assert "### 데이터 조회" not in message
+    assert "### pandas 코드/실행" not in message
+
+
+def test_answer_message_adapter_toggles_strip_sections_embedded_in_answer_text():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": (
+            "직접 답변입니다.\n\n"
+            "### 결과 테이블\n"
+            "| DEVICE | QTY |\n| --- | ---: |\n| A | 1 |\n\n"
+            "### 분석 근거\n"
+            "- 중간 집계 1건\n\n"
+            "### 데이터 다운로드\n"
+            "- CSV 다운로드\n\n"
+            "### 적용 기준\n"
+            "- production_today\n\n"
+            "### 다음에 볼 만한 질문\n"
+            "- 더 나눠볼까요?\n\n"
+            "### 의도 분석\n"
+            "- pandas_analysis\n\n"
+            "### 데이터 조회\n"
+            "- production_today 1건\n\n"
+            "### pandas 코드/실행\n"
+            "```python\nresult = df\n```"
+        ),
+        "data": {"columns": ["DEVICE", "QTY"], "rows": [{"DEVICE": "A", "QTY": 1}], "row_count": 1},
+        "analysis": {"step_outputs": [{"key": "basis", "row_count": 1}]},
+        "data_refs": [{"ref_id": "result:s1:abc", "role": "analysis_result"}],
+        "intent_plan": {"analysis_kind": "pandas_analysis"},
+        "source_results": [{"dataset_key": "production_today", "status": "ok", "row_count": 1}],
+        "trace": {"inspection": {"pandas_execution": {"generated_code": "result = df"}}},
+    }
+
+    component = message_adapter.AnswerMessageAdapter()
+    component.payload = payload
+    component.show_result_table = False
+    component.show_analysis_evidence = False
+    component.show_download_links = False
+    component.show_notices = False
+    component.show_applied_criteria = False
+    component.show_next_questions = False
+    component.show_intent_analysis = False
+    component.show_data_retrieval = False
+    component.show_pandas_code = False
+
+    message = component.build_output_message().text
+
+    assert "직접 답변입니다." in message
+    assert "### 결과 테이블" not in message
+    assert "| DEVICE | QTY |" not in message
+    assert "### 중간 분석 산출물" not in message
+    assert "### helper 실행 결과" not in message
+    assert "### 분석 근거" not in message
+    assert "### 데이터 다운로드" not in message
+    assert "### 적용 기준" not in message
+    assert "### 다음에 볼 만한 질문" not in message
+    assert "### 의도 분석" not in message
+    assert "### 데이터 조회" not in message
+    assert "### pandas 코드/실행" not in message
+    assert "result = df" not in message
 
 
 def test_api_response_builder_uses_chat_display_message_when_connected():
@@ -2671,6 +2864,10 @@ def test_langflow_prompt_templates_keep_domain_specific_examples_out_of_generic_
     assert "input_text에는 제품이라는 말을 빼고 패턴 token만 남긴다" in specialized_prompt
     assert "일반 pandas filter로 표현 가능해 보여도" in specialized_prompt
     assert "등록된 제품군" in specialized_prompt
+    assert "152ball" in specialized_prompt
+    assert "78Lead" in specialized_prompt
+    assert "제품별과 DEVICE" in specialized_prompt
+    assert "DEVICE만 단독으로 보여주지 않는다" in specialized_prompt
 
 
 def test_pandas_prompt_templates_do_not_repeat_executor_filter_preamble():
@@ -3260,7 +3457,7 @@ def test_dummy_data_analysis_flow_emits_data_analysis_contract():
     assert response["message"].startswith("### 답변")
     assert "### 결과 테이블" in response["message"]
     assert "### 적용 기준" in response["message"]
-    assert "### 분석 과정 요약" in response["message"]
+    assert "### 중간 분석 산출물" in response["message"]
     assert "### 참고" in response["message"]
     assert "### 다음에 볼 만한 질문" in response["message"]
     assert response["answer_message"]

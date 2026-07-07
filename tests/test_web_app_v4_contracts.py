@@ -252,6 +252,29 @@ def test_web_display_table_uses_explicit_answer_section_labels_only() -> None:
     assert displayed.loc[0, "생산량"] == "12.4K"
 
 
+def test_web_strips_markdown_result_table_when_structured_table_is_available() -> None:
+    from web_app.app import strip_result_table_section
+
+    text = (
+        "### 답변\n"
+        "상위 제품은 DEV-A입니다.\n\n"
+        "### 결과 테이블\n"
+        "| DEVICE | 값 |\n"
+        "| --- | ---: |\n"
+        "| DEV-A | 12K |\n\n"
+        "### 참고\n"
+        "- 구조화 표는 별도로 표시합니다."
+    )
+
+    stripped = strip_result_table_section(text)
+
+    assert "### 답변" in stripped
+    assert "상위 제품은 DEV-A입니다." in stripped
+    assert "### 결과 테이블" not in stripped
+    assert "| DEVICE | 값 |" not in stripped
+    assert "### 참고" in stripped
+
+
 def test_normalize_authoring_response_accepts_v4_trace_preview_items() -> None:
     result = normalize_authoring_response(
         {

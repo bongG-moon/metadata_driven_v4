@@ -484,7 +484,7 @@ def _step_outputs_section(fixture: dict[str, Any]) -> str:
     outputs = fixture.get("step_outputs") if isinstance(fixture.get("step_outputs"), list) else []
     if not outputs:
         return ""
-    lines = ["### 분석 과정 요약"]
+    lines = ["### 중간 분석 산출물"]
     for item in outputs[:4]:
         if not isinstance(item, dict):
             continue
@@ -547,7 +547,7 @@ def _pandas_section(fixture: dict[str, Any]) -> str:
 def _function_case_section(results: list[dict[str, Any]]) -> str:
     if not results:
         return ""
-    lines = ["### 분석 근거"]
+    lines = ["### helper 실행 결과"]
     for item in results:
         function_name = str(item.get("function_name") or "function_case").strip()
         input_text = str(item.get("input_text") or "").strip()

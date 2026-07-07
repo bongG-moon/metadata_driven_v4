@@ -143,11 +143,14 @@ pandas 실행 실패 시 오류 정보와 실패한 코드를 LLM에 넘겨 한 
 | 59 | `21 답변 메시지 어댑터.message` | `Chat Output.message` |
 
 `21 답변 메시지 어댑터.download_base_url`에는 다운로드 링크를 만들 때 사용할 Base URL만 입력한다. 기본값은 `http://localhost:8765`이다.
-`21 답변 메시지 어댑터.include_diagnostics`는 기본값 `false`를 권장한다. Langflow Playground에서 의도 분석, 데이터 조회, pandas 코드까지 함께 검증해야 할 때만 `true`로 바꾼다.
+`21 답변 메시지 어댑터.include_diagnostics`는 기본값 OFF를 권장한다. Langflow Playground에서 의도 분석, 데이터 조회, pandas 코드까지 한 번에 검증해야 할 때만 토글을 켠다.
+`21 답변 메시지 어댑터`는 메시지 길이를 줄이기 위해 섹션별 ON/OFF 토글을 제공한다. `show_result_table`, `show_analysis_evidence`(화면 표시명: 중간 산출물/helper 결과 표시), `show_download_links`, `show_notices`, `show_applied_criteria`, `show_next_questions`는 기본값 ON이고, `show_intent_analysis`, `show_data_retrieval`, `show_pandas_code`는 기본값 OFF이다.
+`answer_message` 안에 `### 결과 테이블`, `### 중간 분석 산출물`, `### helper 실행 결과`, `### 분석 근거`, `### 데이터 다운로드`, `### 적용 기준`, `### 다음에 볼 만한 질문`, `### 의도 분석`, `### 데이터 조회`, `### pandas 코드/실행` 같은 섹션이 이미 들어와도 21번 토글이 OFF인 섹션은 최종 메시지에서 제거된다.
+Playground에서 답변만 간단히 보고 싶으면 다운로드 링크, 중간 산출물/helper 결과, pandas 코드 토글을 끄면 된다. Web/API 구조화 표시는 `22 API 응답 생성기.data`와 `data_refs`를 기준으로 동작하므로, 21번 메시지 섹션을 꺼도 웹의 전체 표와 CSV 다운로드 계약은 유지된다.
 `Text Input: 답변 특화 지침`에는 `answer_domain_guidance_input_example_ko.md`의 내용을 복사해 넣을 수 있다. 공통 답변 Prompt Template에는 특정 제품 token/helper 규칙을 직접 넣지 않는다.
 `19 답변 Prompt Template`은 LLM이 `answer_message`를 포함한 JSON 객체를 반환하도록 요청한다. 특화 지침에서 컬럼 표시명/순서를 지정해야 할 때만 `answer_sections.result_table.column_labels`, `answer_sections.result_table.display_columns`를 함께 반환하게 한다.
 
-`20 답변 응답 생성기`는 기존 `answer_message`와 함께 현업 화면/API에서 재사용할 `answer_sections`를 payload에 추가한다. `answer_sections`에는 요약, 결과 테이블, 적용 기준, 분석 근거, 다운로드 참조, 참고/다음 질문이 들어간다. `21 답변 메시지 어댑터`와 `22 API 응답 생성기`는 이 구조를 우선 사용하되, 기존 payload만 들어와도 fallback으로 동작한다.
+`20 답변 응답 생성기`는 기존 `answer_message`와 함께 현업 화면/API에서 재사용할 `answer_sections`를 payload에 추가한다. `answer_sections`에는 요약, 결과 테이블, 적용 기준, 중간 산출물/helper 결과, 다운로드 참조, 참고/다음 질문이 들어간다. `21 답변 메시지 어댑터`와 `22 API 응답 생성기`는 이 구조를 우선 사용하되, 기존 payload만 들어와도 fallback으로 동작한다.
 
 컬럼 표시명이나 화면 표시 순서가 필요하면 공통 컴포넌트에 하드코딩하지 않고 `payload.data.column_labels`, `payload.data.display_columns` 또는 `answer_sections.result_table.column_labels`, `answer_sections.result_table.display_columns`로 명시적으로 전달한다. 전달값이 없으면 `21 답변 메시지 어댑터`는 원본 컬럼명과 원본 순서를 그대로 사용한다.
 

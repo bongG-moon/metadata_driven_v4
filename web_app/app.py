@@ -558,16 +558,18 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
 def render_assistant_chat_message(message: dict[str, Any], message_index: int, settings: dict[str, Any]) -> None:
     result = message.get("result") if isinstance(message.get("result"), dict) else {}
     answer_text = result.get("display_message") or result.get("answer_message") or message.get("content") or "응답 메시지가 없습니다."
-    st.markdown(format_answer_markdown_text(answer_text))
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    rows = data.get("rows") if isinstance(data.get("rows"), list) else []
+    columns = data.get("columns") if isinstance(data.get("columns"), list) else []
+    row_count = int_or_zero(data.get("row_count")) or len(rows)
+    has_structured_data = bool(rows or data.get("data_ref"))
+    display_answer_text = strip_result_table_section(answer_text) if has_structured_data else answer_text
+    st.markdown(format_answer_markdown_text(display_answer_text))
     if result.get("message_only"):
         if settings.get("developer_mode"):
             render_chat_developer_details(result, message_index, settings)
         return
 
-    data = result.get("data") if isinstance(result.get("data"), dict) else {}
-    rows = data.get("rows") if isinstance(data.get("rows"), list) else []
-    columns = data.get("columns") if isinstance(data.get("columns"), list) else []
-    row_count = int_or_zero(data.get("row_count")) or len(rows)
     loaded = load_result_rows_for_display(data, settings)
     if loaded.get("ok") and loaded.get("rows"):
         rows = loaded["rows"]
@@ -584,14 +586,13 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
             caption += " · data_ref에서 전체 행을 불러왔습니다."
         elif result_rows_are_preview(data):
             caption += f" · 화면 표시 {len(frame):,}행"
-        if not answer_message_has_result_table(answer_text):
-            st.caption(caption)
-            st.dataframe(
-                display_table_frame(frame, settings.get("number_mode", "comma"), **table_options),
-                hide_index=True,
-                width="stretch",
-                height=chat_dataframe_height(len(frame), CHAT_RESULT_TABLE_MAX_HEIGHT),
-            )
+        st.caption(caption)
+        st.dataframe(
+            display_table_frame(frame, settings.get("number_mode", "comma"), **table_options),
+            hide_index=True,
+            width="stretch",
+            height=chat_dataframe_height(len(frame), CHAT_RESULT_TABLE_MAX_HEIGHT),
+        )
         st.download_button(
             "결과 데이터 CSV 다운로드",
             data=dataframe_csv_bytes(frame),
@@ -608,9 +609,23 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
         render_chat_developer_details(result, message_index, settings)
 
 
-def answer_message_has_result_table(text: Any) -> bool:
+def strip_result_table_section(text: Any) -> str:
     value = str(text or "")
-    return "### 결과 테이블" in value or ("| " in value and "\n| ---" in value)
+    if "### 결과 테이블" not in value:
+        return value
+    kept: list[str] = []
+    skipping = False
+    for line in value.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("### 결과 테이블"):
+            skipping = True
+            continue
+        if skipping and stripped.startswith("### "):
+            skipping = False
+        if not skipping:
+            kept.append(line)
+    stripped_value = "\n".join(kept).strip()
+    return stripped_value or value
 
 
 def result_table_display_options(result: dict[str, Any]) -> dict[str, Any]:

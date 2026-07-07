@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from lfx.custom.custom_component.component import Component
-from lfx.io import DataInput, MessageTextInput, Output
+from lfx.io import BoolInput, DataInput, MessageTextInput, Output
 from lfx.schema.message import Message
 
 TABLE_PREVIEW_LIMIT = 10
@@ -16,71 +16,107 @@ VALUE_TEXT_LIMIT = 900
 DEFAULT_DOWNLOAD_BASE_URL = "http://localhost:8765"
 
 
-def build_message(payload_value: Any, download_base_url: Any = "", include_diagnostics: Any = False) -> str:
+def build_message(
+    payload_value: Any,
+    download_base_url: Any = "",
+    include_diagnostics: Any = False,
+    show_result_table: Any = True,
+    show_analysis_evidence: Any = True,
+    show_download_links: Any = True,
+    show_notices: Any = True,
+    show_intent_analysis: Any = "",
+    show_data_retrieval: Any = "",
+    show_pandas_code: Any = "",
+    show_applied_criteria: Any = True,
+    show_next_questions: Any = True,
+) -> str:
     payload = _payload(payload_value)
     if not payload:
         return ""
-    diagnostics_enabled = _truthy(include_diagnostics)
+    options = _message_options(
+        include_diagnostics,
+        show_result_table,
+        show_analysis_evidence,
+        show_download_links,
+        show_notices,
+        show_intent_analysis,
+        show_data_retrieval,
+        show_pandas_code,
+        show_applied_criteria,
+        show_next_questions,
+    )
     answer_sections = payload.get("answer_sections") if isinstance(payload.get("answer_sections"), dict) else {}
 
     if answer_sections:
-        sections = _message_sections_from_answer_sections(payload, answer_sections, download_base_url)
-        if diagnostics_enabled:
-            for section in (_intent_section(payload), _retrieval_section(payload), _pandas_section(payload)):
-                if section:
-                    sections.append(section)
+        sections = _message_sections_from_answer_sections(payload, answer_sections, download_base_url, options)
+        for section in _diagnostic_sections(payload, options):
+            if section:
+                sections.append(section)
         if sections:
             return "\n\n".join(sections)
 
     sections: list[str] = []
     answer = str(payload.get("answer_message") or "").strip()
+    answer = _display_answer_text(answer, options)
     if answer:
         sections.append("### 답변\n" + _answer_markdown(answer))
 
-    result_table_section = "" if _contains_markdown_table(answer) else _result_table_section(payload)
-    for section in (
-        _step_outputs_section(payload),
-        _function_case_results_section(payload),
-        result_table_section,
-        _download_links_section(payload, download_base_url),
-        _notice_section(payload),
-    ):
+    result_table_section = "" if _contains_markdown_table(answer) or not options["result_table"] else _result_table_section(payload)
+    optional_sections = []
+    if options["analysis_evidence"]:
+        optional_sections.extend([_step_outputs_section(payload), _function_case_results_section(payload)])
+    optional_sections.append(result_table_section)
+    if options["download_links"]:
+        optional_sections.append(_download_links_section(payload, download_base_url))
+    if options["notices"]:
+        optional_sections.append(_notice_section(payload))
+    for section in optional_sections:
         if section:
             sections.append(section)
 
-    if diagnostics_enabled:
-        for section in (_intent_section(payload), _retrieval_section(payload), _pandas_section(payload)):
-            if section:
-                sections.append(section)
+    for section in _diagnostic_sections(payload, options):
+        if section:
+            sections.append(section)
 
     if sections:
         return "\n\n".join(sections)
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def _message_sections_from_answer_sections(payload: dict[str, Any], answer_sections: dict[str, Any], download_base_url: Any = "") -> list[str]:
+def _message_sections_from_answer_sections(
+    payload: dict[str, Any],
+    answer_sections: dict[str, Any],
+    download_base_url: Any = "",
+    options: dict[str, bool] | None = None,
+) -> list[str]:
+    options = options or _message_options(False, True, True, True, True, "", "", "", True, True)
     sections: list[str] = []
     summary = answer_sections.get("summary") if isinstance(answer_sections.get("summary"), dict) else {}
     answer = str(summary.get("headline") or payload.get("answer_message") or "").strip()
+    answer = _display_answer_text(answer, options)
     if answer:
         sections.append("### 답변\n" + _answer_markdown(answer))
 
-    if not _contains_markdown_table(answer):
+    if options["result_table"] and not _contains_markdown_table(answer):
         result_table = _result_table_section_from_answer_sections(answer_sections)
         if result_table:
             sections.append(result_table)
 
-    applied = _applied_criteria_section_from_answer_sections(answer_sections)
-    if applied:
-        sections.append(applied)
+    if options["applied_criteria"]:
+        applied = _applied_criteria_section_from_answer_sections(answer_sections)
+        if applied:
+            sections.append(applied)
 
-    for section in (
-        _step_outputs_section(payload),
-        _function_case_results_section(payload),
-        _download_links_section(payload, download_base_url),
-        _notice_section_from_answer_sections(answer_sections),
-        _next_questions_section_from_answer_sections(answer_sections),
-    ):
+    optional_sections = []
+    if options["analysis_evidence"]:
+        optional_sections.extend([_step_outputs_section(payload), _function_case_results_section(payload)])
+    if options["download_links"]:
+        optional_sections.append(_download_links_section(payload, download_base_url))
+    if options["notices"]:
+        optional_sections.append(_notice_section_from_answer_sections(answer_sections))
+    if options["next_questions"]:
+        optional_sections.append(_next_questions_section_from_answer_sections(answer_sections))
+    for section in optional_sections:
         if section:
             sections.append(section)
     return sections
@@ -129,8 +165,43 @@ def _applied_criteria_section_from_answer_sections(answer_sections: dict[str, An
     ):
         value = criteria.get(key)
         if value not in (None, "", [], {}):
-            lines.append(f"- {label}: `{_display_value(value)}`")
+            lines.extend(_criteria_display_lines(label, value))
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _criteria_display_lines(label: str, value: Any) -> list[str]:
+    if value in (None, "", [], {}):
+        return []
+    lines = [f"**{label}**"]
+    lines.extend(f"- {item}" for item in _criteria_items(value))
+    return lines
+
+
+def _criteria_items(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        items: list[str] = []
+        for key, item in value.items():
+            if item in (None, "", [], {}):
+                continue
+            items.append(f"{key}: {_criteria_item_text(item)}")
+        return items or [_criteria_item_text(value)]
+    if isinstance(value, list):
+        items = [_criteria_item_text(item) for item in value if item not in (None, "", [], {})]
+        return items or [_criteria_item_text(value)]
+    return [_criteria_item_text(value)]
+
+
+def _criteria_item_text(value: Any) -> str:
+    if isinstance(value, dict):
+        pairs = []
+        for key, item in value.items():
+            if item in (None, "", [], {}):
+                continue
+            pairs.append(f"{key}={_display_value(item)}")
+        return ", ".join(pairs) if pairs else "{}"
+    if isinstance(value, list):
+        return ", ".join(_display_value(item) for item in value)
+    return _display_value(value)
 
 
 def _notice_section_from_answer_sections(answer_sections: dict[str, Any]) -> str:
@@ -177,6 +248,65 @@ def _contains_markdown_table(text: str) -> bool:
 
 def _answer_markdown(text: Any) -> str:
     return _escape_markdown_tilde(_readable_answer_text(str(text or "").strip()))
+
+
+def _display_answer_text(text: str, options: dict[str, bool]) -> str:
+    disabled_headings: list[str] = []
+    if not options.get("result_table"):
+        disabled_headings.extend(["결과 테이블", "결과표"])
+    if not options.get("analysis_evidence"):
+        disabled_headings.extend(["분석 과정 요약", "분석 근거", "중간 분석 산출물", "helper 실행 결과", "Helper 실행 결과"])
+    if not options.get("download_links"):
+        disabled_headings.extend(["데이터 다운로드", "다운로드"])
+    if not options.get("notices"):
+        disabled_headings.extend(["경고/오류", "경고", "오류", "참고"])
+    if not options.get("applied_criteria"):
+        disabled_headings.append("적용 기준")
+    if not options.get("next_questions"):
+        disabled_headings.extend(["다음에 볼 만한 질문", "다음 질문"])
+    if not options.get("intent_analysis"):
+        disabled_headings.append("의도 분석")
+    if not options.get("data_retrieval"):
+        disabled_headings.append("데이터 조회")
+    if not options.get("pandas_code"):
+        disabled_headings.extend(["pandas 코드/실행", "pandas 코드", "Pandas 코드", "PANDAS 코드"])
+    return _strip_markdown_sections(text, disabled_headings)
+
+
+def _strip_markdown_sections(text: str, headings: list[str]) -> str:
+    if not text or not headings:
+        return text
+    normalized_headings = {_normalize_heading(heading) for heading in headings if str(heading or "").strip()}
+    if not normalized_headings:
+        return text
+    kept: list[str] = []
+    skipping = False
+    skip_level = 0
+    for line in str(text).splitlines():
+        heading = _markdown_heading(line)
+        if heading:
+            level, title = heading
+            if _normalize_heading(title) in normalized_headings:
+                skipping = True
+                skip_level = level
+                continue
+            if skipping and level <= skip_level:
+                skipping = False
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _markdown_heading(line: str) -> tuple[int, str] | None:
+    match = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$", str(line or ""))
+    if not match:
+        return None
+    title = re.sub(r"\s+#*$", "", match.group(2)).strip()
+    return len(match.group(1)), title
+
+
+def _normalize_heading(value: Any) -> str:
+    return re.sub(r"[\s`*_:\-/]+", "", str(value or "").strip()).lower()
 
 
 def _readable_answer_text(text: str) -> str:
@@ -228,7 +358,7 @@ def _step_outputs_section(payload: dict[str, Any]) -> str:
     outputs = _analysis_items(payload, "step_outputs")
     if not outputs:
         return ""
-    lines = ["### 분석 과정 요약"]
+    lines = ["### 중간 분석 산출물"]
     for item in outputs[:6]:
         if not isinstance(item, dict):
             continue
@@ -250,7 +380,7 @@ def _function_case_results_section(payload: dict[str, Any]) -> str:
     results = _analysis_items(payload, "function_case_results")
     if not results:
         return ""
-    lines = ["### 분석 근거"]
+    lines = ["### helper 실행 결과"]
     seen_previews: set[str] = set()
     for item in results[:6]:
         if not isinstance(item, dict):
@@ -518,6 +648,17 @@ def _download_url(ref: dict[str, Any], download_base_url: Any = "") -> str:
     return f"{base_url.rstrip('/')}/?download_ref={token}"
 
 
+def _diagnostic_sections(payload: dict[str, Any], options: dict[str, bool]) -> list[str]:
+    sections = []
+    if options.get("intent_analysis"):
+        sections.append(_intent_section(payload))
+    if options.get("data_retrieval"):
+        sections.append(_retrieval_section(payload))
+    if options.get("pandas_code"):
+        sections.append(_pandas_section(payload))
+    return sections
+
+
 def _inspection(payload: dict[str, Any]) -> dict[str, Any]:
     trace = payload.get("trace") if isinstance(payload.get("trace"), dict) else {}
     inspection = trace.get("inspection")
@@ -692,6 +833,38 @@ def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "예", "사용", "표시"}
 
 
+def _message_options(
+    include_diagnostics: Any,
+    show_result_table: Any,
+    show_analysis_evidence: Any,
+    show_download_links: Any,
+    show_notices: Any,
+    show_intent_analysis: Any,
+    show_data_retrieval: Any,
+    show_pandas_code: Any,
+    show_applied_criteria: Any,
+    show_next_questions: Any,
+) -> dict[str, bool]:
+    diagnostics_default = _truthy(include_diagnostics)
+    return {
+        "result_table": _option_enabled(show_result_table, True),
+        "analysis_evidence": _option_enabled(show_analysis_evidence, True),
+        "download_links": _option_enabled(show_download_links, True),
+        "notices": _option_enabled(show_notices, True),
+        "applied_criteria": _option_enabled(show_applied_criteria, True),
+        "next_questions": _option_enabled(show_next_questions, True),
+        "intent_analysis": diagnostics_default or _option_enabled(show_intent_analysis, False),
+        "data_retrieval": diagnostics_default or _option_enabled(show_data_retrieval, False),
+        "pandas_code": diagnostics_default or _option_enabled(show_pandas_code, False),
+    }
+
+
+def _option_enabled(value: Any, default: bool) -> bool:
+    if value in (None, ""):
+        return bool(default)
+    return _truthy(value)
+
+
 class AnswerMessageAdapter(Component):
     display_name = "21 답변 메시지 어댑터"
     description = "최종 답변과 결과 테이블을 서비스 채팅 출력용 메시지로 변환합니다."
@@ -704,10 +877,73 @@ class AnswerMessageAdapter(Component):
             required=False,
             advanced=True,
         ),
-        MessageTextInput(
+        BoolInput(
             name="include_diagnostics",
             display_name="개발자 진단 포함",
-            value="false",
+            value=False,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_result_table",
+            display_name="결과 테이블 표시",
+            value=True,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_analysis_evidence",
+            display_name="중간 산출물/helper 결과 표시",
+            value=True,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_download_links",
+            display_name="다운로드 링크 표시",
+            value=True,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_notices",
+            display_name="경고/참고 표시",
+            value=True,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_applied_criteria",
+            display_name="적용 기준 표시",
+            value=True,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_next_questions",
+            display_name="다음 질문 표시",
+            value=True,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_intent_analysis",
+            display_name="의도 분석 표시",
+            value=False,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_data_retrieval",
+            display_name="데이터 조회 진단 표시",
+            value=False,
+            required=False,
+            advanced=True,
+        ),
+        BoolInput(
+            name="show_pandas_code",
+            display_name="pandas 코드 표시",
+            value=False,
             required=False,
             advanced=True,
         ),
@@ -719,6 +955,15 @@ class AnswerMessageAdapter(Component):
             text=build_message(
                 getattr(self, "payload", None),
                 getattr(self, "download_base_url", ""),
-                getattr(self, "include_diagnostics", "false"),
+                getattr(self, "include_diagnostics", False),
+                getattr(self, "show_result_table", True),
+                getattr(self, "show_analysis_evidence", True),
+                getattr(self, "show_download_links", True),
+                getattr(self, "show_notices", True),
+                getattr(self, "show_intent_analysis", False),
+                getattr(self, "show_data_retrieval", False),
+                getattr(self, "show_pandas_code", False),
+                getattr(self, "show_applied_criteria", True),
+                getattr(self, "show_next_questions", True),
             )
         )

@@ -35,6 +35,22 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
                 text = left
         return ''.join(ch for ch in text if ('A' <= ch <= 'Z') or ('0' <= ch <= '9'))
 
+    # LEAD 컬럼은 현업 질문/원천값에서 78Lead, 152ball처럼 단위/설명이 붙는 경우가 있다.
+    # 이 suffix는 LEAD 역할 비교에만 제거하고 다른 제품 속성에는 적용하지 않는다.
+    def _lead_norm(value):
+        text = _norm(value)
+        for suffix in ('LEAD', 'BALL'):
+            if text.endswith(suffix):
+                return text[:-len(suffix)]
+        return text
+
+    def _lead_suffix_number(value):
+        text = _norm(value)
+        for suffix in ('LEAD', 'BALL'):
+            if text.endswith(suffix) and text[:-len(suffix)].isdigit():
+                return text[:-len(suffix)]
+        return ''
+
     # 컬럼명은 PKG_TYPE1, MCP NO처럼 표기 차이가 있어도 같은 key로 비교한다.
     def _col_key(value):
         text = str(value).upper()
@@ -98,15 +114,21 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
     if not columns or not groups:
         return result
 
-    # 컬럼별 값을 미리 정규화해 token 매칭을 반복해도 같은 전처리를 다시 하지 않게 한다.
-    normalized_values = {column: result[column].map(_norm) for column in columns}
     columns_by_role = {role: [] for role in role_aliases}
     columns_by_role['ALL'] = list(columns)
     alias_to_role = {alias: role for role, aliases in role_aliases.items() for alias in aliases}
+    column_to_role = {}
     for column in columns:
         role = alias_to_role.get(_col_key(column))
         if role:
+            column_to_role[column] = role
             columns_by_role[role].append(column)
+
+    # 컬럼별 값을 미리 정규화해 token 매칭을 반복해도 같은 전처리를 다시 하지 않게 한다.
+    normalized_values = {
+        column: result[column].map(_lead_norm if column_to_role.get(column) == 'LEAD' else _norm)
+        for column in columns
+    }
 
     def _has_rows(mask):
         return mask is not None and bool(mask.any())
@@ -121,14 +143,15 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
         combined = None
         for column in selected_columns:
             values = normalized_values[column]
+            compare_token = _lead_norm(token) if column_to_role.get(column) == 'LEAD' else token
             if mode == 'exact':
-                current = values == token
+                current = values == compare_token
             elif mode == 'contains':
-                current = values.str.contains(token, na=False, regex=False)
+                current = values.str.contains(compare_token, na=False, regex=False)
             elif mode == 'starts_with':
-                current = values.str.startswith(token, na=False)
+                current = values.str.startswith(compare_token, na=False)
             else:
-                current = values == token
+                current = values == compare_token
             combined = current if combined is None else (combined | current)
         return combined
 
@@ -139,6 +162,11 @@ def match_product_tokens(input_text, frame, token_columns=None, output_order=Non
         token = _norm(raw_text)
         if not token:
             return None
+
+        # 숫자+lead/ball 표현은 LEAD 역할 전용 token으로 처리한다. 예: 78Lead, 152ball.
+        lead_suffix_number = _lead_suffix_number(raw_text)
+        if lead_suffix_number:
+            return _match(['LEAD'], lead_suffix_number, 'exact')
 
         # FC+숫자: PKG1은 FCBGA이고 LEAD는 숫자 부분이다. 예: FC12, FC78, FC344.
         if token.startswith('FC') and token[2:].isdigit():

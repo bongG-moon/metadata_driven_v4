@@ -22,7 +22,7 @@ def build_answer_response(payload_value: Any, answer_text: Any = "") -> dict[str
     next_payload = deepcopy(payload)
     next_payload["answer_message"] = message
     next_payload["answer_sections"] = _build_answer_sections(next_payload, message, _dict(structured_answer.get("answer_sections")))
-    next_payload["state"] = {**next_payload.get("state", {}), "current_data": {"row_count": next_payload.get("data", {}).get("row_count", 0), "preview_rows": next_payload.get("data", {}).get("rows", [])[:5], "data_ref": next_payload.get("data", {}).get("data_ref", "")}}
+    next_payload["state"] = _build_next_turn_state(next_payload)
     return next_payload
 
 
@@ -273,6 +273,166 @@ def _compact_source_results(source_results: list[Any]) -> list[dict[str, Any]]:
     return compact
 
 
+def _build_next_turn_state(payload: dict[str, Any]) -> dict[str, Any]:
+    state = deepcopy(_dict(payload.get("state")))
+    state.pop("runtime_sources", None)
+    state["last_question"] = _dict(payload.get("request")).get("question", "")
+    state["last_answer_message"] = _clip_text(payload.get("answer_message"), 1000)
+    state["current_data"] = _current_data_state(payload)
+    followup_sources = _followup_source_results(payload)
+    if followup_sources:
+        state["followup_source_results"] = followup_sources
+    runtime_source_refs = _runtime_source_refs(payload)
+    if runtime_source_refs:
+        state["runtime_source_refs"] = runtime_source_refs
+    request = _dict(payload.get("request"))
+    if request:
+        state["request"] = deepcopy(request)
+    intent_plan = _compact_intent_plan(_dict(payload.get("intent_plan")))
+    if intent_plan:
+        state["last_intent_plan"] = intent_plan
+    applied_criteria = _applied_criteria(payload)
+    if applied_criteria:
+        state["last_applied_criteria"] = applied_criteria
+    return _omit_empty(state)
+
+
+def _current_data_state(payload: dict[str, Any]) -> dict[str, Any]:
+    data = _dict(payload.get("data"))
+    rows = _list(data.get("rows"))
+    columns = _string_list(data.get("columns")) or _columns_from_rows(rows)
+    return _omit_empty(
+        {
+            "row_count": _int(data.get("row_count"), len(rows)),
+            "columns": columns,
+            "result_columns": columns,
+            "preview_rows": deepcopy(rows[:5]),
+            "data_ref": deepcopy(data.get("data_ref")),
+            "source_aliases": _source_aliases(payload),
+            "source_dataset_keys": _source_dataset_keys(payload),
+            "source_columns_by_alias": _source_columns_by_alias(payload),
+        }
+    )
+
+
+def _followup_source_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    runtime_sources = _dict(payload.get("runtime_sources"))
+    result = []
+    for source in _list(payload.get("source_results")):
+        if not isinstance(source, dict):
+            continue
+        alias = str(source.get("source_alias") or source.get("dataset_key") or "").strip()
+        rows = _list(runtime_sources.get(alias))
+        result.append(
+            _omit_empty(
+                {
+                    "source_alias": alias,
+                    "dataset_key": source.get("dataset_key"),
+                    "source_type": source.get("source_type"),
+                    "row_count": source.get("row_count") if source.get("row_count") is not None else len(rows),
+                    "columns": _string_list(source.get("columns")) or _columns_from_rows(rows),
+                    "preview_rows": deepcopy(rows[:5]),
+                    "data_ref": deepcopy(source.get("data_ref")),
+                    "applied_params": deepcopy(source.get("applied_params")),
+                    "applied_filters": deepcopy(source.get("applied_filters") or source.get("pandas_filters")),
+                }
+            )
+        )
+    return [item for item in result if item]
+
+
+def _runtime_source_refs(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    refs: dict[str, dict[str, Any]] = {}
+    for ref in _list(payload.get("data_refs")):
+        if not isinstance(ref, dict):
+            continue
+        if str(ref.get("role") or "") != "source_rows":
+            continue
+        alias = str(ref.get("source_alias") or "").strip()
+        if alias:
+            refs[alias] = deepcopy(ref)
+    return refs
+
+
+def _source_aliases(payload: dict[str, Any]) -> list[str]:
+    aliases = []
+    for source in _list(payload.get("source_results")):
+        if isinstance(source, dict):
+            alias = str(source.get("source_alias") or source.get("dataset_key") or "").strip()
+            if alias and alias not in aliases:
+                aliases.append(alias)
+    for alias in _dict(payload.get("runtime_sources")):
+        text = str(alias or "").strip()
+        if text and text not in aliases:
+            aliases.append(text)
+    return aliases
+
+
+def _source_dataset_keys(payload: dict[str, Any]) -> list[str]:
+    keys = []
+    for source in _list(payload.get("source_results")):
+        if isinstance(source, dict):
+            key = str(source.get("dataset_key") or "").strip()
+            if key and key not in keys:
+                keys.append(key)
+    return keys
+
+
+def _source_columns_by_alias(payload: dict[str, Any]) -> dict[str, list[str]]:
+    runtime_sources = _dict(payload.get("runtime_sources"))
+    result: dict[str, list[str]] = {}
+    for source in _list(payload.get("source_results")):
+        if not isinstance(source, dict):
+            continue
+        alias = str(source.get("source_alias") or source.get("dataset_key") or "").strip()
+        if not alias:
+            continue
+        columns = _string_list(source.get("columns")) or _columns_from_rows(_list(runtime_sources.get(alias)))
+        if columns:
+            result[alias] = columns
+    for alias, rows in runtime_sources.items():
+        text = str(alias or "").strip()
+        if text and text not in result:
+            columns = _columns_from_rows(_list(rows))
+            if columns:
+                result[text] = columns
+    return result
+
+
+def _compact_intent_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    return _omit_empty(
+        {
+            "analysis_kind": plan.get("analysis_kind"),
+            "request_scope": plan.get("request_scope"),
+            "reuse_strategy": plan.get("reuse_strategy"),
+            "condition_resolution": deepcopy(_dict(plan.get("condition_resolution"))),
+            "retrieval_jobs": _compact_retrieval_jobs(_list(plan.get("retrieval_jobs"))),
+            "pandas_execution_plan": deepcopy(_list(plan.get("pandas_execution_plan"))[:8]),
+            "pandas_function_cases": deepcopy(_list(plan.get("pandas_function_cases"))[:5]),
+            "output_contract": deepcopy(_dict(plan.get("output_contract"))),
+        }
+    )
+
+
+def _compact_retrieval_jobs(jobs: list[Any]) -> list[dict[str, Any]]:
+    compact = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        compact.append(
+            _omit_empty(
+                {
+                    "dataset_key": job.get("dataset_key"),
+                    "source_alias": job.get("source_alias"),
+                    "source_type": job.get("source_type"),
+                    "required_params": deepcopy(job.get("required_params")),
+                    "filters": deepcopy(job.get("filters")),
+                }
+            )
+        )
+    return compact
+
+
 def _group_by_columns(pandas_plan: list[Any]) -> list[str]:
     columns: list[str] = []
     for step in pandas_plan:
@@ -373,6 +533,11 @@ def _int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _clip_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    return text[:limit] if len(text) > limit else text
 
 
 def _omit_empty(value: dict[str, Any]) -> dict[str, Any]:

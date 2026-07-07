@@ -10,7 +10,7 @@ from lfx.schema.message import Message
 
 def build_variables(payload_value: Any) -> dict[str, Any]:
     payload = _payload(payload_value)
-    schemas = {alias: sorted({column for row in rows[:20] for column in row}) for alias, rows in payload.get("runtime_sources", {}).items() if isinstance(rows, list)}
+    schemas = _source_schemas(payload)
     previews = {alias: rows[:5] for alias, rows in payload.get("runtime_sources", {}).items() if isinstance(rows, list)}
     return {
         "intent_plan_json": json.dumps(payload.get("intent_plan", {}), ensure_ascii=False, indent=2),
@@ -24,6 +24,30 @@ def build_variables(payload_value: Any) -> dict[str, Any]:
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}
+
+
+def _source_schemas(payload: dict[str, Any]) -> dict[str, list[str]]:
+    schemas: dict[str, list[str]] = {}
+    for source in payload.get("source_results", []) if isinstance(payload.get("source_results"), list) else []:
+        if not isinstance(source, dict):
+            continue
+        alias = str(source.get("source_alias") or source.get("dataset_key") or "").strip()
+        columns = _string_list(source.get("columns"))
+        if alias and columns:
+            schemas[alias] = columns
+    for alias, rows in payload.get("runtime_sources", {}).items() if isinstance(payload.get("runtime_sources"), dict) else []:
+        if not isinstance(rows, list):
+            continue
+        row_columns = sorted({str(column) for row in rows[:20] if isinstance(row, dict) for column in row})
+        if row_columns:
+            schemas[str(alias)] = row_columns
+        else:
+            schemas.setdefault(str(alias), [])
+    return schemas
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item) for item in value if str(item or "").strip()] if isinstance(value, list) else []
 
 
 def _function_case_selection(payload: dict[str, Any]) -> dict[str, Any]:

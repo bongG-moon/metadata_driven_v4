@@ -21,11 +21,13 @@ def build_variables(payload_value: Any, metadata_candidates_value: Any = None) -
 
 def _state_summary(payload: dict[str, Any]) -> dict[str, Any]:
     request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+    followup_hint = payload.get("followup_hint") if isinstance(payload.get("followup_hint"), dict) else {}
     return {
         "request_context": {
             "reference_date": request.get("reference_date", ""),
         },
-        "state": payload.get("state", {}) if isinstance(payload.get("state"), dict) else {},
+        "followup_hint": followup_hint,
+        "state": _compact_state(payload.get("state", {}) if isinstance(payload.get("state"), dict) else {}),
     }
 
 
@@ -33,6 +35,14 @@ def _schema() -> dict[str, Any]:
     return {
         "intent_plan": {
             "analysis_kind": "string",
+            "request_scope": "new_analysis|followup_requery|followup_transform|followup_expand_source|followup_explain|clarification",
+            "reuse_strategy": "none|previous_result|previous_source|previous_intent_with_new_retrieval|trace_only",
+            "condition_resolution": {
+                "inherited": {},
+                "changed": {},
+                "dropped": {},
+                "new": {},
+            },
             "pandas_function_cases": [],
             "retrieval_jobs": [
                 {
@@ -68,9 +78,62 @@ def _compact_metadata_candidates(value: dict[str, Any]) -> dict[str, Any]:
     } if isinstance(candidates, dict) else {}
 
 
+def _compact_state(state: dict[str, Any]) -> dict[str, Any]:
+    current_data = state.get("current_data") if isinstance(state.get("current_data"), dict) else {}
+    result: dict[str, Any] = {}
+    if state.get("last_question") or isinstance(state.get("request"), dict):
+        result["last_question"] = state.get("last_question") or state.get("request", {}).get("question", "")
+    if state.get("last_answer_message"):
+        result["last_answer_message"] = _clip_text(state.get("last_answer_message"), 700)
+    if current_data:
+        result["current_data"] = _omit_empty(
+            {
+                "row_count": current_data.get("row_count"),
+                "columns": _string_list(current_data.get("columns"))[:60],
+                "result_columns": _string_list(current_data.get("result_columns"))[:60],
+                "source_aliases": _string_list(current_data.get("source_aliases"))[:30],
+                "source_dataset_keys": _string_list(current_data.get("source_dataset_keys"))[:30],
+                "source_columns_by_alias": _compact_source_columns(current_data.get("source_columns_by_alias")),
+                "data_ref": current_data.get("data_ref"),
+                "preview_rows": current_data.get("preview_rows") if isinstance(current_data.get("preview_rows"), list) else [],
+            }
+        )
+    for key in ("last_intent_plan", "last_applied_criteria", "runtime_source_refs"):
+        value = state.get(key)
+        if value not in (None, "", [], {}):
+            result[key] = deepcopy(value)
+    followup_sources = state.get("followup_source_results")
+    if isinstance(followup_sources, list):
+        result["followup_source_results"] = deepcopy(followup_sources[:6])
+    return _omit_empty(result)
+
+
+def _compact_source_columns(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(alias): _string_list(columns)[:80]
+        for alias, columns in value.items()
+        if str(alias or "").strip() and _string_list(columns)
+    }
+
+
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item) for item in value if str(item or "").strip()] if isinstance(value, list) else []
+
+
+def _clip_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    return text[:limit] if len(text) > limit else text
+
+
+def _omit_empty(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item not in (None, "", [], {})}
 
 
 class IntentVariablesBuilder(Component):

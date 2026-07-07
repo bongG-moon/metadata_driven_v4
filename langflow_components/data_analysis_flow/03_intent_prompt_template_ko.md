@@ -17,6 +17,17 @@
 - 공정/현장 특화 추가 지시가 비어 있지 않으면, 그 지시는 metadata와 충돌하지 않는 범위에서 우선 반영한다.
 - `오늘`, `금일`, `현재`, `어제` 같은 상대 날짜 표현은 한국 기준 현재일로 자동 계산된 `state_summary.request_context.reference_date`를 기준으로 해석한다.
 - `state_summary.request_context.reference_date`가 유일한 기준일이다. 모델 실행 시점의 실제 날짜나 외부 현재일을 새로 추정하지 않는다.
+- `state_summary.followup_hint.followup_candidate=true`이면 현재 질문이 이전 답변/이전 의도에 의존하는지 먼저 판단한다.
+- 후속 질문으로 판단하면 `intent_plan.request_scope`를 `followup_requery`, `followup_transform`, `followup_expand_source`, `followup_explain` 중 하나로 설정한다. 독립 질문이면 `new_analysis`로 설정한다.
+- 후속 질문에서는 이전 조건을 무조건 상속하지 않는다. 사용자가 이번 질문에서 유지한다고 볼 수 있는 조건만 `condition_resolution.inherited`에 넣고, 바뀐 조건은 `condition_resolution.changed`, 제거된 조건은 `condition_resolution.dropped`, 새로 추가된 조건은 `condition_resolution.new`에 구분해 남긴다.
+- 예를 들어 이전 질문이 특정 공정의 생산량이고 현재 질문이 `어제 생산량은?`처럼 날짜만 바꾸는 질문이면 metric과 공정/제품/그룹 조건은 상속 후보가 될 수 있고 날짜 조건만 changed로 둔다.
+- 날짜/기준시점이 바뀌는 후속 질문에서는 이전 `dataset_key`를 무조건 상속하지 말고, table catalog의 데이터셋 용도와 필수 조건을 다시 확인해 최종 `dataset_key`를 선택한다. 예를 들어 당일용 데이터셋은 당일 질문에만 사용하고, 과거 날짜/전일/어제/특정 과거일은 catalog에 이력용 데이터셋이 있으면 이력용 데이터셋을 우선 검토한다.
+- 단, 현재 질문이 독립적으로 완성되어 있거나 이전 조건과 충돌하는 새 공정/제품/기간을 명시하면 이전 조건을 억지로 상속하지 않는다.
+- `followup_requery`는 이전 intent/조건을 바탕으로 새 조회가 필요한 경우다. 이때 최종 `retrieval_jobs`에는 상속/변경이 반영된 완성된 조회 계획을 작성한다.
+- `followup_transform`은 이전 결과 또는 이전 원본으로 정렬, top/bottom, 재그룹화, 비율 계산처럼 재분석하는 경우다. 새 조회가 필요 없으면 `retrieval_jobs`는 비워도 되며 `reuse_strategy=previous_result` 또는 `previous_source`를 사용한다.
+- `followup_expand_source`는 이전 결과에 없는 컬럼/세부 원본 속성을 추가해야 하는 경우다. 이전 source data_ref 또는 원본 rows가 필요하면 `reuse_strategy=previous_source`를 사용한다.
+- `followup_explain`은 이전 조회 조건, 의도, pandas 코드, 근거를 설명하는 경우다. 새 조회 없이 `reuse_strategy=trace_only`를 사용한다.
+- 후속 질문에서 이전 원본/결과를 재사용할 경우에도 `pandas_execution_plan`에는 어떤 이전 데이터 기준으로 어떤 재분석을 할지 적는다.
 - 데이터 조회가 필요한 경우 `intent_plan.retrieval_jobs`를 반드시 작성한다.
 - 각 retrieval job은 `dataset_key`, `source_alias`, `source_type`, `source_config`, `required_params`, `filters`를 포함한다.
 - `source_config`는 후보 table catalog의 `source_config`를 그대로 사용한다. Oracle 조회에는 `db_key`와 `query_template`이 반드시 필요하다.
@@ -36,6 +47,8 @@
 - function case를 선택한 경우 `intent_plan.pandas_function_cases`에 `key`, `function_name`, `input_text`, `source_alias`를 넣고, `pandas_execution_plan`에도 `operation=apply_pandas_function_case`, `function_case_key`, `function_name`, `input_text`, `source_alias`를 포함한다.
 - pandas 분석이 필요한 경우 `intent_plan.pandas_execution_plan`에 분석 의도와 필요한 결과 형태를 적는다.
 - `metadata_refs`에는 참조한 metadata의 `section`, `key`만 짧게 남긴다. `payload`, `source_config`, `query_template`, 원문 SQL, 긴 설명은 절대 복사하지 않는다.
+- `trace.decision_reason`은 반드시 한국어 문장 배열로 작성한다. 후속 질문 판단, 상속한 조건, 변경/추가한 조건, 새 조회 여부를 한국어로 짧게 설명한다.
+- `request_scope`, `reuse_strategy`, `dataset_key`, column명, operator명 같은 schema 값은 영문 값을 유지해도 되지만, 설명 문장 전체를 영어로 작성하지 않는다.
 - 출력은 설명 문장 없이 JSON 하나만 반환한다.
 - 반환 JSON 구조는 입력으로 제공된 `출력 schema`를 따른다.
 

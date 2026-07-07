@@ -87,10 +87,11 @@ def _run_oracle_job(job: dict[str, Any], oracle_config: dict[str, Any], fetch_li
     try:
         connector = OracleConnector(oracle_config, oracle_module)
         rows = connector.execute_query(db_key, sql, fetch_limit=fetch_limit)
+        columns = getattr(connector, "last_columns", [])
         rows = _json_ready(rows)
         if not isinstance(rows, list):
             rows = []
-        return _standard_result(job, rows, params, db_key, sql)
+        return _standard_result(job, rows, params, db_key, sql, columns=columns)
     except Exception as exc:
         return _error_result(job, "oracle_retrieval_failed", f"Oracle 조회 실패: {exc}", params=params)
 
@@ -99,6 +100,7 @@ class OracleConnector:
     def __init__(self, config: dict[str, Any], oracle_module: Any | None = None):
         self.config = config
         self.oracle_module = oracle_module
+        self.last_columns: list[str] = []
 
     def _oracledb(self) -> Any:
         if self.oracle_module is not None:
@@ -131,6 +133,7 @@ class OracleConnector:
             cursor = conn.cursor()
             cursor.execute(sql)
             columns = [column[0] for column in cursor.description]
+            self.last_columns = [str(column) for column in columns]
             rows = cursor.fetchmany(fetch_limit) if fetch_limit else cursor.fetchall()
             return [dict(zip(columns, row)) for row in rows]
         finally:
@@ -176,14 +179,15 @@ def _required_param_names(job: dict[str, Any], source_config: dict[str, Any]) ->
     return []
 
 
-def _standard_result(job: dict[str, Any], rows: list[dict[str, Any]], params: dict[str, Any], db_key: str, sql: str) -> dict[str, Any]:
+def _standard_result(job: dict[str, Any], rows: list[dict[str, Any]], params: dict[str, Any], db_key: str, sql: str, columns: list[str] | None = None) -> dict[str, Any]:
+    result_columns = _rows_columns(rows) or _string_list(columns)
     return {
         "source_alias": job.get("source_alias") or job.get("dataset_key"),
         "dataset_key": job.get("dataset_key"),
         "source_type": "oracle",
         "status": "ok",
         "row_count": len(rows),
-        "columns": _rows_columns(rows),
+        "columns": result_columns,
         "preview_rows": rows[:PREVIEW_LIMIT],
         "rows": rows,
         "applied_params": deepcopy(params),
@@ -350,6 +354,10 @@ def _rows_columns(rows: list[dict[str, Any]]) -> list[str]:
             if text not in columns:
                 columns.append(text)
     return columns
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item) for item in value if str(item or "").strip()] if isinstance(value, list) else []
 
 
 def _json_ready(value: Any) -> Any:

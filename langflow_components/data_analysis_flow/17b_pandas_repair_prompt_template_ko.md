@@ -29,6 +29,10 @@
 - `intent_plan.retrieval_jobs[].filters`는 executor가 pandas 전처리 조건으로 먼저 적용한다.
 - retry code에는 `intent_plan.retrieval_jobs[].filters`와 같은 필터를 다시 작성하지 않는다.
 - retry code에서는 이미 필터된 `sources["alias"]`를 기준으로 오류 원인, 집계, 정렬, join, 추가 분석 조건만 수정한다.
+- `KeyError: '컬럼명'` 또는 source schema에 없는 컬럼 오류가 있으면, 해당 컬럼을 무조건 참조하지 말고 `df.columns`에 존재하는 컬럼만 groupby/선택/정렬에 사용한다.
+- `df.groupby(["A", "B"])`처럼 실패한 고정 컬럼 리스트는 `desired_cols`와 `group_cols = [c for c in desired_cols if c in df.columns]` 구조로 바꾼다.
+- 결과 컬럼 재정렬도 존재하는 컬럼만 선택하도록 수정한다.
+- 필수 집계 컬럼이 없거나 group column이 모두 없으면 오류를 반복하지 말고 빈 DataFrame을 `result`에 넣는다.
 - `function_case_selection_json`에는 의도 분석 LLM이 선택한 function case, `selected_steps`, `input_text`, `source_alias`가 들어 있다.
 - 실패한 코드와 `function_case_selection_json.selected_steps`에 실제로 필요한 helper만 사용한다.
 - `function_case_helper_code`에는 사용할 수 있는 helper 함수 정의 코드만 들어 있다.

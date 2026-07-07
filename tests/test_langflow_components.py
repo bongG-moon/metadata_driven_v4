@@ -527,6 +527,60 @@ def test_analysis_request_loader_defaults_reference_date_to_korea_today():
     assert "session_id" not in input_names
 
 
+def test_session_state_flow_roundtrips_compact_state_in_v4_collection(monkeypatch):
+    loader = load_module(ROOT / "langflow_components" / "session_state_flow" / "00_mongodb_session_state_loader.py")
+    writer = load_module(ROOT / "langflow_components" / "session_state_flow" / "01_mongodb_session_state_writer.py")
+    store = install_fake_pymongo(monkeypatch)
+    monkeypatch.setenv("MONGODB_URI", "mongodb://fake")
+    monkeypatch.setenv("MONGODB_DATABASE", "datagov")
+    monkeypatch.setenv("MONGODB_SESSION_STATE_COLLECTION", "agent_v4_session_states")
+    response_payload = {
+        "request": {"session_id": "session-1", "question": "오늘 WB공정의 생산량 알려줘"},
+        "state": {
+            "runtime_sources": {"large": [{"drop": True}]},
+            "last_question": "오늘 WB공정의 생산량 알려줘",
+            "current_data": {
+                "columns": ["DEVICE", "PRODUCTION"],
+                "rows": [{"DEVICE": "DEV-A", "PRODUCTION": 10}, {"DEVICE": "DEV-B", "PRODUCTION": 20}],
+                "row_count": 2,
+                "data_ref": {"ref_id": "result:session-1:abc"},
+                "source_aliases": ["production_data"],
+                "source_dataset_keys": ["production_today"],
+            },
+            "last_intent_plan": {"analysis_kind": "production_sum"},
+            "last_applied_criteria": {"metrics": ["PRODUCTION"]},
+        },
+    }
+
+    written = writer.write_session_state(response_payload, preview_row_limit="1")
+    doc = store["datagov"]["agent_v4_session_states"]["session_state:session-1"]
+    loaded = loader.load_session_state(types.SimpleNamespace(text="어제 생산량은?", session_id="session-1"), preview_row_limit="1")
+
+    assert written["session_state_write"]["saved"] is True
+    assert doc["session_id"] == "session-1"
+    assert "runtime_sources" not in doc["state"]
+    assert doc["state"]["current_data"]["rows"] == [{"DEVICE": "DEV-A", "PRODUCTION": 10}]
+    assert doc["state"]["current_data"]["data_is_preview"] is True
+    assert loaded["session_state_load"]["loaded"] is True
+    assert loaded["session_state_load"]["collection_name"] == "agent_v4_session_states"
+    assert loaded["state"]["session_id"] == "session-1"
+    assert loaded["state"]["current_data"]["data_ref"]["ref_id"] == "result:session-1:abc"
+    assert loaded["state"]["last_intent_plan"] == {"analysis_kind": "production_sum"}
+
+
+def test_session_state_loader_returns_session_id_even_when_state_is_missing(monkeypatch):
+    loader = load_module(ROOT / "langflow_components" / "session_state_flow" / "00_mongodb_session_state_loader.py")
+    install_fake_pymongo(monkeypatch)
+    monkeypatch.setenv("MONGODB_URI", "mongodb://fake")
+    monkeypatch.setenv("MONGODB_DATABASE", "datagov")
+    monkeypatch.setenv("MONGODB_SESSION_STATE_COLLECTION", "agent_v4_session_states")
+
+    loaded = loader.load_session_state(types.SimpleNamespace(text="첫 질문", session_id="new-session"))
+
+    assert loaded["state"] == {"session_id": "new-session"}
+    assert loaded["session_state_load"]["source"] == "mongodb_not_found"
+
+
 def test_intent_variables_builder_hides_date_context_and_direct_specialized_prompt_ports():
     intent_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "02_intent_variables_builder.py")
 
@@ -564,6 +618,112 @@ def test_intent_variables_builder_compacts_metadata_candidate_wrapper():
     assert "metadata_load" not in candidates
     assert "pandas_function_case" not in schema["intent_plan"]
     assert schema["intent_plan"]["pandas_function_cases"] == []
+    assert "request_scope" in schema["intent_plan"]
+    assert "condition_resolution" in schema["intent_plan"]
+
+
+def test_followup_hint_builder_detects_date_change_followup_without_pkg_fallback():
+    hint_builder_path = ROOT / "langflow_components" / "data_analysis_flow" / "01e_followup_hint_builder.py"
+    hint_builder = load_module(hint_builder_path)
+    source_text = hint_builder_path.read_text(encoding="utf-8")
+    payload = {
+        "request": {"question": "어제 생산량은?", "reference_date": "20260707"},
+        "state": {
+            "last_question": "오늘 WB공정의 생산량 알려줘",
+            "current_data": {
+                "row_count": 1,
+                "columns": ["PRODUCTION"],
+                "source_aliases": ["production_data"],
+                "source_dataset_keys": ["production_today"],
+                "source_columns_by_alias": {"production_data": ["OPER_NAME", "DEVICE", "PRODUCTION"]},
+                "data_ref": {"ref_id": "result:s1:abc"},
+            },
+            "last_intent_plan": {
+                "analysis_kind": "production_sum",
+                "retrieval_jobs": [
+                    {
+                        "dataset_key": "production_today",
+                        "source_alias": "production_data",
+                        "source_type": "oracle",
+                        "required_params": {"DATE": "20260707"},
+                        "filters": {"OPER_NAME": {"operator": "in", "value": ["W/B1", "W/B2"]}},
+                    }
+                ],
+                "pandas_execution_plan": [{"aggregate_column": "PRODUCTION"}],
+            },
+            "last_applied_criteria": {
+                "required_params": {"production_data": {"DATE": "20260707"}},
+                "analysis_filters": {"production_data": {"OPER_NAME": {"operator": "in", "value": ["W/B1", "W/B2"]}}},
+                "metrics": ["PRODUCTION"],
+            },
+        },
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    result = hint_builder.build_followup_hint(payload)
+    hint = result["followup_hint"]
+
+    assert "W/B1" not in source_text
+    assert "WB공정" not in source_text
+    assert hint["followup_candidate"] is True
+    assert hint["request_scope_hint"] == "followup_requery"
+    assert hint["reuse_strategy_hint"] == "previous_intent_with_new_retrieval"
+    assert hint["changed_conditions_hint"]["date"]["resolved_value"] == "20260706"
+    assert "analysis_filters" in hint["inheritance_candidates"]
+    previous_job = hint["previous_context"]["last_intent_plan"]["retrieval_jobs"][0]
+    assert previous_job["filters"]["OPER_NAME"]["value"] == ["W/B1", "W/B2"]
+
+
+def test_followup_hint_builder_keeps_complete_question_as_new_analysis():
+    hint_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "01e_followup_hint_builder.py")
+    payload = {
+        "request": {"question": "오늘 DA공정 생산량 알려줘", "reference_date": "20260707"},
+        "state": {
+            "last_question": "오늘 WB공정의 생산량 알려줘",
+            "current_data": {"row_count": 1, "columns": ["PRODUCTION"], "data_ref": {"ref_id": "result:s1:abc"}},
+        },
+    }
+
+    result = hint_builder.build_followup_hint(payload)
+    hint = result["followup_hint"]
+
+    assert hint["followup_candidate"] is False
+    assert hint["request_scope_hint"] == "new_analysis"
+
+
+def test_intent_variables_builder_includes_followup_hint_and_compact_previous_context():
+    intent_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "02_intent_variables_builder.py")
+    variables = intent_variables.build_variables(
+        {
+            "request": {"question": "어제 생산량은?", "reference_date": "20260707"},
+            "followup_hint": {
+                "followup_candidate": True,
+                "request_scope_hint": "followup_requery",
+                "reuse_strategy_hint": "previous_intent_with_new_retrieval",
+            },
+            "state": {
+                "last_question": "오늘 WB공정의 생산량 알려줘",
+                "last_answer_message": "이전 답변",
+                "current_data": {
+                    "row_count": 2,
+                    "columns": ["PRODUCTION"],
+                    "source_columns_by_alias": {"production_data": ["OPER_NAME", "DEVICE", "PRODUCTION"]},
+                    "data_ref": {"ref_id": "result:s1:abc"},
+                    "preview_rows": [{"PRODUCTION": 10}],
+                    "raw_trace": {"large": "drop"},
+                },
+                "last_intent_plan": {"analysis_kind": "production_sum"},
+                "last_applied_criteria": {"metrics": ["PRODUCTION"]},
+            },
+        }
+    )
+
+    state_summary = json.loads(variables["state_summary"])
+
+    assert state_summary["followup_hint"]["request_scope_hint"] == "followup_requery"
+    assert state_summary["state"]["last_question"] == "오늘 WB공정의 생산량 알려줘"
+    assert state_summary["state"]["current_data"]["source_columns_by_alias"]["production_data"] == ["OPER_NAME", "DEVICE", "PRODUCTION"]
+    assert "raw_trace" not in state_summary["state"]["current_data"]
 
 
 def test_langflow_dummy_data_covers_data_catalog_shapes():
@@ -1080,6 +1240,74 @@ def test_data_analysis_answer_response_builds_sections_for_api_and_message():
     assert "### pandas 코드/실행" in diagnostic_message
     assert api_response["answer_sections"]["result_table"]["row_count"] == 1
     assert api_response["answer_sections"]["result_table"]["rows"][0]["WIP"] == 12500
+
+
+def test_answer_response_builder_persists_compact_state_for_followup_turns():
+    answer_builder = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "20_answer_response_builder.py")
+    payload = {
+        "request": {"question": "오늘 WB공정의 생산량 알려줘", "session_id": "s1", "reference_date": "20260707"},
+        "intent_plan": {
+            "analysis_kind": "production_sum",
+            "request_scope": "new_analysis",
+            "reuse_strategy": "none",
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "production_today",
+                    "source_alias": "production_data",
+                    "source_type": "oracle",
+                    "required_params": {"DATE": "20260707"},
+                    "filters": {"OPER_NAME": {"operator": "in", "value": ["W/B1", "W/B2"]}},
+                }
+            ],
+            "pandas_execution_plan": [{"aggregate_column": "PRODUCTION"}],
+        },
+        "source_results": [
+            {
+                "dataset_key": "production_today",
+                "source_alias": "production_data",
+                "source_type": "oracle",
+                "row_count": 2,
+                "columns": ["OPER_NAME", "DEVICE", "PRODUCTION"],
+                "applied_params": {"DATE": "20260707"},
+                "pandas_filters": {"OPER_NAME": {"operator": "in", "value": ["W/B1", "W/B2"]}},
+            }
+        ],
+        "runtime_sources": {
+            "production_data": [
+                {"OPER_NAME": "W/B1", "DEVICE": "DEV-A", "PRODUCTION": 10},
+                {"OPER_NAME": "W/B2", "DEVICE": "DEV-B", "PRODUCTION": 20},
+            ]
+        },
+        "data": {
+            "columns": ["PRODUCTION"],
+            "rows": [{"PRODUCTION": 30}],
+            "row_count": 1,
+            "data_ref": {"ref_id": "result:s1:abc", "role": "analysis_result"},
+        },
+        "data_refs": [
+            {"ref_id": "result:s1:abc", "role": "analysis_result"},
+            {"ref_id": "result:s1:abc", "role": "source_rows", "source_alias": "production_data"},
+        ],
+        "analysis": {"status": "ok"},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+
+    result = answer_builder.build_answer_response(payload, "오늘 WB공정 생산량은 30입니다.")
+    state = result["state"]
+    current_data = state["current_data"]
+
+    assert state["last_question"] == "오늘 WB공정의 생산량 알려줘"
+    assert state["last_answer_message"] == "오늘 WB공정 생산량은 30입니다."
+    assert current_data["columns"] == ["PRODUCTION"]
+    assert current_data["source_aliases"] == ["production_data"]
+    assert current_data["source_dataset_keys"] == ["production_today"]
+    assert current_data["source_columns_by_alias"]["production_data"] == ["OPER_NAME", "DEVICE", "PRODUCTION"]
+    assert current_data["data_ref"]["ref_id"] == "result:s1:abc"
+    assert state["followup_source_results"][0]["columns"] == ["OPER_NAME", "DEVICE", "PRODUCTION"]
+    assert state["runtime_source_refs"]["production_data"]["role"] == "source_rows"
+    assert state["last_intent_plan"]["retrieval_jobs"][0]["filters"]["OPER_NAME"]["value"] == ["W/B1", "W/B2"]
+    assert state["last_applied_criteria"]["required_params"]["production_data"] == {"DATE": "20260707"}
+    assert "runtime_sources" not in state
 
 
 def test_answer_response_accepts_19_special_guidance_display_metadata():
@@ -1813,6 +2041,60 @@ def test_answer_message_adapter_section_toggles_control_verbose_blocks():
     assert "### pandas 코드/실행" not in message
 
 
+def test_answer_message_adapter_rewrites_english_intent_reasons_to_korean_summary():
+    message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
+    payload = {
+        "answer_message": "조건을 추가해 다시 조회했습니다.",
+        "intent_plan": {
+            "analysis_kind": "pandas_analysis",
+            "request_scope": "followup_requery",
+            "reuse_strategy": "previous_intent_with_new_retrieval",
+            "condition_resolution": {
+                "inherited": {"required_params": {"DATE": "20260707"}, "filters": {"OPER_NAME": "W/B"}},
+                "new": {"filters": {"MCP_NO": {"operator": "starts_with", "value": "L-267"}}},
+            },
+            "retrieval_jobs": [
+                {
+                    "dataset_key": "production_today",
+                    "source_alias": "production_data",
+                    "source_type": "oracle",
+                    "required_params": {"DATE": "20260707"},
+                    "filters": {
+                        "OPER_NAME": {"operator": "in", "value": ["W/B1", "W/B2"]},
+                        "MCP_NO": {"operator": "starts_with", "value": "L-267"},
+                    },
+                }
+            ],
+            "pandas_execution_plan": [{"groupby_columns": ["DEVICE"], "aggregate_column": "PRODUCTION"}],
+        },
+        "data": {"columns": ["DEVICE", "PRODUCTION"], "rows": [], "row_count": 0},
+        "trace": {
+            "warnings": [],
+            "errors": [],
+            "inspection": {
+                "intent": {
+                    "analysis_kind": "pandas_analysis",
+                    "retrieval_job_count": 1,
+                    "pandas_step_count": 1,
+                    "decision_reason": [
+                        "The user is asking to filter the previous result based on 'MCP NO' starting with 'L-267'.",
+                        "This is a follow-up query that modifies the filter conditions of the previous intent.",
+                    ],
+                }
+            },
+        },
+    }
+
+    message = message_adapter.build_message(payload, "", show_intent_analysis=True)
+
+    assert "The user is asking" not in message
+    assert "follow-up query" not in message
+    assert "현재 질문은 이전 대화의 조건을 참고해야 하는 후속 질문으로 판단했습니다." in message
+    assert "이전 의도 계획을 바탕으로 조건을 반영한 새 데이터 조회를 수행하도록 설정했습니다." in message
+    assert "MCP_NO" in message
+    assert "L-267" in message
+
+
 def test_answer_message_adapter_toggles_strip_sections_embedded_in_answer_text():
     message_adapter = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "21_answer_message_adapter.py")
     payload = {
@@ -2082,6 +2364,54 @@ def test_pandas_executor_uses_shared_namespace_for_comprehensions():
     assert result["data"]["row_count"] == 2
 
 
+def test_pandas_variables_use_source_result_columns_when_runtime_rows_are_empty():
+    pandas_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_pandas_variables_builder.py")
+    payload = {
+        "source_results": [
+            {
+                "source_alias": "production_data",
+                "dataset_key": "production",
+                "columns": ["WORK_DATE", "OPER_NAME", "TECH", "DENSITY", "MODE", "PRODUCTION"],
+                "row_count": 0,
+            }
+        ],
+        "runtime_sources": {"production_data": []},
+    }
+
+    variables = pandas_variables.build_variables(payload)
+    schema = json.loads(variables["source_schema_json"])
+
+    assert schema["production_data"] == ["WORK_DATE", "OPER_NAME", "TECH", "DENSITY", "MODE", "PRODUCTION"]
+
+
+def test_pandas_executor_keeps_empty_source_columns_from_source_results():
+    pandas_executor = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "17_pandas_code_executor.py")
+    payload = {
+        "source_results": [
+            {
+                "source_alias": "production_data",
+                "dataset_key": "production",
+                "columns": ["TECH", "DENSITY", "MODE", "PRODUCTION"],
+                "row_count": 0,
+            }
+        ],
+        "runtime_sources": {"production_data": []},
+        "trace": {"warnings": [], "errors": [], "inspection": {}},
+    }
+    llm_response = {
+        "code": (
+            "df = sources['production_data']\n"
+            "result = df.groupby(['TECH', 'DENSITY', 'MODE'])['PRODUCTION'].sum().reset_index(name='생산량')"
+        )
+    }
+
+    result = pandas_executor.execute_pandas_code(payload, llm_response)
+
+    assert result["analysis"]["status"] == "ok"
+    assert result["data"]["columns"] == ["TECH", "DENSITY", "MODE", "생산량"]
+    assert result["data"]["row_count"] == 0
+
+
 def test_intent_and_pandas_variables_expose_selected_function_case_context():
     intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
     pandas_variables = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "15_pandas_variables_builder.py")
@@ -2227,6 +2557,56 @@ def test_intent_normalizer_dedupes_single_and_multiple_function_cases():
         }
     ]
     assert [step["operation"] for step in normalized["intent_plan"]["pandas_execution_plan"][:1]] == ["apply_pandas_function_case"]
+
+
+def test_intent_normalizer_preserves_followup_scope_and_allows_previous_result_reuse():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    payload = {"request": {"question": "상위 3개만 보여줘"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+
+    normalized = intent_normalizer.normalize_intent_plan(
+        payload,
+        {
+            "intent_plan": {
+                "analysis_kind": "result_top_n",
+                "request_scope": "followup_transform",
+                "reuse_strategy": "previous_result",
+                "condition_resolution": {
+                    "inherited": {"metric": "생산량"},
+                    "changed": {"limit": 3},
+                },
+                "retrieval_jobs": [],
+                "pandas_execution_plan": [{"step": "이전 결과에서 상위 3개 선택"}],
+            }
+        },
+    )
+
+    assert normalized["intent_plan"]["request_scope"] == "followup_transform"
+    assert normalized["intent_plan"]["reuse_strategy"] == "previous_result"
+    assert normalized["intent_plan"]["condition_resolution"]["changed"] == {"limit": 3}
+    assert normalized["trace"]["inspection"]["intent"]["status"] == "ok"
+    assert normalized["trace"]["inspection"]["intent"]["previous_data_reuse"] is True
+    assert not [item for item in normalized["trace"]["warnings"] if item.get("type") == "missing_retrieval_jobs"]
+
+
+def test_intent_normalizer_warns_when_followup_requery_has_no_retrieval_jobs():
+    intent_normalizer = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "04_intent_plan_normalizer.py")
+    payload = {"request": {"question": "어제 생산량은?"}, "trace": {"warnings": [], "errors": [], "inspection": {}}}
+
+    normalized = intent_normalizer.normalize_intent_plan(
+        payload,
+        {
+            "intent_plan": {
+                "analysis_kind": "production_sum",
+                "request_scope": "followup_requery",
+                "reuse_strategy": "previous_intent_with_new_retrieval",
+                "retrieval_jobs": [],
+                "pandas_execution_plan": [],
+            }
+        },
+    )
+
+    assert normalized["trace"]["inspection"]["intent"]["status"] == "warning"
+    assert [item for item in normalized["trace"]["warnings"] if item.get("type") == "missing_retrieval_jobs"]
 
 
 def test_specialized_function_examples_match_runtime_and_domain_saving_contracts():
@@ -2706,6 +3086,56 @@ def test_oracle_retriever_executes_sql_with_configured_tns():
     assert "applied_filters" not in source_result
 
 
+def test_oracle_retriever_preserves_columns_when_query_returns_no_rows():
+    oracle = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_oracle_query_retriever.py")
+
+    class FakeCursor:
+        description = [("WORK_DATE",), ("TECH",), ("PRODUCTION",)]
+
+        def execute(self, sql):
+            self.executed_sql = sql
+
+        def fetchmany(self, limit):
+            return []
+
+        def close(self):
+            pass
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    class FakeOracleModule:
+        def connect(self, **kwargs):
+            return FakeConnection()
+
+    oracle.OracleQueryRetriever.oracledb = FakeOracleModule()
+    payload = {
+        "retrieval_job_bundle": {
+            "source_type": "oracle",
+            "jobs": [
+                {
+                    "dataset_key": "production",
+                    "source_alias": "production_data",
+                    "source_type": "oracle",
+                    "source_config": {"source_type": "oracle", "db_key": "PNT_RPT", "query_template": "SELECT WORK_DATE, TECH, PRODUCTION FROM PROD WHERE WORK_DATE = {DATE}"},
+                    "required_params": {"DATE": "20260706"},
+                }
+            ],
+        }
+    }
+
+    result = oracle.retrieve_oracle_data(payload, json.dumps({"PNT_RPT": {"tns": "tns-value"}}), "100")
+    source_result = result["source_results"][0]
+
+    assert result["status"] == "ok"
+    assert source_result["row_count"] == 0
+    assert source_result["columns"] == ["WORK_DATE", "TECH", "PRODUCTION"]
+
+
 def test_oracle_retriever_parses_named_tns_block():
     oracle = load_module(ROOT / "langflow_components" / "data_analysis_flow" / "09_oracle_query_retriever.py")
 
@@ -2763,7 +3193,7 @@ def test_data_analysis_connection_guide_intent_numbers_are_contiguous():
     intent_section = guide.split("## 2. 이전 결과 복원", 1)[0]
     numbers = [int(match.group(1)) for match in re.finditer(r"^\| (\d+) \|", intent_section, flags=re.MULTILINE)]
 
-    assert numbers == list(range(1, 16))
+    assert numbers == list(range(1, 17))
 
 
 def test_langflow_prompt_templates_only_expose_valid_variables():

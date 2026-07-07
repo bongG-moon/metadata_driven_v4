@@ -36,7 +36,15 @@ def execute_pandas_code(payload_value: Any, llm_response: Any) -> dict[str, Any]
     try:
         import pandas as pd  # type: ignore
 
-        sources = {alias: pd.DataFrame(rows) for alias, rows in next_payload.get("runtime_sources", {}).items()}
+        source_columns_by_alias = _source_columns_by_alias(next_payload)
+        sources = {}
+        for alias, rows in next_payload.get("runtime_sources", {}).items():
+            frame = pd.DataFrame(rows)
+            if len(frame.columns) == 0:
+                configured_columns = source_columns_by_alias.get(str(alias), [])
+                if configured_columns:
+                    frame = pd.DataFrame(columns=configured_columns)
+            sources[alias] = frame
         safe_builtins = {
             "Exception": Exception,
             "all": all,
@@ -154,6 +162,8 @@ def _result_to_rows(result: Any, payload: dict[str, Any] | None = None) -> tuple
         row = _scalar_result_row(result, payload)
         return [row], list(row)
     rows = [_json_ready(row if isinstance(row, dict) else {"value": row}) for row in rows]
+    if not rows and source_columns:
+        return [], source_columns
     if len(rows) == 1 and len(rows[0]) == 1 and next(iter(rows[0].keys()), "") in {"result", "value"}:
         value = next(iter(rows[0].values()))
         row = _scalar_result_row(value, payload)
@@ -641,6 +651,22 @@ def _safe_name(value: str) -> str:
 def _payload(value: Any) -> dict[str, Any]:
     data = getattr(value, "data", value)
     return deepcopy(data) if isinstance(data, dict) else {}
+
+
+def _source_columns_by_alias(payload: dict[str, Any]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for source in payload.get("source_results", []) if isinstance(payload.get("source_results"), list) else []:
+        if not isinstance(source, dict):
+            continue
+        alias = str(source.get("source_alias") or source.get("dataset_key") or "").strip()
+        columns = _string_list(source.get("columns"))
+        if alias and columns:
+            result[alias] = columns
+    return result
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item) for item in value if str(item or "").strip()] if isinstance(value, list) else []
 
 
 def _json(value: Any) -> dict[str, Any]:

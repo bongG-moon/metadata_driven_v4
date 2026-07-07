@@ -493,7 +493,7 @@ def _intent_section(payload: dict[str, Any]) -> str:
         if value not in (None, "", [], {}):
             lines.append(f"- {label}: `{_display_value(value)}`")
 
-    reasons = _list_value(intent_trace.get("decision_reason")) or _list_value(plan.get("decision_reason"))
+    reasons = _intent_decision_reasons(plan, intent_trace)
     if reasons:
         lines.append("- 의도 판단 근거:")
         for index, reason in enumerate(reasons[:8], start=1):
@@ -510,6 +510,150 @@ def _intent_section(payload: dict[str, Any]) -> str:
             lines.append(f"  {index}. {_display_value(step)}")
 
     return "\n".join(lines)
+
+
+def _intent_decision_reasons(plan: dict[str, Any], intent_trace: dict[str, Any]) -> list[Any]:
+    raw_reasons = _list_value(intent_trace.get("decision_reason")) or _list_value(plan.get("decision_reason"))
+    if raw_reasons and not _looks_like_english_reasons(raw_reasons):
+        return raw_reasons
+    derived = _derived_korean_intent_reasons(plan, intent_trace)
+    return derived or raw_reasons
+
+
+def _looks_like_english_reasons(reasons: list[Any]) -> bool:
+    texts = [str(reason or "") for reason in reasons if str(reason or "").strip()]
+    if not texts:
+        return False
+    combined = " ".join(texts)
+    latin_count = len(re.findall(r"[A-Za-z]", combined))
+    hangul_count = len(re.findall(r"[가-힣]", combined))
+    english_markers = (
+        "the ",
+        "user ",
+        "asking ",
+        "follow-up",
+        "followup",
+        "previous ",
+        "filter ",
+        "query ",
+        "retrieval",
+        "strategy",
+        "condition",
+    )
+    lower = combined.lower()
+    return latin_count > max(hangul_count * 2, 20) and any(marker in lower for marker in english_markers)
+
+
+def _derived_korean_intent_reasons(plan: dict[str, Any], intent_trace: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    request_scope = str(plan.get("request_scope") or intent_trace.get("request_scope") or "").strip()
+    reuse_strategy = str(plan.get("reuse_strategy") or intent_trace.get("reuse_strategy") or "").strip()
+    condition_resolution = _dict_value(plan.get("condition_resolution"))
+    retrieval_jobs = plan.get("retrieval_jobs") if isinstance(plan.get("retrieval_jobs"), list) else []
+    pandas_plan = plan.get("pandas_execution_plan") if isinstance(plan.get("pandas_execution_plan"), list) else []
+
+    if request_scope.startswith("followup"):
+        reasons.append("현재 질문은 이전 대화의 조건을 참고해야 하는 후속 질문으로 판단했습니다.")
+    elif request_scope:
+        reasons.append("현재 질문은 이전 조건을 필수로 상속하지 않는 새 분석 요청으로 판단했습니다.")
+
+    if reuse_strategy == "previous_intent_with_new_retrieval":
+        reasons.append("이전 의도 계획을 바탕으로 조건을 반영한 새 데이터 조회를 수행하도록 설정했습니다.")
+    elif reuse_strategy == "previous_source":
+        reasons.append("이전 원본 데이터를 재사용해 추가 분석 또는 컬럼 확장을 수행하도록 설정했습니다.")
+    elif reuse_strategy == "previous_result":
+        reasons.append("이전 결과 테이블을 재사용해 재정렬, 재그룹화, 추가 계산을 수행하도록 설정했습니다.")
+    elif reuse_strategy == "trace_only":
+        reasons.append("새 조회 없이 이전 의도와 실행 근거를 설명하는 요청으로 설정했습니다.")
+
+    for label, key in (
+        ("상속한 조건", "inherited"),
+        ("변경한 조건", "changed"),
+        ("추가한 조건", "new"),
+        ("제외한 조건", "dropped"),
+    ):
+        value = condition_resolution.get(key)
+        if value not in (None, "", [], {}):
+            reasons.append(f"{label}: {_display_value(value)}")
+
+    required_params = _retrieval_required_params_summary(retrieval_jobs)
+    if required_params:
+        reasons.append(f"조회 필수 파라미터는 {required_params}로 설정했습니다.")
+
+    filters = _retrieval_filters_summary(retrieval_jobs)
+    if filters:
+        reasons.append(f"분석 필터는 {filters}로 설정했습니다.")
+
+    datasets = _retrieval_dataset_summary(retrieval_jobs)
+    if datasets:
+        reasons.append(f"조회 데이터셋은 {datasets}입니다.")
+
+    group_columns = _group_columns_summary(pandas_plan)
+    if group_columns:
+        reasons.append(f"pandas 분석에서는 {group_columns} 기준으로 집계 또는 구분하도록 계획했습니다.")
+
+    return _dedupe_texts(reasons)[:8]
+
+
+def _retrieval_dataset_summary(retrieval_jobs: list[Any]) -> str:
+    datasets = []
+    for job in retrieval_jobs:
+        if not isinstance(job, dict):
+            continue
+        dataset = str(job.get("dataset_key") or "").strip()
+        alias = str(job.get("source_alias") or "").strip()
+        if dataset and alias and dataset != alias:
+            datasets.append(f"{dataset}({alias})")
+        elif dataset or alias:
+            datasets.append(dataset or alias)
+    return ", ".join(_dedupe_texts(datasets))
+
+
+def _retrieval_required_params_summary(retrieval_jobs: list[Any]) -> str:
+    parts = []
+    for job in retrieval_jobs:
+        if not isinstance(job, dict):
+            continue
+        alias = str(job.get("source_alias") or job.get("dataset_key") or "").strip()
+        params = _dict_value(job.get("required_params"))
+        if alias and params:
+            parts.append(f"{alias}: {_display_value(params)}")
+    return "; ".join(parts)
+
+
+def _retrieval_filters_summary(retrieval_jobs: list[Any]) -> str:
+    parts = []
+    for job in retrieval_jobs:
+        if not isinstance(job, dict):
+            continue
+        alias = str(job.get("source_alias") or job.get("dataset_key") or "").strip()
+        filters = _dict_value(job.get("filters"))
+        if alias and filters:
+            parts.append(f"{alias}: {_display_value(filters)}")
+    return "; ".join(parts)
+
+
+def _group_columns_summary(pandas_plan: list[Any]) -> str:
+    columns = []
+    for step in pandas_plan:
+        if not isinstance(step, dict):
+            continue
+        for key in ("groupby_columns", "group_by", "group_by_columns", "group_columns"):
+            value = step.get(key)
+            if isinstance(value, list):
+                columns.extend(str(item) for item in value if str(item or "").strip())
+            elif isinstance(value, str) and value.strip():
+                columns.append(value.strip())
+    return ", ".join(_dedupe_texts(columns))
+
+
+def _dedupe_texts(items: list[Any]) -> list[str]:
+    result: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _retrieval_section(payload: dict[str, Any]) -> str:

@@ -22,6 +22,9 @@ def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, An
     normalized_plan = deepcopy(plan)
     normalized_plan.pop("pandas_function_case", None)
     normalized_plan.pop("selected_function_cases", None)
+    normalized_plan["request_scope"] = _request_scope(plan)
+    normalized_plan["reuse_strategy"] = _reuse_strategy(plan)
+    normalized_plan["condition_resolution"] = _condition_resolution(plan)
     normalized_plan["retrieval_jobs"] = retrieval_jobs
     normalized_plan["pandas_execution_plan"] = pandas_plan
     if function_cases:
@@ -32,17 +35,67 @@ def normalize_intent_plan(payload_value: Any, llm_response: Any) -> dict[str, An
     next_payload = deepcopy(payload)
     next_payload["intent_plan"] = normalized_plan
     next_payload["metadata_refs"] = parsed.get("metadata_refs", plan.get("metadata_refs", [])) if isinstance(parsed.get("metadata_refs", plan.get("metadata_refs", [])), list) else []
+    previous_data_reuse = _uses_previous_data_without_new_retrieval(normalized_plan)
     next_payload.setdefault("trace", {}).setdefault("inspection", {})["intent"] = {
         "stage": "04_intent_plan_normalizer",
-        "status": "ok" if retrieval_jobs else "warning",
+        "status": "ok" if retrieval_jobs or previous_data_reuse else "warning",
         "analysis_kind": next_payload["intent_plan"].get("analysis_kind", ""),
+        "request_scope": normalized_plan["request_scope"],
+        "reuse_strategy": normalized_plan["reuse_strategy"],
         "retrieval_job_count": len(retrieval_jobs),
         "pandas_step_count": len(pandas_plan),
+        "previous_data_reuse": previous_data_reuse,
         "decision_reason": parsed.get("trace", {}).get("decision_reason", []) if isinstance(parsed.get("trace"), dict) else [],
     }
-    if not retrieval_jobs:
+    if not retrieval_jobs and not previous_data_reuse:
         next_payload.setdefault("trace", {}).setdefault("warnings", []).append({"type": "missing_retrieval_jobs", "message": "intent_plan.retrieval_jobs가 비어 있습니다."})
     return next_payload
+
+
+def _request_scope(plan: dict[str, Any]) -> str:
+    value = str(plan.get("request_scope") or "").strip()
+    allowed = {
+        "new_analysis",
+        "followup_requery",
+        "followup_transform",
+        "followup_expand_source",
+        "followup_explain",
+        "clarification",
+    }
+    return value if value in allowed else "new_analysis"
+
+
+def _reuse_strategy(plan: dict[str, Any]) -> str:
+    value = str(plan.get("reuse_strategy") or "").strip()
+    allowed = {
+        "none",
+        "previous_result",
+        "previous_source",
+        "previous_intent_with_new_retrieval",
+        "trace_only",
+    }
+    return value if value in allowed else "none"
+
+
+def _condition_resolution(plan: dict[str, Any]) -> dict[str, Any]:
+    value = plan.get("condition_resolution")
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: deepcopy(value.get(key))
+        for key in ("inherited", "changed", "dropped", "new")
+        if value.get(key) not in (None, "", [], {})
+    }
+
+
+def _uses_previous_data_without_new_retrieval(plan: dict[str, Any]) -> bool:
+    request_scope = str(plan.get("request_scope") or "").strip()
+    reuse_strategy = str(plan.get("reuse_strategy") or "").strip()
+    if request_scope == "clarification":
+        return True
+    if request_scope == "followup_explain" and reuse_strategy == "trace_only":
+        return True
+    return request_scope in {"followup_transform", "followup_expand_source"} and reuse_strategy in {"previous_result", "previous_source", "trace_only"}
 
 
 def _function_case_items(plan: dict[str, Any], retrieval_jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:

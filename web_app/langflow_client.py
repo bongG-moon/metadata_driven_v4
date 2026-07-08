@@ -846,6 +846,13 @@ def _collect_data_refs(
     developer = _as_dict(developer) or _as_dict(payload.get("developer") or payload.get("debug"))
     for ref in _as_list(developer.get("data_refs")):
         _append_data_ref(refs, ref)
+    answer_sections = _as_dict(payload.get("answer_sections"))
+    for ref in _as_list(answer_sections.get("downloads")):
+        _append_data_ref(refs, ref)
+
+    if refs:
+        return refs
+
     state = _as_dict(payload.get("state"))
     current_data = _as_dict(state.get("current_data"))
     _append_data_ref(refs, current_data.get("data_ref"))
@@ -855,12 +862,20 @@ def _collect_data_refs(
     runtime_source_refs = _as_dict(state.get("runtime_source_refs"))
     for ref in runtime_source_refs.values():
         _append_data_ref(refs, ref)
+
+    if refs:
+        return refs
+
     for item in _walk(source_payload):
         item = _parse_json_dict(item) if isinstance(item, str) else item
         if not isinstance(item, dict):
             continue
-        _append_data_ref(refs, item.get("data_ref"))
         for ref in _as_list(item.get("data_refs")):
+            _append_data_ref(refs, ref)
+        item_data = _as_dict(item.get("data"))
+        _append_data_ref(refs, item_data.get("data_ref"))
+        item_answer_sections = _as_dict(item.get("answer_sections"))
+        for ref in _as_list(item_answer_sections.get("downloads")):
             _append_data_ref(refs, ref)
         for container_name in ("developer", "debug"):
             container = _as_dict(item.get(container_name))
@@ -1047,21 +1062,48 @@ def _append_data_ref(refs: list[dict[str, Any]], ref: Any) -> None:
     normalized = _normalize_data_ref(ref)
     if not normalized:
         return
-    signature = "|".join(str(normalized.get(key) or "") for key in ("ref_id", "path", "collection_name", "store"))
-    for existing in refs:
-        existing_signature = "|".join(str(existing.get(key) or "") for key in ("ref_id", "path", "collection_name", "store"))
-        if existing_signature == signature:
+    signature = _data_ref_signature(normalized)
+    for index, existing in enumerate(refs):
+        if _data_ref_signature(existing) == signature:
+            refs[index] = _merge_data_ref(existing, normalized)
             return
     refs.append(normalized)
 
 
 def _normalize_data_ref(ref: Any) -> dict[str, Any]:
     if isinstance(ref, dict) and ref:
-        return dict(ref)
-    if isinstance(ref, str) and ref.strip():
-        text = ref.strip()
-        return {"store": "memory" if text.startswith("memory://") else "external", "ref_id": text}
+        normalized = dict(ref)
+        if not str(normalized.get("ref_id") or "").strip() and str(normalized.get("data_ref") or "").strip():
+            normalized["ref_id"] = str(normalized.get("data_ref") or "").strip()
+        return normalized if _is_downloadable_data_ref(normalized) else {}
     return {}
+
+
+def _is_downloadable_data_ref(ref: dict[str, Any]) -> bool:
+    ref_id = str(ref.get("ref_id") or "").strip()
+    if not ref_id:
+        return False
+    return any(str(ref.get(key) or "").strip() for key in ("path", "row_path", "role", "store", "collection_name", "collection", "database"))
+
+
+def _data_ref_signature(ref: dict[str, Any]) -> str:
+    ref_id = str(ref.get("ref_id") or "").strip()
+    path = str(ref.get("path") or ref.get("row_path") or "").strip()
+    role = str(ref.get("role") or "").strip()
+    source_alias = str(ref.get("source_alias") or ref.get("dataset_key") or "").strip()
+    if ref_id and path:
+        return f"{ref_id}|{path}"
+    if ref_id and role:
+        return f"{ref_id}|{role}|{source_alias}"
+    return ref_id
+
+
+def _merge_data_ref(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if not _has_value(merged.get(key)) and _has_value(value):
+            merged[key] = value
+    return merged
 
 
 def _stage_text(stages: list[dict[str, Any]], stage_name: str, key: str) -> str:

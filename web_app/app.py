@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import gc
 import html
 import json
 import sys
@@ -44,6 +45,13 @@ CHAT_AVATARS = {
     "user": ":material/person:",
     "assistant": ":material/smart_toy:",
 }
+
+
+def collect_unused_memory() -> None:
+    try:
+        gc.collect()
+    except Exception:
+        pass
 
 AUTHORING_TYPE_OPTIONS = {
     "domain": {
@@ -486,6 +494,7 @@ def render_langflow_chat(settings: dict[str, Any]) -> None:
                 }
         render_assistant_chat_message(assistant_message, len(st.session_state.chat_messages), settings)
     st.session_state.chat_messages.append(assistant_message)
+    collect_unused_memory()
 
 
 @contextmanager
@@ -525,6 +534,8 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
     if not loaded.get("ok") or not rows:
         render_inline_status("조회 불가", loaded.get("message") or "저장된 row가 없습니다.", tone="warning")
         st.markdown("[채팅 화면으로 돌아가기](./)")
+        del rows, loaded
+        collect_unused_memory()
         return
 
     frame = dataframe_with_columns(rows, loaded.get("columns"))
@@ -536,9 +547,10 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
         width="stretch",
         height=chat_dataframe_height(len(frame), DATA_REF_TABLE_MAX_HEIGHT),
     )
+    csv_data = dataframe_csv_bytes(frame)
     st.download_button(
         "CSV 다운로드",
-        data=dataframe_csv_bytes(frame),
+        data=csv_data,
         file_name=data_ref_download_name(ref, "csv"),
         mime="text/csv",
         key="download_ref_csv",
@@ -552,6 +564,8 @@ def render_data_ref_download_page(ref: dict[str, Any]) -> None:
         key="download_ref_json",
         width="stretch",
     )
+    del csv_data, frame, rows, loaded
+    collect_unused_memory()
     st.markdown("[채팅 화면으로 돌아가기](./)")
 
 
@@ -568,6 +582,8 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
     if result.get("message_only"):
         if settings.get("developer_mode"):
             render_chat_developer_details(result, message_index, settings)
+        del data, rows, columns, answer_text, display_answer_text
+        collect_unused_memory()
         return
 
     loaded = load_result_rows_for_display(data, settings)
@@ -593,20 +609,24 @@ def render_assistant_chat_message(message: dict[str, Any], message_index: int, s
             width="stretch",
             height=chat_dataframe_height(len(frame), CHAT_RESULT_TABLE_MAX_HEIGHT),
         )
+        csv_data = dataframe_csv_bytes(frame)
         st.download_button(
             "결과 데이터 CSV 다운로드",
-            data=dataframe_csv_bytes(frame),
+            data=csv_data,
             file_name=f"langflow_result_{message_index}.csv",
             mime="text/csv",
             key=f"chat_{message_index}_result_csv",
             width="stretch",
         )
+        del csv_data, frame
     elif loaded.get("message") and result_rows_are_preview(data):
         render_inline_status("", f"전체 결과 data_ref를 불러오지 못했습니다: {loaded['message']}", tone="warning")
 
     render_chat_metadata(result)
     if settings.get("developer_mode"):
         render_chat_developer_details(result, message_index, settings)
+    del data, rows, columns, loaded, answer_text, display_answer_text
+    collect_unused_memory()
 
 
 def strip_result_table_section(text: Any) -> str:
@@ -825,6 +845,8 @@ def render_developer_data_refs(result: dict[str, Any], message_index: int, setti
             rows = loaded.get("rows") if isinstance(loaded.get("rows"), list) else []
             if not rows:
                 render_inline_status("", loaded.get("message") or "저장된 원본 row가 없습니다.", tone="warning" if loaded.get("message") else "info")
+                del rows, loaded
+                collect_unused_memory()
                 continue
             frame = dataframe_with_columns(rows, loaded.get("columns"))
             st.caption(f"원본 데이터 {int_or_zero(loaded.get('row_count')) or len(frame):,}행 · {len(frame.columns):,}열")
@@ -834,14 +856,17 @@ def render_developer_data_refs(result: dict[str, Any], message_index: int, setti
                 width="stretch",
                 height=chat_dataframe_height(len(frame), DATA_REF_TABLE_MAX_HEIGHT),
             )
+            csv_data = dataframe_csv_bytes(frame)
             st.download_button(
                 "원본 데이터 CSV 다운로드",
-                data=dataframe_csv_bytes(frame),
+                data=csv_data,
                 file_name=data_ref_download_name(ref, "csv"),
                 mime="text/csv",
                 key=f"chat_{message_index}_ref_rows_{index}",
                 width="stretch",
             )
+            del csv_data, frame, rows, loaded
+            collect_unused_memory()
 
 
 def render_developer_pandas_info(result: dict[str, Any], settings: dict[str, Any] | None = None) -> None:

@@ -191,6 +191,76 @@ def test_normalize_query_response_derives_pandas_developer_info_from_trace() -> 
     assert developer["pandas_execution_status"]["execution_result"]["row_count"] == 1
 
 
+def test_normalize_query_response_dedupes_data_refs_and_ignores_trace_ref_strings() -> None:
+    analysis_ref = {
+        "store": "mongodb",
+        "ref_id": "result:demo-session:abc",
+        "database": "datagov",
+        "collection_name": "agent_v4_result_store",
+        "path": "payload.result_rows",
+        "role": "analysis_result",
+        "label": "분석 결과 데이터",
+        "row_count": 1,
+    }
+    source_ref = {
+        "store": "mongodb",
+        "ref_id": "result:demo-session:abc",
+        "database": "datagov",
+        "collection_name": "agent_v4_result_store",
+        "path": "payload.runtime_sources.production_data",
+        "role": "source_rows",
+        "label": "사용 원본 데이터: production_data",
+        "source_alias": "production_data",
+        "row_count": 10,
+    }
+    source_ref_without_collection = {
+        "ref_id": "result:demo-session:abc",
+        "path": "payload.runtime_sources.production_data",
+        "role": "source_rows",
+        "label": "사용 원본 데이터: production_data",
+        "source_alias": "production_data",
+    }
+
+    result = normalize_query_response(
+        {
+            "api_response": {
+                "response_type": "data_analysis",
+                "status": "ok",
+                "message": "분석 완료",
+                "data": {
+                    "columns": ["DEVICE", "PRODUCTION"],
+                    "rows": [{"DEVICE": "DEV-A", "PRODUCTION": 10}],
+                    "row_count": 1,
+                    "data_ref": analysis_ref,
+                },
+                "data_refs": [analysis_ref, source_ref],
+                "answer_sections": {"downloads": [analysis_ref, source_ref_without_collection]},
+                "state": {
+                    "current_data": {"data_ref": analysis_ref},
+                    "followup_source_results": [{"data_ref": source_ref_without_collection}],
+                    "runtime_source_refs": {"production_data": source_ref},
+                },
+                "trace": {
+                    "inspection": {
+                        "result_store": {
+                            "data_ref": "result:demo-session:abc",
+                            "data_refs": [analysis_ref, source_ref_without_collection],
+                        }
+                    }
+                },
+            }
+        }
+    )
+
+    refs = result["data_refs"]
+
+    assert len(refs) == 2
+    assert [ref["path"] for ref in refs] == ["payload.result_rows", "payload.runtime_sources.production_data"]
+    assert all(ref.get("store") == "mongodb" for ref in refs)
+    assert refs[1]["collection_name"] == "agent_v4_result_store"
+    assert not any(ref.get("store") == "external" for ref in refs)
+
+
 def test_web_intent_summary_uses_plural_pandas_function_cases() -> None:
     from web_app.app import intent_plan_summary_lines
 
